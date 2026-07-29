@@ -25,6 +25,13 @@ import { codeBlockView } from "./code-block-view";
 import { imageView } from "./image-node-view";
 import { imageUploadPlugin } from "./image-upload";
 import { linkClickPlugin } from "./link-click";
+import {
+  remarkMathPlugin,
+  mathInlineSchema,
+  mathDisplaySchema,
+  mathInlineView,
+  mathDisplayView,
+} from "./math";
 
 interface EditorProps {
   /** 受控的 Markdown 文本。外部传入新值时会覆盖编辑器内容 */
@@ -102,6 +109,12 @@ function EditorInner({ value, onChange }: EditorProps) {
         .use(codeBlockView)
         // 图片：相对路径解析为可加载 URL（保持 markdown 源码为相对路径）
         .use(imageView)
+        // 数学公式：remark-math 解析 + KaTeX 渲染（行内 $...$ 和块级 $$...$$）
+        .use(remarkMathPlugin)
+        .use(mathInlineSchema)
+        .use(mathDisplaySchema)
+        .use(mathInlineView)
+        .use(mathDisplayView)
         .use(history)
         .use(listener),
     // 依赖数组为空，编辑器只在挂载时创建一次
