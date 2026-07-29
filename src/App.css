@@ -30,6 +30,44 @@ body,
 .editor-wrap {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 1rem;
+  border-bottom: 1px solid var(--border, #d0d7de);
+  background: var(--topbar-bg, #ffffff);
+  flex-shrink: 0;
+}
+
+.topbar-file {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text, #1f2328);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.save-indicator {
+  font-size: 0.75rem;
+  color: var(--text-muted, #6e7681);
+  flex-shrink: 0;
+}
+.save-indicator.save-ok {
+  color: #1a7f37;
+}
+.save-indicator.save-error {
+  color: #cf222e;
+}
+
+.editor-scroll {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   display: flex;
   justify-content: center;
@@ -51,51 +89,51 @@ body,
 }
 
 /* Milkdown 编辑区容器样式 */
-.editor-wrap .milkdown {
+.editor-scroll .milkdown {
   width: 100%;
   max-width: 820px;
   padding: 2.5rem 3rem;
   background: var(--editor-bg, #ffffff);
 }
 
-.editor-wrap .milkdown .editor {
+.editor-scroll .milkdown .editor {
   outline: none;
 }
 
 /* 标题 */
-.editor-wrap .milkdown h1 {
+.editor-scroll .milkdown h1 {
   font-size: 1.9rem;
   margin: 1.2rem 0 0.6rem;
   font-weight: 700;
 }
-.editor-wrap .milkdown h2 {
+.editor-scroll .milkdown h2 {
   font-size: 1.5rem;
   margin: 1rem 0 0.5rem;
   font-weight: 700;
 }
-.editor-wrap .milkdown h3 {
+.editor-scroll .milkdown h3 {
   font-size: 1.25rem;
   margin: 0.9rem 0 0.4rem;
   font-weight: 600;
 }
 
 /* 段落与列表 */
-.editor-wrap .milkdown p {
+.editor-scroll .milkdown p {
   margin: 0.6rem 0;
   line-height: 1.7;
 }
-.editor-wrap .milkdown ul,
-.editor-wrap .milkdown ol {
+.editor-scroll .milkdown ul,
+.editor-scroll .milkdown ol {
   margin: 0.6rem 0;
   padding-left: 1.6rem;
 }
-.editor-wrap .milkdown li {
+.editor-scroll .milkdown li {
   margin: 0.2rem 0;
   line-height: 1.7;
 }
 
 /* 引用 */
-.editor-wrap .milkdown blockquote {
+.editor-scroll .milkdown blockquote {
   margin: 0.8rem 0;
   padding: 0.4rem 1rem;
   border-left: 4px solid #d0d7de;
@@ -104,14 +142,14 @@ body,
 }
 
 /* 分割线 */
-.editor-wrap .milkdown hr {
+.editor-scroll .milkdown hr {
   border: none;
   border-top: 1px solid #d0d7de;
   margin: 1.5rem 0;
 }
 
 /* 代码 */
-.editor-wrap .milkdown code {
+.editor-scroll .milkdown code {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 0.9em;
   background: rgba(175, 184, 193, 0.2);
@@ -125,16 +163,30 @@ body,
     background-color: #0d1117;
   }
 
-  .editor-wrap .milkdown {
+  .editor-topbar {
+    --topbar-bg: #0d1117;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+  }
+
+  .save-indicator.save-ok {
+    color: #3fb950;
+  }
+  .save-indicator.save-error {
+    color: #f85149;
+  }
+
+  .editor-scroll .milkdown {
     --editor-bg: #0d1117;
   }
 
-  .editor-wrap .milkdown blockquote {
+  .editor-scroll .milkdown blockquote {
     border-left-color: #30363d;
     background: rgba(255, 255, 255, 0.03);
   }
 
-  .editor-wrap .milkdown hr {
+  .editor-scroll .milkdown hr {
     border-top-color: #30363d;
   }
 }

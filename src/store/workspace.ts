@@ -2,7 +2,7 @@
 // 当前打开的工作区（文件夹）、文件树、当前编辑的文件
 
 import { create } from "zustand";
-import { listDir, readTextFile, type FileNode } from "../lib/fs";
+import { listDir, readTextFile, writeTextFile, type FileNode } from "../lib/fs";
 
 interface WorkspaceState {
   /** 工作区根路径（null 表示未打开） */
@@ -17,6 +17,12 @@ interface WorkspaceState {
   currentContent: string;
   /** 文件是否被修改（未保存） */
   dirty: boolean;
+  /** 保存中标志 */
+  saving: boolean;
+  /** 最近一次保存的错误（null 表示无错误） */
+  saveError: string | null;
+  /** 最近一次保存时间戳（ms） */
+  lastSavedAt: number | null;
 
   /** 打开工作区：读取目录树 */
   openWorkspace: (dirPath: string) => Promise<void>;
@@ -24,8 +30,8 @@ interface WorkspaceState {
   openFile: (filePath: string) => Promise<void>;
   /** 更新当前内容（编辑器变更时调用） */
   setContent: (content: string) => void;
-  /** 标记为已保存 */
-  markSaved: () => void;
+  /** 保存当前文件到磁盘 */
+  saveCurrent: () => Promise<void>;
 }
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
@@ -35,6 +41,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   currentFile: null,
   currentContent: "",
   dirty: false,
+  saving: false,
+  saveError: null,
+  lastSavedAt: null,
 
   openWorkspace: async (dirPath) => {
     set({ loading: true });
@@ -56,6 +65,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         currentFile: filePath,
         currentContent: content,
         dirty: false,
+        saveError: null,
         loading: false,
       });
     } catch (e) {
@@ -70,5 +80,24 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set({ currentContent: content, dirty: true });
   },
 
-  markSaved: () => set({ dirty: false }),
+  saveCurrent: async () => {
+    const { currentFile, currentContent, dirty, saving } = get();
+    if (!currentFile) return;
+    if (!dirty || saving) return;
+    set({ saving: true, saveError: null });
+    try {
+      await writeTextFile(currentFile, currentContent);
+      set({
+        saving: false,
+        dirty: false,
+        saveError: null,
+        lastSavedAt: Date.now(),
+      });
+    } catch (e) {
+      set({
+        saving: false,
+        saveError: e instanceof Error ? e.message : String(e),
+      });
+    }
+  },
 }));
