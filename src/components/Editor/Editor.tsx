@@ -1,17 +1,26 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Milkdown, MilkdownProvider, useEditor, useInstance } from "@milkdown/react";
 import {
   Editor,
   defaultValueCtx,
   editorViewCtx,
   parserCtx,
+  prosePluginsCtx,
   rootCtx,
 } from "@milkdown/kit/core";
 import { commonmark } from "@milkdown/kit/preset/commonmark";
+import {
+  gfm,
+  columnResizingPlugin,
+} from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
+import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
+import { findParentNodeClosestToPos } from "@milkdown/kit/prose";
 import { nord } from "@milkdown/theme-nord";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
+import "@milkdown/kit/prose/tables/style/tables.css";
+import { TableToolbar } from "./TableToolbar";
 
 interface EditorProps {
   /** 受控的 Markdown 文本。外部传入新值时会覆盖编辑器内容 */
@@ -37,6 +46,10 @@ function EditorInner({ value, onChange }: EditorProps) {
     onChangeRef.current = onChange;
   }, [onChange]);
 
+  // 光标是否位于表格内，用于控制表格工具栏的上下文按钮组
+  const [inTable, setInTable] = useState(false);
+  const inTableRef = useRef(false);
+
   useEditor(
     (container) =>
       Editor.make()
@@ -51,10 +64,32 @@ function EditorInner({ value, onChange }: EditorProps) {
               onChangeRef.current?.(markdown);
             }
           });
+          // 注入选区跟踪插件：光标进入/离开表格时更新 inTable 状态
+          ctx.update(prosePluginsCtx, (ps) => [
+            ...ps,
+            new Plugin({
+              key: new PluginKey("inkling-table-tracker"),
+              view: () => ({
+                update: (view) => {
+                  const found = findParentNodeClosestToPos(
+                    (n) => n.type.name === "table",
+                  )(view.state.selection.$head);
+                  const next = !!found;
+                  if (next !== inTableRef.current) {
+                    inTableRef.current = next;
+                    setInTable(next);
+                  }
+                },
+              }),
+            }),
+          ]);
           // 注入主题
           nord(ctx);
         })
         .use(commonmark)
+        .use(gfm)
+        // 列宽拖拽调整（gfm 默认未启用，需单独引入）
+        .use(columnResizingPlugin)
         .use(history)
         .use(listener),
     // 依赖数组为空，编辑器只在挂载时创建一次
@@ -80,13 +115,18 @@ function EditorInner({ value, onChange }: EditorProps) {
     lastSyncedRef.current = value;
   }, [value, loading, getEditor]);
 
-  return <Milkdown />;
+  return (
+    <div className="md-editor-root">
+      <TableToolbar getEditor={getEditor} inTable={inTable} />
+      <Milkdown />
+    </div>
+  );
 }
 
 /**
  * 编辑器对外组件。
- * 任务 2：占满窗口的编辑区，支持基础 Markdown 快捷语法
- * （标题/加粗/斜体/列表/引用/分割线由 commonmark preset 提供）。
+ * 阶段二任务6：在 commonmark 基础上集成 GFM（表格 + 任务列表 + 删除线），
+ * 启用列宽拖拽，并提供插入表格、行列增删、对齐、删除表格的工具栏。
  */
 export function MarkdownEditor({ value, onChange }: EditorProps) {
   return (

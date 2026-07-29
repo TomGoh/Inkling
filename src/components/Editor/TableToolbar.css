@@ -1,0 +1,116 @@
+.table-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  padding: 0.3rem 0.6rem;
+  background: var(--topbar-bg, #ffffff);
+  border-bottom: 1px solid var(--border, #d0d7de);
+  font-size: 0.8rem;
+}
+
+.tt-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  position: relative;
+}
+
+.tt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text, #1f2328);
+  cursor: pointer;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.tt-btn:hover {
+  background: rgba(175, 184, 193, 0.2);
+  border-color: var(--border, #d0d7de);
+}
+
+.tt-btn:active {
+  background: rgba(175, 184, 193, 0.35);
+}
+
+.tt-btn.tt-danger:hover {
+  background: rgba(207, 34, 46, 0.12);
+  border-color: #cf222e;
+  color: #cf222e;
+}
+
+.tt-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.tt-sep {
+  width: 1px;
+  height: 1.1rem;
+  background: var(--border, #d0d7de);
+  margin: 0 0.2rem;
+}
+
+/* 网格选择器 */
+.table-picker {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  padding: 0.5rem;
+  background: var(--topbar-bg, #ffffff);
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1rem);
+  grid-template-rows: repeat(8, 1rem);
+  gap: 2px;
+}
+
+.picker-cell {
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  border: 1px solid var(--border, #d0d7de);
+  background: transparent;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+.picker-cell.active {
+  background: #0969da;
+  border-color: #0969da;
+}
+
+.picker-label {
+  margin-top: 0.4rem;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-muted, #6e7681);
+}
+
+@media (prefers-color-scheme: dark) {
+  .tt-btn:hover {
+    background: rgba(139, 148, 158, 0.2);
+    border-color: #30363d;
+  }
+
+  .picker-cell.active {
+    background: #2f81f7;
+    border-color: #2f81f7;
+  }
+}
