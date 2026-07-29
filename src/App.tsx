@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import type { Editor } from "@milkdown/kit/core";
 import { MarkdownEditor } from "./components/Editor/Editor";
 import { Sidebar } from "./components/Sidebar/Sidebar";
@@ -6,6 +6,7 @@ import { StatusBar } from "./components/StatusBar/StatusBar";
 import { OutlinePanel } from "./components/Outline/OutlinePanel";
 import { useWorkspace } from "./store/workspace";
 import { useAutoSave } from "./lib/useAutoSave";
+import { exportHTML, exportPDF } from "./lib/exporter";
 import "./App.css";
 
 function SaveIndicator() {
@@ -31,11 +32,16 @@ function App() {
   const currentContent = useWorkspace((s) => s.currentContent);
   const setContent = useWorkspace((s) => s.setContent);
 
-  // 持有编辑器实例获取函数，供大纲面板跳转使用
+  // 持有编辑器实例获取函数，供大纲面板与导出使用
   const getEditorRef = useRef<(() => Editor | undefined) | null>(null);
+
+  // 导出菜单展开状态
+  const [exportOpen, setExportOpen] = useState(false);
 
   // 启用 Ctrl/Cmd+S 手动保存 + 防抖 2 秒自动保存
   useAutoSave();
+
+  const getEditor = () => getEditorRef.current?.();
 
   return (
     <main className="app-shell">
@@ -47,7 +53,46 @@ function App() {
               <span className="topbar-file" title={currentFile}>
                 {currentFile.split(/[\\/]/).pop()}
               </span>
-              <SaveIndicator />
+              <div className="topbar-actions">
+                <SaveIndicator />
+                <div className="export-menu">
+                  <button
+                    className="topbar-btn"
+                    onClick={() => setExportOpen((v) => !v)}
+                    title="导出"
+                  >
+                    导出 ▾
+                  </button>
+                  {exportOpen && (
+                    <>
+                      <div
+                        className="export-backdrop"
+                        onClick={() => setExportOpen(false)}
+                      />
+                      <div className="export-dropdown">
+                        <button
+                          className="export-item"
+                          onClick={() => {
+                            setExportOpen(false);
+                            void exportHTML(getEditor);
+                          }}
+                        >
+                          导出 HTML
+                        </button>
+                        <button
+                          className="export-item"
+                          onClick={() => {
+                            setExportOpen(false);
+                            void exportPDF(getEditor);
+                          }}
+                        >
+                          导出 PDF（打印）
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
             <div className="editor-scroll">
               <MarkdownEditor
@@ -65,9 +110,7 @@ function App() {
           </div>
         )}
       </div>
-      {currentFile && (
-        <OutlinePanel getEditor={() => getEditorRef.current?.()} />
-      )}
+      {currentFile && <OutlinePanel getEditor={getEditor} />}
     </main>
   );
 }
