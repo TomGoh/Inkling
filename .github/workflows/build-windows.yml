@@ -38,12 +38,17 @@ jobs:
       - name: Build Tauri app
         run: pnpm tauri build
 
-      - name: Prepare portable exe
+      - name: Prepare portable zip
         shell: pwsh
         run: |
           $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          Copy-Item src-tauri/target/release/Inkling.exe "src-tauri/target/release/Inkling-${version}-portable.exe"
-          Write-Host "Portable exe: Inkling-${version}-portable.exe"
+          $portableDir = "src-tauri/target/release/portable-build"
+          New-Item -ItemType Directory -Path $portableDir -Force | Out-Null
+          Copy-Item src-tauri/target/release/Inkling.exe "$portableDir/Inkling.exe"
+          # 便携模式标记文件：存在则启用绿色模式，数据写入同目录 data 文件夹
+          Set-Content -Path "$portableDir/portable.txt" -Value "This marker file enables portable mode. Keep it next to Inkling.exe. App data will be stored in the 'data' folder beside the exe."
+          Compress-Archive -Path "$portableDir/*" -DestinationPath "src-tauri/target/release/Inkling-${version}-portable.zip" -Force
+          Write-Host "Portable zip: Inkling-${version}-portable.zip"
 
       - name: Upload installers
         uses: actions/upload-artifact@v4
@@ -52,7 +57,7 @@ jobs:
           path: |
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/Inkling-*-portable.exe
+            src-tauri/target/release/Inkling-*-portable.zip
           if-no-files-found: error
 
       - name: Release
@@ -62,5 +67,5 @@ jobs:
           files: |
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/msi/*.msi
-            src-tauri/target/release/Inkling-*-portable.exe
+            src-tauri/target/release/Inkling-*-portable.zip
           generate_release_notes: true
