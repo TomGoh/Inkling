@@ -189,6 +189,15 @@ body,
   flex-direction: column;
 }
 
+/* 专注模式：弱化非当前块，聚焦块保持完整不透明 */
+.focus-mode .editor-scroll .ProseMirror > * {
+  opacity: 0.35;
+  transition: opacity 0.2s ease;
+}
+.focus-mode .editor-scroll .ProseMirror > .inkling-focused {
+  opacity: 1;
+}
+
 /* Milkdown 编辑区容器样式 */
 .editor-scroll .milkdown {
   width: 100%;
@@ -401,6 +410,117 @@ body,
   margin: 0;
 }
 
+/* YAML Front Matter 块 */
+.editor-scroll .milkdown .frontmatter-block {
+  margin: 0.5rem 0 1.2rem;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-subtle, #f6f8fa);
+}
+.editor-scroll .milkdown .frontmatter-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted, #6e7681);
+  padding: 0.3rem 0.7rem;
+  background: rgba(175, 184, 193, 0.12);
+  border-bottom: 1px solid var(--border, #d0d7de);
+}
+.editor-scroll .milkdown .frontmatter-cm {
+  max-height: 24rem;
+  overflow: auto;
+}
+.editor-scroll .milkdown .frontmatter-cm .cm-editor {
+  background: transparent;
+}
+.editor-scroll .milkdown .frontmatter-cm .cm-scroller {
+  overflow: auto;
+}
+
+/* [TOC] 目录块 */
+.editor-scroll .milkdown .toc-block {
+  margin: 0.8rem 0;
+  padding: 0.6rem 1rem 0.7rem;
+  border: 1px dashed var(--border, #d0d7de);
+  border-radius: 6px;
+  background: var(--bg-subtle, #f6f8fa);
+}
+.editor-scroll .milkdown .toc-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted, #6e7681);
+  margin-bottom: 0.3rem;
+}
+.editor-scroll .milkdown .toc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.editor-scroll .milkdown .toc-list .toc-item {
+  margin: 0.15rem 0;
+  line-height: 1.5;
+  color: var(--text, #1f2328);
+}
+.editor-scroll .milkdown .toc-list .toc-item a {
+  color: #0969da;
+  text-decoration: none;
+  cursor: pointer;
+}
+.editor-scroll .milkdown .toc-list .toc-item a:hover {
+  text-decoration: underline;
+}
+.editor-scroll .milkdown .toc-empty {
+  margin: 0;
+  color: var(--text-muted, #6e7681);
+  font-size: 0.85rem;
+}
+
+/* 脚注 */
+.editor-scroll .milkdown sup.footnote-ref {
+  font-size: 0.75em;
+  vertical-align: super;
+  line-height: 0;
+}
+.editor-scroll .milkdown sup.footnote-ref a {
+  color: #0969da;
+  text-decoration: none;
+  padding: 0 0.15em;
+}
+.editor-scroll .milkdown sup.footnote-ref a::before {
+  content: "[";
+}
+.editor-scroll .milkdown sup.footnote-ref a::after {
+  content: "]";
+}
+.editor-scroll .milkdown .footnote-definition {
+  margin: 1.2rem 0 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border, #d0d7de);
+  font-size: 0.88em;
+  color: var(--text-muted, #6e7681);
+}
+.editor-scroll .milkdown .footnote-definition .footnote-label {
+  font-weight: 600;
+  color: var(--text, #1f2328);
+  margin-right: 0.3em;
+}
+.editor-scroll .milkdown .footnote-definition .footnote-label::before {
+  content: "[";
+}
+.editor-scroll .milkdown .footnote-definition .footnote-label::after {
+  content: "]:";
+}
+.editor-scroll .milkdown .footnote-definition .footnote-backref {
+  margin-left: 0.4em;
+  color: #0969da;
+  text-decoration: none;
+}
+.editor-scroll .milkdown .footnote-definition .footnote-backref::before {
+  content: "↩";
+}
+
 /* 深色主题：通过 data-theme="dark" 切换，支持手动覆盖系统偏好 */
 [data-theme="dark"] {
   color: #e6edf3;
@@ -450,4 +570,19 @@ body,
 
 [data-theme="dark"] .editor-scroll .milkdown .selectedCell::after {
   background: rgba(47, 129, 247, 0.18);
+}
+
+[data-theme="dark"] .editor-scroll .milkdown .frontmatter-label,
+[data-theme="dark"] .editor-scroll .milkdown .toc-label {
+  background: rgba(139, 148, 158, 0.12);
+}
+
+[data-theme="dark"] .editor-scroll .milkdown .toc-list .toc-item a,
+[data-theme="dark"] .editor-scroll .milkdown sup.footnote-ref a,
+[data-theme="dark"] .editor-scroll .milkdown .footnote-definition .footnote-backref {
+  color: #2f81f7;
+}
+
+[data-theme="dark"] .editor-scroll .milkdown .frontmatter-cm .cm-gutters {
+  border-right-color: #30363d;
 }

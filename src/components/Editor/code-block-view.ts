@@ -1,7 +1,8 @@
 import { EditorView, lineNumbers, drawSelection, keymap, highlightActiveLine, highlightSpecialChars } from "@codemirror/view";
 import type { ViewUpdate } from "@codemirror/view";
 import { EditorState, Compartment } from "@codemirror/state";
-import { LanguageDescription, LanguageSupport, StreamLanguage, bracketMatching, indentOnInput } from "@codemirror/language";
+import type { Extension } from "@codemirror/state";
+import { LanguageDescription, LanguageSupport, StreamLanguage, bracketMatching, indentOnInput, defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { indentWithTab } from "@codemirror/commands";
 import { oneDark } from "@codemirror/theme-one-dark";
 import type { NodeView } from "@milkdown/kit/prose/view";
@@ -13,6 +14,7 @@ import { codeBlockSchema } from "@milkdown/kit/preset/commonmark";
 import type { Node } from "@milkdown/kit/prose/model";
 import type { EditorView as PMView } from "@milkdown/kit/prose/view";
 import { createMermaidView } from "./mermaid-view";
+import { useSettings, type CodeBlockTheme } from "../../store/settings";
 
 /**
  * 代码块支持的语言列表。
@@ -80,6 +82,19 @@ const baseTheme = EditorView.theme({
   },
 });
 
+/** 根据主题名返回 CodeMirror 主题扩展 */
+function codeThemeExt(name: CodeBlockTheme): Extension[] {
+  switch (name) {
+    case "oneDark":
+      return [oneDark];
+    case "light":
+      // defaultHighlightStyle 是 CodeMirror 内置浅色彩色语法高亮
+      return [syntaxHighlighting(defaultHighlightStyle)];
+    case "none":
+      return [];
+  }
+}
+
 /** 计算旧/新文本的最小变更区间，用于精准同步 */
 function computeChange(oldVal: string, newVal: string) {
   if (oldVal === newVal) return null;
@@ -106,13 +121,17 @@ class CodeBlockNodeView implements NodeView {
   private getPos: () => number | undefined;
   private langConf = new Compartment();
   private readOnlyConf = new Compartment();
+  private themeConf = new Compartment();
   private updating = false;
   private languageName = "";
+  private currentTheme: CodeBlockTheme;
+  private unsub: () => void;
 
   constructor(node: Node, view: PMView, getPos: () => number | undefined) {
     this.node = node;
     this.view = view;
     this.getPos = getPos;
+    this.currentTheme = useSettings.getState().codeBlockTheme;
 
     this.dom = document.createElement("div");
     this.dom.className = "code-block";
@@ -137,7 +156,7 @@ class CodeBlockNodeView implements NodeView {
     this.cm = new EditorView({
       doc: node.textContent,
       extensions: [
-        oneDark,
+        this.themeConf.of(codeThemeExt(this.currentTheme)),
         this.readOnlyConf.of(EditorState.readOnly.of(!view.editable)),
         lineNumbers(),
         drawSelection(),
@@ -154,6 +173,15 @@ class CodeBlockNodeView implements NodeView {
     cmHost.appendChild(this.cm.dom);
 
     this.updateLanguage(node.attrs.language ?? "");
+
+    // 监听代码块主题切换，实时重配 CodeMirror 主题
+    this.unsub = useSettings.subscribe((s) => {
+      if (s.codeBlockTheme === this.currentTheme) return;
+      this.currentTheme = s.codeBlockTheme;
+      this.cm.dispatch({
+        effects: this.themeConf.reconfigure(codeThemeExt(s.codeBlockTheme)),
+      });
+    });
   }
 
   /** 构建语言下拉框 */
@@ -291,6 +319,7 @@ class CodeBlockNodeView implements NodeView {
   }
 
   destroy() {
+    this.unsub();
     this.cm.destroy();
   }
 }

@@ -1,14 +1,21 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import type { Editor } from "@milkdown/kit/core";
 import { MarkdownEditor } from "./components/Editor/Editor";
+import { SearchPanel } from "./components/Editor/SearchPanel";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { StatusBar } from "./components/StatusBar/StatusBar";
 import { OutlinePanel } from "./components/Outline/OutlinePanel";
 import { TabsBar } from "./components/Tabs/TabsBar";
+import { SettingsPanel } from "./components/Settings/SettingsPanel";
+import { ShortcutsHelp } from "./components/Shortcuts/ShortcutsHelp";
+import { ShortcutsCustomize } from "./components/Shortcuts/ShortcutsCustomize";
 import { useWorkspace } from "./store/workspace";
 import { useTheme } from "./store/theme";
+import { useUI } from "./store/ui";
+import { useShortcuts, matchBinding, type ShortcutId } from "./store/shortcuts";
 import { useAutoSave } from "./lib/useAutoSave";
-import { exportHTML, exportPDF } from "./lib/exporter";
+import { useFileWatcher } from "./lib/useFileWatcher";
+import { exportHTML, exportPDF, exportDocx, copyMarkdown, copyRichText } from "./lib/exporter";
 import "./App.css";
 
 function SaveIndicator() {
@@ -41,6 +48,14 @@ function App() {
   const [exportOpen, setExportOpen] = useState(false);
   // 主题菜单展开状态
   const [themeOpen, setThemeOpen] = useState(false);
+  // 偏好设置面板展开状态
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // 查找替换面板展开状态
+  const [searchOpen, setSearchOpen] = useState(false);
+  // 快捷键帮助面板展开状态
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // 快捷键自定义面板展开状态
+  const [customizeOpen, setCustomizeOpen] = useState(false);
 
   // 主题状态
   const themeMode = useTheme((s) => s.mode);
@@ -49,14 +64,51 @@ function App() {
   const clearCustomCSS = useTheme((s) => s.clearCustomCSS);
   const customCSSPath = useTheme((s) => s.customCSSPath);
 
+  // UI 可见性状态
+  const sidebarVisible = useUI((s) => s.sidebarVisible);
+  const outlineVisible = useUI((s) => s.outlineVisible);
+  const toggleSidebar = useUI((s) => s.toggleSidebar);
+  const toggleOutline = useUI((s) => s.toggleOutline);
+
   // 启用 Ctrl/Cmd+S 手动保存 + 防抖 2 秒自动保存
   useAutoSave();
+  // 启用外部文件修改监听（仅桌面端）
+  useFileWatcher();
+
+  // 全局快捷键：通过 useShortcuts store 读取用户自定义绑定
+  // 编辑器内 Milkdown 预设的快捷键（加粗等）不在自定义范围
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const store = useShortcuts.getState();
+      const tryMatch = (id: ShortcutId) => matchBinding(store.getBinding(id), e);
+      if (tryMatch("find")) {
+        e.preventDefault();
+        setSearchOpen(true);
+      } else if (tryMatch("toggleSidebar")) {
+        e.preventDefault();
+        toggleSidebar();
+      } else if (tryMatch("toggleOutline")) {
+        e.preventDefault();
+        toggleOutline();
+      } else if (tryMatch("showShortcuts")) {
+        e.preventDefault();
+        setShortcutsOpen((v) => !v);
+      } else if (tryMatch("openSettings")) {
+        e.preventDefault();
+        setSettingsOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [toggleSidebar, toggleOutline]);
 
   const getEditor = () => getEditorRef.current?.();
 
   return (
     <main className="app-shell">
-      <Sidebar />
+      {sidebarVisible && <Sidebar />}
       <div className="editor-wrap">
         {currentFile ? (
           <>
@@ -67,6 +119,13 @@ function App() {
               </span>
               <div className="topbar-actions">
                 <SaveIndicator />
+                <button
+                  className="topbar-btn"
+                  onClick={toggleSidebar}
+                  title="切换侧边栏 (Ctrl/Cmd+\\)"
+                >
+                  ▣
+                </button>
                 <div className="export-menu">
                   <button
                     className="topbar-btn"
@@ -89,10 +148,44 @@ function App() {
                           className="export-item"
                           onClick={() => {
                             setExportOpen(false);
+                            void copyRichText(getEditor).then((ok) => {
+                              if (!ok) alert("复制失败，请检查浏览器剪贴板权限");
+                            });
+                          }}
+                        >
+                          复制为富文本
+                        </button>
+                        <button
+                          className="export-item"
+                          onClick={() => {
+                            setExportOpen(false);
+                            void copyMarkdown().then((ok) => {
+                              if (!ok) alert("复制失败，请检查浏览器剪贴板权限");
+                            });
+                          }}
+                        >
+                          复制为 Markdown
+                        </button>
+                        <div className="export-sep" />
+                        <button
+                          className="export-item"
+                          onClick={() => {
+                            setExportOpen(false);
                             void exportHTML(getEditor);
                           }}
                         >
                           导出 HTML
+                        </button>
+                        <button
+                          className="export-item"
+                          onClick={() => {
+                            setExportOpen(false);
+                            void exportDocx().then((r) => {
+                              if (!r.ok && r.error) alert(r.error);
+                            });
+                          }}
+                        >
+                          导出 Word（.docx，Pandoc）
                         </button>
                         <button
                           className="export-item"
@@ -168,9 +261,29 @@ function App() {
                     </>
                   )}
                 </div>
+                <button
+                  className="topbar-btn"
+                  onClick={() => setShortcutsOpen(true)}
+                  title="快捷键 (Ctrl/Cmd+/)"
+                >
+                  ?
+                </button>
+                <button
+                  className="topbar-btn"
+                  onClick={() => setSettingsOpen(true)}
+                  title="偏好设置 (Ctrl/Cmd+,)"
+                >
+                  ⚙
+                </button>
               </div>
             </div>
             <div className="editor-scroll">
+              {searchOpen && (
+                <SearchPanel
+                  getEditor={getEditor}
+                  onClose={() => setSearchOpen(false)}
+                />
+              )}
               <MarkdownEditor
                 value={currentContent}
                 onChange={setContent}
@@ -186,7 +299,22 @@ function App() {
           </div>
         )}
       </div>
-      {currentFile && <OutlinePanel getEditor={getEditor} />}
+      {currentFile && outlineVisible && (
+        <OutlinePanel getEditor={getEditor} />
+      )}
+      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+      {shortcutsOpen && (
+        <ShortcutsHelp
+          onClose={() => setShortcutsOpen(false)}
+          onCustomize={() => {
+            setShortcutsOpen(false);
+            setCustomizeOpen(true);
+          }}
+        />
+      )}
+      {customizeOpen && (
+        <ShortcutsCustomize onClose={() => setCustomizeOpen(false)} />
+      )}
     </main>
   );
 }

@@ -92,6 +92,14 @@ export async function writeTextFile(
   MOCK_FILE_CONTENT[filePath] = content;
 }
 
+/** 读取文件最后修改时间（Unix 秒）。浏览器 mock 返回当前时间，不参与监听 */
+export async function fileMtime(filePath: string): Promise<number> {
+  if (isTauri()) {
+    return invoke<number>("file_mtime", { filePath });
+  }
+  return Date.now() / 1000;
+}
+
 /**
  * 写入二进制文件（图片等）。
  * 桌面端走 Rust 命令；浏览器端无真实 fs，仅返回成功（mock 无法持久化二进制）。

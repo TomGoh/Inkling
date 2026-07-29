@@ -9,6 +9,9 @@ import type { Node } from "@milkdown/kit/prose/model";
 import remarkMath from "remark-math";
 import katex from "katex";
 import "katex/dist/katex.min.css";
+// mhchem 扩展：让 KaTeX 支持 \ce{} \cee{} 等化学方程式语法（仅副作用引入）
+// @ts-ignore - contrib 模块无类型声明
+import "katex/dist/contrib/mhchem.js";
 
 /**
  * 行内数学节点 math_inline
@@ -68,12 +71,15 @@ export const mathDisplaySchema = $nodeSchema("math_display", () => ({
   defining: true,
   attrs: {
     value: { default: "", validate: "string" },
+    // 公式自动编号：运行时由 formula-numbering 插件设置，不参与 markdown 序列化
+    number: { default: null },
   },
   parseDOM: [
     {
       tag: "div[data-math-display]",
       getAttrs: (dom: HTMLElement) => ({
         value: dom.getAttribute("data-value") ?? dom.textContent ?? "",
+        number: null,
       }),
     },
   ],
@@ -110,10 +116,15 @@ function createMathView(displayMode: boolean): NodeViewConstructor {
     dom.className = displayMode ? "math-display" : "math-inline";
     dom.setAttribute(displayMode ? "data-math-display" : "data-math-inline", "");
 
-    const render = (value: string) => {
+    const render = (value: string, number: number | null) => {
       dom.setAttribute("data-value", value);
+      // display 公式启用自动编号时追加 \tag{n}（用户手写 \tag 时不覆盖）
+      let expr = value;
+      if (displayMode && number != null && !/\\tag\b/.test(value)) {
+        expr = `${value} \\tag{${number}}`;
+      }
       try {
-        dom.innerHTML = katex.renderToString(value, {
+        dom.innerHTML = katex.renderToString(expr, {
           displayMode,
           throwOnError: false,
           output: "html",
@@ -122,7 +133,7 @@ function createMathView(displayMode: boolean): NodeViewConstructor {
         dom.textContent = value;
       }
     };
-    render(node.attrs.value as string);
+    render(node.attrs.value as string, displayMode ? (node.attrs.number as number | null) : null);
 
     return {
       dom,
@@ -132,8 +143,16 @@ function createMathView(displayMode: boolean): NodeViewConstructor {
         ) {
           return false;
         }
-        if (next.attrs.value === node.attrs.value) return true;
-        render(next.attrs.value as string);
+        if (
+          next.attrs.value === node.attrs.value &&
+          next.attrs.number === node.attrs.number
+        ) {
+          return true;
+        }
+        render(
+          next.attrs.value as string,
+          displayMode ? (next.attrs.number as number | null) : null,
+        );
         return true;
       },
       stopEvent: () => true,

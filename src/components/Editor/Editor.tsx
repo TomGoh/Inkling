@@ -26,6 +26,10 @@ import { imageView } from "./image-node-view";
 import { imageUploadPlugin } from "./image-upload";
 import { linkClickPlugin } from "./link-click";
 import { outlineTrackerPlugin } from "./outline-tracker";
+import { formulaNumberingPlugin } from "./formula-numbering";
+import { editorModesPlugin } from "./editor-modes";
+import { searchPlugin } from "./search";
+import { useSettings } from "../../store/settings";
 import {
   remarkMathPlugin,
   mathInlineSchema,
@@ -33,6 +37,13 @@ import {
   mathInlineView,
   mathDisplayView,
 } from "./math";
+import {
+  remarkFrontmatterPlugin,
+  frontmatterSchema,
+  frontmatterView,
+} from "./frontmatter";
+import { footnoteRefView, footnoteDefinitionView } from "./footnotes";
+import { tocPlugin, tocSchema, tocView, remarkTocPlugin } from "./toc";
 
 interface EditorProps {
   /** 受控的 Markdown 文本。外部传入新值时会覆盖编辑器内容 */
@@ -102,6 +113,14 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
             linkClickPlugin(),
             // 大纲当前标题跟踪：光标变化时更新 store 中的高亮标题
             outlineTrackerPlugin(),
+            // 公式自动编号：给 math_display 节点按顺序设置 number attr
+            formulaNumberingPlugin(),
+            // 专注模式 + 打字机模式
+            editorModesPlugin(),
+            // 查找替换：高亮匹配、导航、替换
+            searchPlugin(),
+            // [TOC] 目录自动生成：根据文档标题实时生成目录
+            tocPlugin(),
           ]);
           // 注入主题
           nord(ctx);
@@ -120,6 +139,17 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
         .use(mathDisplaySchema)
         .use(mathInlineView)
         .use(mathDisplayView)
+        // YAML Front Matter：remark-frontmatter 解析 + CodeMirror 编辑
+        .use(remarkFrontmatterPlugin)
+        .use(frontmatterSchema)
+        .use(frontmatterView)
+        // 脚注：GFM 预设已注册 schema，这里仅覆盖 NodeView 提供跳转交互
+        .use(footnoteRefView)
+        .use(footnoteDefinitionView)
+        // [TOC] 目录块节点
+        .use(remarkTocPlugin)
+        .use(tocSchema)
+        .use(tocView)
         .use(history)
         .use(listener),
     // 依赖数组为空，编辑器只在挂载时创建一次
@@ -132,6 +162,29 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
   useEffect(() => {
     if (!loading) onReady?.(getEditor);
   }, [loading, getEditor, onReady]);
+
+  // 公式自动编号 / 专注模式开关切换时，dispatch 空 tr 触发重算（appendTransaction + decorations）
+  const getEditorRef = useRef(getEditor);
+  getEditorRef.current = getEditor;
+  useEffect(() => {
+    let lastFormula = useSettings.getState().formulaAutoNumber;
+    let lastFocus = useSettings.getState().focusMode;
+    const unsub = useSettings.subscribe((s) => {
+      if (s.formulaAutoNumber === lastFormula && s.focusMode === lastFocus) return;
+      lastFormula = s.formulaAutoNumber;
+      lastFocus = s.focusMode;
+      const editor = getEditorRef.current();
+      if (!editor) return;
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        view.dispatch(view.state.tr);
+      });
+    });
+    return unsub;
+  }, []);
+
+  // 专注模式：给 root 加 class，CSS 弱化非聚焦块
+  const focusMode = useSettings((s) => s.focusMode);
 
   // 外部 value 变化时，覆盖编辑器内容（仅当与上次同步值不同时）
   useEffect(() => {
@@ -151,7 +204,7 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
   }, [value, loading, getEditor]);
 
   return (
-    <div className="md-editor-root">
+    <div className={`md-editor-root${focusMode ? " focus-mode" : ""}`}>
       <TableToolbar getEditor={getEditor} inTable={inTable} />
       <Milkdown />
     </div>

@@ -1,6 +1,9 @@
 // 文件系统相关命令
 // 所有文件系统操作集中在这里，前端通过 invoke 调用，不允许前端直接拼路径操作 fs
 
+pub mod pandoc;
+pub use pandoc::{pandoc_check, pandoc_export_docx};
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -116,4 +119,21 @@ pub fn write_binary_file(file_path: String, data: Vec<u8>) -> Result<(), String>
         }
     }
     fs::write(path, data).map_err(|e| format!("写入失败 {}: {}", file_path, e))
+}
+
+/// 读取文件的最后修改时间（Unix 秒，浮点）
+/// 用于前端轮询检测外部修改，提示用户重新加载
+#[tauri::command]
+pub fn file_mtime(file_path: String) -> Result<f64, String> {
+    let path = Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("文件不存在: {}", file_path));
+    }
+    let meta = fs::metadata(path).map_err(|e| format!("读取元数据失败: {}", e))?;
+    let mtime = meta.modified().map_err(|e| format!("读取修改时间失败: {}", e))?;
+    let secs = mtime
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .map_err(|e| e.to_string())?;
+    Ok(secs)
 }

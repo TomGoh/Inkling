@@ -1,7 +1,7 @@
 {
   "name": "inkling",
   "private": true,
-  "version": "0.4.0",
+  "version": "0.6.0",
   "description": "A WYSIWYG Markdown editor",
   "type": "module",
   "scripts": {
@@ -42,6 +42,7 @@
     "mermaid": "^11.16.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "remark-frontmatter": "^5.0.0",
     "remark-math": "^6.0.0",
     "zustand": "^5.0.14"
   },

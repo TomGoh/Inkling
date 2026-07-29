@@ -148,7 +148,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 ---
 
-## 8. 实现进度（截至 v0.4.0）
+## 8. 实现进度（截至 v0.6.0）
 
 > 本节用于对照 PRD 需求与实际落地情况，方便后续迭代决策。详细技术方案与任务拆解见 `技术方案与任务拆解.md`。
 
@@ -161,29 +161,30 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.2 基础 | 标题/加粗/斜体/删除线/行内代码/引用/分割线 | ✅ | v0.1.0 | commonmark + gfm preset |
 | 3.2 列表 | 有序/无序/任务列表/嵌套 | ✅ | v0.1.0 | |
 | 3.2 表格 | GFM 表格、行列增删、对齐 | ✅ | v0.2.0 | `TableToolbar.tsx`；列宽拖拽未实现 |
-| 3.2 代码块 | 围栏代码块、语言标注、语法高亮 | ✅ | v0.2.0 | CodeMirror 6（替代初版 Shiki），未显示行号 |
-| 3.2 数学公式 | 行内 `$...$` / 块级 `$$...$$` | ✅ | v0.3.0 | KaTeX；化学方程式 mhchem、公式自动编号未实现 |
+| 3.2 代码块 | 围栏代码块、语言标注、语法高亮 | ✅ | v0.2.0 | CodeMirror 6（替代初版 Shiki），含行号 |
+| 3.2 数学公式 | 行内 `$...$` / 块级 `$$...$$` | ✅ | v0.3.0 | KaTeX；含 mhchem 化学方程式、公式自动编号（v0.5.0） |
 | 3.2 图表 | Mermaid | ✅ | v0.3.0 | 流程图/时序图/甘特图等 |
-| 3.2 其他 | 脚注 / `[TOC]` / YAML Front Matter | ❌ | — | P2 待开发 |
-| 3.3 | 文件树侧边栏 | ✅ | v0.1.0 | |
-| 3.3 | 大纲面板（点击跳转 + 高亮） | ✅ | v0.3.0 | `OutlinePanel.tsx` + `outline-tracker.ts` |
+| 3.2 其他 | 脚注 / `[TOC]` / YAML Front Matter | ✅ | v0.5.0 | GFM 脚注 + 自定义 NodeView；TOC 自动生成；Front Matter 走 remark-frontmatter + CodeMirror 视图 |
+| 3.3 | 文件树侧边栏 | ✅ | v0.1.0 | 支持显隐切换（v0.5.0） |
+| 3.3 | 大纲面板（点击跳转 + 高亮） | ✅ | v0.3.0 | `OutlinePanel.tsx` + `outline-tracker.ts`；支持显隐切换（v0.5.0） |
 | 3.3 | 多标签页 | ✅ | v0.4.0 | `Tabs/TabsBar.tsx` |
 | 3.3 | 自动保存 + 手动保存 | ✅ | v0.1.0 | 防抖 2 秒 + Ctrl/Cmd+S |
-| 3.3 | 文件变更监听（外部修改提示重载） | ❌ | — | 待开发 |
+| 3.3 | 文件变更监听（外部修改提示重载） | ✅ | v0.5.0 | `useFileWatcher` 轮询 mtime，仅桌面端 |
 | 3.4 | 导出 HTML | ✅ | v0.3.0 | 含内嵌样式 |
 | 3.4 | 导出 PDF | ✅ | v0.3.0 | 浏览器打印（未用 Pandoc） |
-| 3.4 | 导出 Word | ❌ | — | P2 待开发 |
-| 3.4 | 复制为富文本 / 纯 Markdown | ❌ | — | 待开发 |
+| 3.4 | 导出 Word | ✅ | v0.6.0 | 走 Pandoc（Rust command 调用本地 pandoc），未安装时给出引导提示 |
+| 3.4 | 复制为富文本 / 纯 Markdown | ✅ | v0.5.0 | `exporter.ts` 中 `copyRichText` / `copyMarkdown` |
 | 3.5 | 主题系统 + 自定义 CSS | ✅ | v0.3.0 | `theme.ts`，加载自定义 CSS 文件 |
 | 3.5 | 明暗模式切换 | ✅ | v0.3.0 | |
-| 3.5 | 代码块语法高亮主题独立配置 | ❌ | — | 待开发 |
+| 3.5 | 代码块语法高亮主题独立配置 | ✅ | v0.5.0 | `settings.ts` + `code-block-view.ts` 动态重配 |
 | 3.6 | 字数统计 | ✅ | v0.1.0 | 字数/字符数/行数/阅读时长 |
-| 3.6 | 专注模式 / 打字机模式 | ❌ | — | P2 待开发 |
-| 3.6 | 查找替换（正则） | ❌ | — | P2 待开发 |
+| 3.6 | 专注模式 / 打字机模式 | ✅ | v0.5.0 | `editor-modes.ts`，运行时切换 |
+| 3.6 | 查找替换（正则） | ✅ | v0.5.0 | `search.ts` + `SearchPanel.tsx`，Ctrl/Cmd+F |
 | 3.7 | 图片拖拽/粘贴自动入库 | ✅ | v0.2.0 | 相对路径引用 `assets/` |
 | 3.7 | 图床集成 | ❌ | — | 可选，未规划 |
-| 3.8 | 快捷键自定义面板 | ❌ | — | P2 待开发 |
-| 3.8 | 偏好设置面板 | ❌ | — | 待开发 |
+| 3.8 | 快捷键体系 | ✅ | v0.5.0 | Milkdown 预设 + 应用级快捷键 + 帮助面板（Ctrl/Cmd+/） |
+| 3.8 | 快捷键自定义面板 | ✅ | v0.6.0 | `shortcuts.ts` + `ShortcutsCustomize.tsx`，支持捕获式绑定、冲突检测、一键恢复默认 |
+| 3.8 | 偏好设置面板 | ✅ | v0.5.0 | `SettingsPanel.tsx`，含专注/打字机/公式编号/代码主题 |
 
 ### 8.2 发布版本
 
@@ -191,10 +192,14 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 - **v0.2.0** 图片渲染与拖拽/粘贴上传、表格工具栏、代码块语法高亮、链接跟随
 - **v0.3.0** 主题系统与明暗模式、导出 HTML/PDF、大纲面板、Mermaid 图表、KaTeX 公式
 - **v0.4.0** 多标签页编辑（标签页切换、关闭确认、文件树已打开标记）
+- **v0.5.0** 专注模式 / 打字机模式、查找替换（正则）、偏好设置面板、YAML Front Matter、脚注、`[TOC]` 目录自动生成、文件外部修改监听、快捷键体系与帮助面板、复制为富文本/Markdown
+- **v0.6.0** 导出 Word（.docx，走 Pandoc）、应用级快捷键自定义面板（含冲突检测、一键恢复默认）
 
 ### 8.3 与初版技术方案建议的差异
 
 - **代码高亮**：Shiki → CodeMirror 6。CodeMirror 可嵌入 Milkdown 代码块节点视图，做到代码块内可直接编辑 + 高亮，更符合 WYSIWYG。
 - **样式方案**：Tailwind CSS → 纯 CSS + CSS 变量。项目体量不大，CSS 变量已足够支撑主题系统。
-- **PDF 导出**：Pandoc → 浏览器打印。零安装、零外部依赖，对个人使用足够。Word 导出仍走 Pandoc（P2）。
+- **PDF 导出**：Pandoc → 浏览器打印。零安装、零外部依赖，对个人使用足够。Word 导出仍走 Pandoc（v0.6.0）。
 - **前端框架**：React 18 → React 19（跟随生态升级）。
+- **脚注方案**：原计划 remark-footnotes，实际改用 GFM 预设自带的 footnote schema（GFM 脚注语法），仅需自定义 NodeView 提供点击跳转交互，无需额外 remark 插件。
+- **Word 导出**：通过 Rust command 调用本地 `pandoc` 二进制（`std::process::Command`），未引入 tauri-plugin-shell。未安装 pandoc 时返回明确错误，前端引导用户安装。
