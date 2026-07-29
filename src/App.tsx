@@ -1,5 +1,6 @@
 import { MarkdownEditor } from "./components/Editor/Editor";
 import { Sidebar } from "./components/Sidebar/Sidebar";
+import { StatusBar } from "./components/StatusBar/StatusBar";
 import { useWorkspace } from "./store/workspace";
 import { useAutoSave } from "./lib/useAutoSave";
 import "./App.css";
@@ -45,6 +46,7 @@ function App() {
             <div className="editor-scroll">
               <MarkdownEditor value={currentContent} onChange={setContent} />
             </div>
+            <StatusBar />
           </>
         ) : (
           <div className="empty-state">

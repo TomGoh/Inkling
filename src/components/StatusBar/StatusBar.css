@@ -1,0 +1,27 @@
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.9rem;
+  border-top: 1px solid var(--border, #d0d7de);
+  background: var(--statusbar-bg, #f6f8fa);
+  color: var(--text-muted, #6e7681);
+  font-size: 0.72rem;
+  flex-shrink: 0;
+}
+
+.status-item {
+  white-space: nowrap;
+}
+
+.status-sep {
+  opacity: 0.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  .status-bar {
+    --statusbar-bg: #161b22;
+    --border: #30363d;
+    --text-muted: #8b949e;
+  }
+}
