@@ -21,6 +21,7 @@ import { nord } from "@milkdown/theme-nord";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
 import "@milkdown/kit/prose/tables/style/tables.css";
 import { TableToolbar } from "./TableToolbar";
+import { codeBlockView } from "./code-block-view";
 
 interface EditorProps {
   /** 受控的 Markdown 文本。外部传入新值时会覆盖编辑器内容 */
@@ -90,6 +91,8 @@ function EditorInner({ value, onChange }: EditorProps) {
         .use(gfm)
         // 列宽拖拽调整（gfm 默认未启用，需单独引入）
         .use(columnResizingPlugin)
+        // 代码块：CodeMirror 高亮 + 行号 + 语言切换
+        .use(codeBlockView)
         .use(history)
         .use(listener),
     // 依赖数组为空，编辑器只在挂载时创建一次

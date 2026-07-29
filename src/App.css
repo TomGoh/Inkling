@@ -220,6 +220,51 @@ body,
   pointer-events: none;
 }
 
+/* 代码块（CodeMirror，统一深色主题） */
+.editor-scroll .milkdown .code-block {
+  margin: 1rem 0;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #30363d;
+  background: #282c34;
+}
+.editor-scroll .milkdown .code-block-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0.25rem 0.5rem;
+  background: #21252b;
+  border-bottom: 1px solid #30363d;
+}
+.editor-scroll .milkdown .code-block-lang {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  background: #282c34;
+  color: #abb2bf;
+  cursor: pointer;
+  outline: none;
+}
+.editor-scroll .milkdown .code-block-lang:focus {
+  border-color: #528bff;
+}
+.editor-scroll .milkdown .code-block-cm {
+  max-height: 32rem;
+  overflow: auto;
+}
+.editor-scroll .milkdown .code-block-cm .cm-editor {
+  background: #282c34;
+}
+.editor-scroll .milkdown .code-block-cm .cm-scroller {
+  overflow: auto;
+}
+.editor-scroll .milkdown .code-block-cm .cm-gutters {
+  background: #282c34;
+  border-right: 1px solid #3b4048;
+  color: #5c6370;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #e6edf3;
