@@ -23,6 +23,7 @@ import "@milkdown/kit/prose/tables/style/tables.css";
 import { TableToolbar } from "./TableToolbar";
 import { codeBlockView } from "./code-block-view";
 import { imageView } from "./image-node-view";
+import { imageUploadPlugin } from "./image-upload";
 
 interface EditorProps {
   /** 受控的 Markdown 文本。外部传入新值时会覆盖编辑器内容 */
@@ -84,6 +85,8 @@ function EditorInner({ value, onChange }: EditorProps) {
                 },
               }),
             }),
+            // 图片拖拽/粘贴上传：复制到 assets/ 并插入相对路径
+            imageUploadPlugin(),
           ]);
           // 注入主题
           nord(ctx);

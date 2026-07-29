@@ -112,7 +112,7 @@ export async function writeBinaryFile(
 }
 
 /** 路径分隔符拼接（兼容 Windows / Unix） */
-function joinPath(base: string, rel: string): string {
+export function joinPath(base: string, rel: string): string {
   const sep = base.includes("\\") && !base.includes("/") ? "\\" : "/";
   const left = base.replace(/[\\/]+$/, "");
   const right = rel.replace(/^[\\/]+/, "");
