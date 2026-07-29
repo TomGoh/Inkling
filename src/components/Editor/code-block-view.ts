@@ -12,6 +12,7 @@ import { $view } from "@milkdown/kit/utils";
 import { codeBlockSchema } from "@milkdown/kit/preset/commonmark";
 import type { Node } from "@milkdown/kit/prose/model";
 import type { EditorView as PMView } from "@milkdown/kit/prose/view";
+import { createMermaidView } from "./mermaid-view";
 
 /**
  * 代码块支持的语言列表。
@@ -294,7 +295,13 @@ class CodeBlockNodeView implements NodeView {
   }
 }
 
-/** 代码块 NodeView 插件：用 CodeMirror 替换默认渲染 */
+/**
+ * 代码块 NodeView 插件：用 CodeMirror 替换默认渲染。
+ * 语言为 mermaid 的代码块走 Mermaid 图表渲染，其余走 CodeMirror 高亮。
+ */
 export const codeBlockView = $view(codeBlockSchema.node, () => (node, view, getPos) => {
+  if (node.attrs.language === "mermaid") {
+    return createMermaidView(node);
+  }
   return new CodeBlockNodeView(node, view, getPos);
 });

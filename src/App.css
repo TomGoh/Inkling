@@ -265,6 +265,48 @@ body,
   color: #5c6370;
 }
 
+/* Mermaid 图表块 */
+.editor-scroll .milkdown .mermaid-block {
+  background: var(--bg-subtle, #f6f8fa);
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  padding: 12px;
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+.editor-scroll .milkdown .mermaid-render {
+  display: flex;
+  justify-content: center;
+  min-height: 40px;
+}
+.editor-scroll .milkdown .mermaid-render:empty[data-placeholder]::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted, #6e7681);
+  font-size: 0.85rem;
+}
+.editor-scroll .milkdown .mermaid-error {
+  margin: 0;
+  padding: 8px;
+  color: #cf222e;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* KaTeX 数学公式 */
+.editor-scroll .milkdown .math-inline .katex {
+  font-size: 1.05em;
+}
+.editor-scroll .milkdown .math-display {
+  margin: 0.75em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.editor-scroll .milkdown .math-display .katex-display {
+  margin: 0;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #e6edf3;
