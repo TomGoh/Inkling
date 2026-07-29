@@ -105,3 +105,15 @@ pub fn write_text_file(file_path: String, content: String) -> Result<(), String>
     }
     fs::write(path, content).map_err(|e| format!("写入失败 {}: {}", file_path, e))
 }
+
+/// 写入二进制文件（图片等），覆盖写入，不存在则创建
+#[tauri::command]
+pub fn write_binary_file(file_path: String, data: Vec<u8>) -> Result<(), String> {
+    let path = Path::new(&file_path);
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
+        }
+    }
+    fs::write(path, data).map_err(|e| format!("写入失败 {}: {}", file_path, e))
+}

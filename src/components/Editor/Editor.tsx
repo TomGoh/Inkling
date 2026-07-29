@@ -22,6 +22,7 @@ import "@milkdown/kit/prose/view/style/prosemirror.css";
 import "@milkdown/kit/prose/tables/style/tables.css";
 import { TableToolbar } from "./TableToolbar";
 import { codeBlockView } from "./code-block-view";
+import { imageView } from "./image-node-view";
 
 interface EditorProps {
   /** 受控的 Markdown 文本。外部传入新值时会覆盖编辑器内容 */
@@ -93,6 +94,8 @@ function EditorInner({ value, onChange }: EditorProps) {
         .use(columnResizingPlugin)
         // 代码块：CodeMirror 高亮 + 行号 + 语言切换
         .use(codeBlockView)
+        // 图片：相对路径解析为可加载 URL（保持 markdown 源码为相对路径）
+        .use(imageView)
         .use(history)
         .use(listener),
     // 依赖数组为空，编辑器只在挂载时创建一次

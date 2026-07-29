@@ -2,7 +2,7 @@
 // 桌面端走 Tauri command（Rust 端实现），浏览器端用 mock 数据走通 UI
 // 这样保证沙箱内可开发验证，真实环境走原生 fs
 
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri, convertFileSrc } from "@tauri-apps/api/core";
 
 /** 文件树节点（与 Rust 端 FileNode 对应） */
 export interface FileNode {
@@ -90,4 +90,49 @@ export async function writeTextFile(
   }
   // 浏览器 mock：只在内存里记录
   MOCK_FILE_CONTENT[filePath] = content;
+}
+
+/**
+ * 写入二进制文件（图片等）。
+ * 桌面端走 Rust 命令；浏览器端无真实 fs，仅返回成功（mock 无法持久化二进制）。
+ * @param data 字节数组
+ */
+export async function writeBinaryFile(
+  filePath: string,
+  data: Uint8Array,
+): Promise<void> {
+  if (isTauri()) {
+    // Tauri 序列化 Vec<u8> 需要普通数组
+    return invoke<void>("write_binary_file", {
+      filePath,
+      data: Array.from(data),
+    });
+  }
+  // 浏览器 mock：无操作
+}
+
+/** 路径分隔符拼接（兼容 Windows / Unix） */
+function joinPath(base: string, rel: string): string {
+  const sep = base.includes("\\") && !base.includes("/") ? "\\" : "/";
+  const left = base.replace(/[\\/]+$/, "");
+  const right = rel.replace(/^[\\/]+/, "");
+  return left + sep + right;
+}
+
+/**
+ * 把 markdown 中的图片 src 解析为 WebView 可加载的 URL。
+ * - http(s)/data/blob/asset 协议：原样返回
+ * - 绝对路径：convertFileSrc 转换
+ * - 相对路径：相对工作区根目录拼接后 convertFileSrc 转换
+ * - 浏览器环境：原样返回（无法访问本地文件）
+ */
+export function resolveImageSrc(src: string, rootPath: string | null): string {
+  if (!src) return src;
+  if (!isTauri()) return src;
+  // 协议 URL 直接放行
+  if (/^(https?:|data:|blob:|asset:|tauri:)/i.test(src)) return src;
+  // Windows 绝对路径（如 C:\）或 Unix 绝对路径（/）
+  const isAbsolute = /^[a-zA-Z]:[\\/]/.test(src) || src.startsWith("/");
+  const abs = isAbsolute ? src : rootPath ? joinPath(rootPath, src) : src;
+  return convertFileSrc(abs);
 }
