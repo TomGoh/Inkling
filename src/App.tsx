@@ -1,35 +1,25 @@
-import { useState } from "react";
 import { MarkdownEditor } from "./components/Editor/Editor";
+import { Sidebar } from "./components/Sidebar/Sidebar";
+import { useWorkspace } from "./store/workspace";
 import "./App.css";
 
-const DEFAULT_CONTENT = `# 欢迎使用 Inkling
-
-一个所见即所得的 Markdown 编辑器。
-
-## 基础语法
-
-**加粗**、*斜体*、\`行内代码\`。
-
-- 无序列表项一
-- 无序列表项二
-
-1. 有序列表项一
-2. 有序列表项二
-
-> 引用块示例
-
----
-
-输入 \`---\` 后回车可生成分割线。试试在这里继续编辑。
-`;
-
 function App() {
-  const [content, setContent] = useState(DEFAULT_CONTENT);
+  const currentFile = useWorkspace((s) => s.currentFile);
+  const currentContent = useWorkspace((s) => s.currentContent);
+  const setContent = useWorkspace((s) => s.setContent);
 
   return (
     <main className="app-shell">
+      <Sidebar />
       <div className="editor-wrap">
-        <MarkdownEditor value={content} onChange={setContent} />
+        {currentFile ? (
+          <MarkdownEditor value={currentContent} onChange={setContent} />
+        ) : (
+          <div className="empty-state">
+            <h2>Inkling</h2>
+            <p>从左侧侧边栏「打开」文件夹，选择一个 .md 文件开始编辑</p>
+          </div>
+        )}
       </div>
     </main>
   );

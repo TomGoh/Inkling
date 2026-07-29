@@ -1,0 +1,121 @@
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border, #d0d7de);
+  background: var(--sidebar-bg, #f6f8fa);
+  height: 100%;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border, #d0d7de);
+  gap: 0.5rem;
+}
+
+.sidebar-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text, #1f2328);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-btn {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 4px;
+  background: var(--btn-bg, #ffffff);
+  color: var(--text, #1f2328);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.sidebar-btn:hover {
+  background: var(--btn-hover-bg, #e9ecef);
+}
+
+.sidebar-tree {
+  flex: 1;
+  overflow: auto;
+  padding: 0.25rem 0;
+}
+
+.sidebar-empty {
+  padding: 1rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-muted, #6e7681);
+  line-height: 1.5;
+}
+
+.tree-node {
+  display: flex;
+  flex-direction: column;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text, #1f2328);
+  font-size: 0.82rem;
+  padding: 0.22rem 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 0;
+}
+.tree-row:hover {
+  background: var(--row-hover-bg, rgba(0, 0, 0, 0.04));
+}
+.tree-row-dir {
+  font-weight: 500;
+}
+.tree-row-file {
+  cursor: pointer;
+}
+.tree-row-file-disabled {
+  cursor: default;
+  color: var(--text-muted, #8b949e);
+  opacity: 0.6;
+}
+.tree-row-file-disabled:hover {
+  background: transparent;
+}
+.tree-row-active {
+  background: var(--row-active-bg, rgba(56, 139, 253, 0.15));
+}
+
+.tree-icon {
+  font-size: 0.7rem;
+  width: 0.9rem;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (prefers-color-scheme: dark) {
+  .sidebar {
+    --sidebar-bg: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --btn-bg: #21262d;
+    --btn-hover-bg: #30363d;
+    --row-hover-bg: rgba(255, 255, 255, 0.06);
+    --row-active-bg: rgba(56, 139, 253, 0.25);
+  }
+}
