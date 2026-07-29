@@ -14,6 +14,7 @@ function isMarkdown(name: string): boolean {
 function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
   const [expanded, setExpanded] = useState(depth < 1);
   const currentFile = useWorkspace((s) => s.currentFile);
+  const openTabs = useWorkspace((s) => s.openTabs);
   const openFile = useWorkspace((s) => s.openFile);
 
   // 目录：可折叠展开
@@ -42,6 +43,7 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
   // 文件：仅 .md 可点击打开
   const md = isMarkdown(node.name);
   const active = currentFile === node.path;
+  const isOpen = openTabs.some((t) => t.path === node.path);
   return (
     <button
       className={`tree-row tree-row-file${md ? "" : " tree-row-file-disabled"}${active ? " tree-row-active" : ""}`}
@@ -51,6 +53,7 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
     >
       <span className="tree-icon">{md ? "📝" : "📄"}</span>
       <span className="tree-name">{node.name}</span>
+      {isOpen && !active && <span className="tree-open-dot" title="已打开" />}
     </button>
   );
 }

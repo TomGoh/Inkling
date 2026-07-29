@@ -4,6 +4,7 @@ import { MarkdownEditor } from "./components/Editor/Editor";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { StatusBar } from "./components/StatusBar/StatusBar";
 import { OutlinePanel } from "./components/Outline/OutlinePanel";
+import { TabsBar } from "./components/Tabs/TabsBar";
 import { useWorkspace } from "./store/workspace";
 import { useTheme } from "./store/theme";
 import { useAutoSave } from "./lib/useAutoSave";
@@ -59,6 +60,7 @@ function App() {
       <div className="editor-wrap">
         {currentFile ? (
           <>
+            <TabsBar />
             <div className="editor-topbar">
               <span className="topbar-file" title={currentFile}>
                 {currentFile.split(/[\\/]/).pop()}

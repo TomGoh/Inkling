@@ -106,3 +106,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* 已打开（非活跃）文件的标记点 */
+.tree-open-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2f81f7;
+  flex-shrink: 0;
+  margin-left: auto;
+  margin-right: 4px;
+}
