@@ -1,0 +1,94 @@
+.outline-panel {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border, #d0d7de);
+  background: var(--outline-bg, #f6f8fa);
+  height: 100%;
+}
+
+.outline-header {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border, #d0d7de);
+}
+
+.outline-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text, #1f2328);
+}
+
+.outline-tree {
+  flex: 1;
+  overflow: auto;
+  padding: 0.25rem 0;
+}
+
+.outline-empty {
+  padding: 1rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-muted, #6e7681);
+  line-height: 1.5;
+}
+
+.outline-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text, #1f2328);
+  font-size: 0.82rem;
+  padding: 0.22rem 0.75rem 0.22rem 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 0;
+  overflow: hidden;
+}
+.outline-item:hover {
+  background: var(--outline-hover-bg, rgba(0, 0, 0, 0.04));
+}
+.outline-item-active {
+  background: var(--outline-active-bg, rgba(56, 139, 253, 0.15));
+  font-weight: 500;
+}
+
+/* 按层级缩进字号递减，体现层级关系 */
+.outline-h1 {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+.outline-h2 {
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+.outline-h3 {
+  font-size: 0.8rem;
+}
+.outline-h4,
+.outline-h5,
+.outline-h6 {
+  font-size: 0.78rem;
+  color: var(--text-muted, #6e7681);
+}
+
+.outline-item-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+@media (prefers-color-scheme: dark) {
+  .outline-panel {
+    --outline-bg: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --outline-hover-bg: rgba(255, 255, 255, 0.06);
+    --outline-active-bg: rgba(56, 139, 253, 0.25);
+  }
+}

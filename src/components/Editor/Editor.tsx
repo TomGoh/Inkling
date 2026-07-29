@@ -25,6 +25,7 @@ import { codeBlockView } from "./code-block-view";
 import { imageView } from "./image-node-view";
 import { imageUploadPlugin } from "./image-upload";
 import { linkClickPlugin } from "./link-click";
+import { outlineTrackerPlugin } from "./outline-tracker";
 import {
   remarkMathPlugin,
   mathInlineSchema,
@@ -38,6 +39,8 @@ interface EditorProps {
   value: string;
   /** 内容变更回调，输出当前 Markdown 源码 */
   onChange?: (markdown: string) => void;
+  /** 编辑器实例就绪回调，外部可持有 getEditor 用于跳转等操作 */
+  onReady?: (getEditor: () => Editor | undefined) => void;
 }
 
 /**
@@ -48,7 +51,7 @@ interface EditorProps {
  * 所以这里不要调用 .create()，也不要调用 .container()（该方法不存在）。
  * 挂载点通过 config 里 ctx.set(rootCtx, container) 注入。
  */
-function EditorInner({ value, onChange }: EditorProps) {
+function EditorInner({ value, onChange, onReady }: EditorProps) {
   // 记录最近一次同步进编辑器的 value，避免 onChange 回写的值又触发覆盖，造成循环
   const lastSyncedRef = useRef(value);
   // onChange 用 ref 持有，避免它变化导致编辑器重建
@@ -97,6 +100,8 @@ function EditorInner({ value, onChange }: EditorProps) {
             imageUploadPlugin(),
             // 链接跟随：Ctrl/Cmd+点击打开外部链接或跳转内部锚点
             linkClickPlugin(),
+            // 大纲当前标题跟踪：光标变化时更新 store 中的高亮标题
+            outlineTrackerPlugin(),
           ]);
           // 注入主题
           nord(ctx);
@@ -122,6 +127,11 @@ function EditorInner({ value, onChange }: EditorProps) {
   );
 
   const [loading, getEditor] = useInstance();
+
+  // 编辑器就绪后通知外部，便于大纲面板等持有 getEditor
+  useEffect(() => {
+    if (!loading) onReady?.(getEditor);
+  }, [loading, getEditor, onReady]);
 
   // 外部 value 变化时，覆盖编辑器内容（仅当与上次同步值不同时）
   useEffect(() => {
@@ -153,10 +163,10 @@ function EditorInner({ value, onChange }: EditorProps) {
  * 阶段二任务6：在 commonmark 基础上集成 GFM（表格 + 任务列表 + 删除线），
  * 启用列宽拖拽，并提供插入表格、行列增删、对齐、删除表格的工具栏。
  */
-export function MarkdownEditor({ value, onChange }: EditorProps) {
+export function MarkdownEditor({ value, onChange, onReady }: EditorProps) {
   return (
     <MilkdownProvider>
-      <EditorInner value={value} onChange={onChange} />
+      <EditorInner value={value} onChange={onChange} onReady={onReady} />
     </MilkdownProvider>
   );
 }

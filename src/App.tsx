@@ -1,6 +1,9 @@
+import { useRef } from "react";
+import type { Editor } from "@milkdown/kit/core";
 import { MarkdownEditor } from "./components/Editor/Editor";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { StatusBar } from "./components/StatusBar/StatusBar";
+import { OutlinePanel } from "./components/Outline/OutlinePanel";
 import { useWorkspace } from "./store/workspace";
 import { useAutoSave } from "./lib/useAutoSave";
 import "./App.css";
@@ -28,6 +31,9 @@ function App() {
   const currentContent = useWorkspace((s) => s.currentContent);
   const setContent = useWorkspace((s) => s.setContent);
 
+  // 持有编辑器实例获取函数，供大纲面板跳转使用
+  const getEditorRef = useRef<(() => Editor | undefined) | null>(null);
+
   // 启用 Ctrl/Cmd+S 手动保存 + 防抖 2 秒自动保存
   useAutoSave();
 
@@ -44,7 +50,11 @@ function App() {
               <SaveIndicator />
             </div>
             <div className="editor-scroll">
-              <MarkdownEditor value={currentContent} onChange={setContent} />
+              <MarkdownEditor
+                value={currentContent}
+                onChange={setContent}
+                onReady={(getEditor) => (getEditorRef.current = getEditor)}
+              />
             </div>
             <StatusBar />
           </>
@@ -55,6 +65,9 @@ function App() {
           </div>
         )}
       </div>
+      {currentFile && (
+        <OutlinePanel getEditor={() => getEditorRef.current?.()} />
+      )}
     </main>
   );
 }

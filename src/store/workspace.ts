@@ -23,6 +23,8 @@ interface WorkspaceState {
   saveError: string | null;
   /** 最近一次保存时间戳（ms） */
   lastSavedAt: number | null;
+  /** 当前光标所在标题的 slug（用于大纲高亮，null 表示无） */
+  currentHeadingSlug: string | null;
 
   /** 打开工作区：读取目录树 */
   openWorkspace: (dirPath: string) => Promise<void>;
@@ -32,6 +34,8 @@ interface WorkspaceState {
   setContent: (content: string) => void;
   /** 保存当前文件到磁盘 */
   saveCurrent: () => Promise<void>;
+  /** 设置当前光标所在标题 slug（编辑器选区变化时调用） */
+  setCurrentHeadingSlug: (slug: string | null) => void;
 }
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
@@ -44,6 +48,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   saving: false,
   saveError: null,
   lastSavedAt: null,
+  currentHeadingSlug: null,
 
   openWorkspace: async (dirPath) => {
     set({ loading: true });
@@ -99,5 +104,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         saveError: e instanceof Error ? e.message : String(e),
       });
     }
+  },
+
+  setCurrentHeadingSlug: (slug) => {
+    if (slug === get().currentHeadingSlug) return;
+    set({ currentHeadingSlug: slug });
   },
 }));

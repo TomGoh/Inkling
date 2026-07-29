@@ -15,7 +15,7 @@ const key = new PluginKey("inkling-link-click");
  * GitHub 风格 slug：转小写、去标点、空格/下划线转连字符。
  * Unicode 感知（\p{L}\p{N}），中文等非 ASCII 字母保留。
  */
-function slugify(text: string): string {
+export function slugify(text: string): string {
   return text
     .toLowerCase()
     .trim()
