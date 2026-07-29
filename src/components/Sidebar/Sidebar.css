@@ -106,16 +106,3 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-@media (prefers-color-scheme: dark) {
-  .sidebar {
-    --sidebar-bg: #161b22;
-    --border: #30363d;
-    --text: #e6edf3;
-    --text-muted: #8b949e;
-    --btn-bg: #21262d;
-    --btn-hover-bg: #30363d;
-    --row-hover-bg: rgba(255, 255, 255, 0.06);
-    --row-active-bg: rgba(56, 139, 253, 0.25);
-  }
-}

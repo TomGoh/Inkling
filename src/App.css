@@ -3,10 +3,32 @@
     Arial, sans-serif;
   font-size: 16px;
   line-height: 1.6;
-  color: #1f2328;
-  background-color: #ffffff;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* 浅色主题（默认） */
+:root,
+[data-theme="light"] {
+  color: #1f2328;
+  background-color: #ffffff;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --text-muted: #6e7681;
+  --topbar-bg: #ffffff;
+  --btn-bg: #ffffff;
+  --btn-hover-bg: #e9ecef;
+  --sidebar-bg: #f6f8fa;
+  --outline-bg: #f6f8fa;
+  --statusbar-bg: #f6f8fa;
+  --row-hover-bg: rgba(0, 0, 0, 0.04);
+  --row-active-bg: rgba(56, 139, 253, 0.15);
+  --outline-hover-bg: rgba(0, 0, 0, 0.04);
+  --outline-active-bg: rgba(56, 139, 253, 0.15);
+  --bg-subtle: #f6f8fa;
+  --editor-bg: #ffffff;
+  --success: #1a7f37;
+  --danger: #cf222e;
 }
 
 * {
@@ -122,6 +144,19 @@ body,
 }
 .export-item:hover {
   background: var(--btn-hover-bg, #e9ecef);
+}
+.export-item-active {
+  color: #0969da;
+  font-weight: 500;
+}
+.export-item-muted {
+  color: var(--text-muted, #6e7681);
+  font-size: 0.75rem;
+}
+.export-sep {
+  height: 1px;
+  background: var(--border, #d0d7de);
+  margin: 4px 0;
 }
 
 .editor-scroll {
@@ -366,48 +401,53 @@ body,
   margin: 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #e6edf3;
-    background-color: #0d1117;
-  }
+/* 深色主题：通过 data-theme="dark" 切换，支持手动覆盖系统偏好 */
+[data-theme="dark"] {
+  color: #e6edf3;
+  background-color: #0d1117;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --topbar-bg: #0d1117;
+  --btn-bg: #21262d;
+  --btn-hover-bg: #30363d;
+  --sidebar-bg: #161b22;
+  --outline-bg: #161b22;
+  --statusbar-bg: #161b22;
+  --row-hover-bg: rgba(255, 255, 255, 0.06);
+  --row-active-bg: rgba(56, 139, 253, 0.25);
+  --outline-hover-bg: rgba(255, 255, 255, 0.06);
+  --outline-active-bg: rgba(56, 139, 253, 0.25);
+  --bg-subtle: #161b22;
+  --editor-bg: #0d1117;
+  --success: #3fb950;
+  --danger: #f85149;
+}
 
-  .editor-topbar {
-    --topbar-bg: #0d1117;
-    --border: #30363d;
-    --text: #e6edf3;
-    --text-muted: #8b949e;
-  }
+[data-theme="dark"] .save-indicator.save-ok {
+  color: var(--success);
+}
+[data-theme="dark"] .save-indicator.save-error {
+  color: var(--danger);
+}
 
-  .save-indicator.save-ok {
-    color: #3fb950;
-  }
-  .save-indicator.save-error {
-    color: #f85149;
-  }
+[data-theme="dark"] .editor-scroll .milkdown blockquote {
+  border-left-color: #30363d;
+  background: rgba(255, 255, 255, 0.03);
+}
 
-  .editor-scroll .milkdown {
-    --editor-bg: #0d1117;
-  }
+[data-theme="dark"] .editor-scroll .milkdown hr {
+  border-top-color: #30363d;
+}
 
-  .editor-scroll .milkdown blockquote {
-    border-left-color: #30363d;
-    background: rgba(255, 255, 255, 0.03);
-  }
+[data-theme="dark"] .editor-scroll .milkdown th {
+  background: rgba(139, 148, 158, 0.18);
+}
 
-  .editor-scroll .milkdown hr {
-    border-top-color: #30363d;
-  }
+[data-theme="dark"] .editor-scroll .milkdown .column-resize-handle {
+  background: #2f81f7;
+}
 
-  .editor-scroll .milkdown th {
-    background: rgba(139, 148, 158, 0.18);
-  }
-
-  .editor-scroll .milkdown .column-resize-handle {
-    background: #2f81f7;
-  }
-
-  .editor-scroll .milkdown .selectedCell::after {
-    background: rgba(47, 129, 247, 0.18);
-  }
+[data-theme="dark"] .editor-scroll .milkdown .selectedCell::after {
+  background: rgba(47, 129, 247, 0.18);
 }

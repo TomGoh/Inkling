@@ -5,6 +5,7 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { StatusBar } from "./components/StatusBar/StatusBar";
 import { OutlinePanel } from "./components/Outline/OutlinePanel";
 import { useWorkspace } from "./store/workspace";
+import { useTheme } from "./store/theme";
 import { useAutoSave } from "./lib/useAutoSave";
 import { exportHTML, exportPDF } from "./lib/exporter";
 import "./App.css";
@@ -37,6 +38,15 @@ function App() {
 
   // 导出菜单展开状态
   const [exportOpen, setExportOpen] = useState(false);
+  // 主题菜单展开状态
+  const [themeOpen, setThemeOpen] = useState(false);
+
+  // 主题状态
+  const themeMode = useTheme((s) => s.mode);
+  const setThemeMode = useTheme((s) => s.setMode);
+  const loadCustomCSS = useTheme((s) => s.loadCustomCSS);
+  const clearCustomCSS = useTheme((s) => s.clearCustomCSS);
+  const customCSSPath = useTheme((s) => s.customCSSPath);
 
   // 启用 Ctrl/Cmd+S 手动保存 + 防抖 2 秒自动保存
   useAutoSave();
@@ -58,7 +68,10 @@ function App() {
                 <div className="export-menu">
                   <button
                     className="topbar-btn"
-                    onClick={() => setExportOpen((v) => !v)}
+                    onClick={() => {
+                      setExportOpen((v) => !v);
+                      setThemeOpen(false);
+                    }}
                     title="导出"
                   >
                     导出 ▾
@@ -88,6 +101,67 @@ function App() {
                         >
                           导出 PDF（打印）
                         </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="export-menu">
+                  <button
+                    className="topbar-btn"
+                    onClick={() => {
+                      setThemeOpen((v) => !v);
+                      setExportOpen(false);
+                    }}
+                    title="主题"
+                  >
+                    {themeMode === "dark" ? "🌙 深色" : "☀️ 浅色"} ▾
+                  </button>
+                  {themeOpen && (
+                    <>
+                      <div
+                        className="export-backdrop"
+                        onClick={() => setThemeOpen(false)}
+                      />
+                      <div className="export-dropdown">
+                        <button
+                          className={`export-item${themeMode === "light" ? " export-item-active" : ""}`}
+                          onClick={() => {
+                            setThemeMode("light");
+                            setThemeOpen(false);
+                          }}
+                        >
+                          ☀️ 浅色
+                        </button>
+                        <button
+                          className={`export-item${themeMode === "dark" ? " export-item-active" : ""}`}
+                          onClick={() => {
+                            setThemeMode("dark");
+                            setThemeOpen(false);
+                          }}
+                        >
+                          🌙 深色
+                        </button>
+                        <div className="export-sep" />
+                        <button
+                          className="export-item"
+                          onClick={() => {
+                            setThemeOpen(false);
+                            void loadCustomCSS();
+                          }}
+                        >
+                          📄 加载自定义 CSS…
+                        </button>
+                        {customCSSPath && (
+                          <button
+                            className="export-item export-item-muted"
+                            onClick={() => {
+                              clearCustomCSS();
+                              setThemeOpen(false);
+                            }}
+                          >
+                            ✕ 清除自定义 CSS
+                          </button>
+                        )}
                       </div>
                     </>
                   )}

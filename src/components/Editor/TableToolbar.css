@@ -103,14 +103,13 @@
   color: var(--text-muted, #6e7681);
 }
 
-@media (prefers-color-scheme: dark) {
-  .tt-btn:hover {
-    background: rgba(139, 148, 158, 0.2);
-    border-color: #30363d;
-  }
+/* 深色主题适配 */
+[data-theme="dark"] .tt-btn:hover {
+  background: rgba(139, 148, 158, 0.2);
+  border-color: #30363d;
+}
 
-  .picker-cell.active {
-    background: #2f81f7;
-    border-color: #2f81f7;
-  }
+[data-theme="dark"] .picker-cell.active {
+  background: #2f81f7;
+  border-color: #2f81f7;
 }

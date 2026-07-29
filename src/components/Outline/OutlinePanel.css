@@ -81,14 +81,3 @@
   white-space: nowrap;
   display: block;
 }
-
-@media (prefers-color-scheme: dark) {
-  .outline-panel {
-    --outline-bg: #161b22;
-    --border: #30363d;
-    --text: #e6edf3;
-    --text-muted: #8b949e;
-    --outline-hover-bg: rgba(255, 255, 255, 0.06);
-    --outline-active-bg: rgba(56, 139, 253, 0.25);
-  }
-}

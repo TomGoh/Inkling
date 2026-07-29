@@ -17,11 +17,3 @@
 .status-sep {
   opacity: 0.5;
 }
-
-@media (prefers-color-scheme: dark) {
-  .status-bar {
-    --statusbar-bg: #161b22;
-    --border: #30363d;
-    --text-muted: #8b949e;
-  }
-}
