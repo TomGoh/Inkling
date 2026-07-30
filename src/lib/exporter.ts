@@ -145,3 +145,94 @@ function downloadBlob(blob: Blob, filename: string): void {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+
+/** 复制当前 Markdown 源码到剪贴板（纯文本） */
+export async function copyMarkdown(): Promise<boolean> {
+  const content = useWorkspace.getState().currentContent;
+  try {
+    await navigator.clipboard.writeText(content);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 检查系统是否安装 pandoc（仅桌面端有效） */
+export async function checkPandoc(): Promise<boolean> {
+  if (!isTauri()) return false;
+  try {
+    return await invoke<boolean>("pandoc_check");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 导出为 Word（.docx），走 Pandoc
+ * - 仅桌面端可用：浏览器端无法调用本地 pandoc
+ * - 未安装 pandoc 时返回错误，由调用方提示用户安装
+ */
+export async function exportDocx(): Promise<{
+  ok: boolean;
+  error?: string;
+}> {
+  if (!isTauri()) {
+    return { ok: false, error: "Word 导出仅在桌面端可用（需调用 Pandoc）" };
+  }
+  const installed = await checkPandoc();
+  if (!installed) {
+    return {
+      ok: false,
+      error: "未检测到 Pandoc，请先安装：https://pandoc.org/installing.html",
+    };
+  }
+  const content = useWorkspace.getState().currentContent;
+  if (!content) return { ok: false, error: "无内容可导出" };
+  const name = getBaseName();
+  const rootPath = useWorkspace.getState().rootPath;
+
+  const path = await save({
+    defaultPath: `${name}.docx`,
+    filters: [{ name: "Word 文档", extensions: ["docx"] }],
+  });
+  if (!path) return { ok: false };
+
+  try {
+    await invoke<void>("pandoc_export_docx", {
+      markdown: content,
+      outputPath: path,
+      resourceDir: rootPath ?? null,
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** 复制编辑器渲染结果为富文本（text/html + text/plain 回退） */
+export async function copyRichText(
+  getEditor: () => Editor | undefined,
+): Promise<boolean> {
+  const html = getEditorHTML(getEditor);
+  if (!html) return false;
+  const text = useWorkspace.getState().currentContent;
+  try {
+    const htmlBlob = new Blob([html], { type: "text/html" });
+    const textBlob = new Blob([text], { type: "text/plain" });
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/html": htmlBlob,
+        "text/plain": textBlob,
+      }),
+    ]);
+    return true;
+  } catch {
+    // ClipboardItem 不支持时回退到纯文本
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}

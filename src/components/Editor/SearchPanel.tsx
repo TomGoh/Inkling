@@ -1,0 +1,192 @@
+// 查找替换面板（浮层）
+// 通过 getEditor 拿到 Milkdown 编辑器实例，dispatch search meta 触发查找/导航/替换。
+// 输入查找词即时搜索，Enter 下一个、Shift+Enter 上一个，Esc 关闭。
+// 支持大小写敏感、正则开关，显示当前匹配序号/总数。
+
+import { useEffect, useRef, useState } from "react";
+import type { Editor } from "@milkdown/kit/core";
+import { editorViewCtx } from "@milkdown/kit/core";
+import {
+  searchKey,
+  replaceCurrent,
+  replaceAll,
+  scrollToCurrent,
+  type SearchOpts,
+} from "./search";
+import "./SearchPanel.css";
+
+interface Props {
+  getEditor: () => Editor | undefined;
+  onClose: () => void;
+}
+
+export function SearchPanel({ getEditor, onClose }: Props) {
+  const [find, setFind] = useState("");
+  const [replace, setReplace] = useState("");
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [useRegex, setUseRegex] = useState(false);
+  const [count, setCount] = useState(0);
+  const [current, setCurrent] = useState(0);
+  const [showReplace, setShowReplace] = useState(false);
+  const findRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    findRef.current?.focus();
+  }, []);
+
+  // 查找词或选项变化时即时搜索
+  useEffect(() => {
+    const editor = getEditor();
+    if (!editor) return;
+    const opts: SearchOpts = { find, replace, caseSensitive, useRegex };
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      view.dispatch(view.state.tr.setMeta(searchKey, find ? { type: "set", opts } : { type: "clear" }));
+      const s = searchKey.getState(view.state);
+      setCount(s?.matches.length ?? 0);
+      setCurrent((s?.current ?? -1) + 1);
+      if (s && s.current >= 0) scrollToCurrent(view);
+    });
+  }, [find, caseSensitive, useRegex, replace, getEditor]);
+
+  const readState = () => {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      const s = searchKey.getState(view.state);
+      setCount(s?.matches.length ?? 0);
+      setCurrent((s?.current ?? -1) + 1);
+    });
+  };
+
+  const goNext = () => {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      view.dispatch(view.state.tr.setMeta(searchKey, { type: "next" }));
+      const s = searchKey.getState(view.state);
+      setCurrent((s?.current ?? -1) + 1);
+      scrollToCurrent(view);
+    });
+  };
+
+  const goPrev = () => {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      view.dispatch(view.state.tr.setMeta(searchKey, { type: "prev" }));
+      const s = searchKey.getState(view.state);
+      setCurrent((s?.current ?? -1) + 1);
+      scrollToCurrent(view);
+    });
+  };
+
+  const doReplace = () => {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      replaceCurrent(view);
+      readState();
+      scrollToCurrent(view);
+    });
+  };
+
+  const doReplaceAll = () => {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      const n = replaceAll(view);
+      readState();
+      if (n > 0) alert(`已替换 ${n} 处`);
+    });
+  };
+
+  const handleFindKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey) goPrev();
+      else goNext();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      onClose();
+    }
+  };
+
+  return (
+    <div className="search-panel">
+      <div className="search-row">
+        <button
+          className="search-toggle-expand"
+          title={showReplace ? "隐藏替换" : "显示替换"}
+          onClick={() => setShowReplace((v) => !v)}
+        >
+          {showReplace ? "▾" : "▸"}
+        </button>
+        <input
+          ref={findRef}
+          className="search-input"
+          placeholder="查找"
+          value={find}
+          onChange={(e) => setFind(e.target.value)}
+          onKeyDown={handleFindKey}
+        />
+        <button
+          className={`search-flag${caseSensitive ? " active" : ""}`}
+          title="区分大小写"
+          onClick={() => setCaseSensitive((v) => !v)}
+        >
+          Aa
+        </button>
+        <button
+          className={`search-flag${useRegex ? " active" : ""}`}
+          title="正则表达式"
+          onClick={() => setUseRegex((v) => !v)}
+        >
+          .*
+        </button>
+        <span className="search-count">
+          {count > 0 ? `${current}/${count}` : find ? "无结果" : ""}
+        </span>
+        <button className="search-btn" title="上一个" onClick={goPrev}>
+          ↑
+        </button>
+        <button className="search-btn" title="下一个" onClick={goNext}>
+          ↓
+        </button>
+        <button className="search-btn search-close-btn" title="关闭" onClick={onClose}>
+          ✕
+        </button>
+      </div>
+      {showReplace && (
+        <div className="search-row">
+          <span className="search-spacer" />
+          <input
+            className="search-input"
+            placeholder="替换"
+            value={replace}
+            onChange={(e) => setReplace(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                onClose();
+              }
+            }}
+          />
+          <button className="search-btn" title="替换当前" onClick={doReplace}>
+            替换
+          </button>
+          <button className="search-btn" title="全部替换" onClick={doReplaceAll}>
+            全部
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default SearchPanel;

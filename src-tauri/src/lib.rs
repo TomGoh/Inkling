@@ -1,7 +1,11 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod commands;
 
-use commands::{list_dir, read_text_file, write_binary_file, write_text_file};
+use commands::{
+    create_dir, create_file, delete_path, file_mtime, list_dir, pandoc_check,
+    pandoc_export_docx, read_text_file, rename_path, search_in_workspace, write_binary_file,
+    write_text_file,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,7 +32,15 @@ pub fn run() {
             list_dir,
             read_text_file,
             write_text_file,
-            write_binary_file
+            write_binary_file,
+            file_mtime,
+            pandoc_check,
+            pandoc_export_docx,
+            rename_path,
+            delete_path,
+            create_file,
+            create_dir,
+            search_in_workspace
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

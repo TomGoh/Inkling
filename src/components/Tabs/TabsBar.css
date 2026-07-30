@@ -54,6 +54,14 @@
   background: #2f81f7;
 }
 
+/* 拖拽悬停时的视觉反馈：左侧蓝色竖线 */
+.tab-drag-over {
+  box-shadow: -2px 0 0 0 #2f81f7;
+}
+.tab.tab-drag-over {
+  background: var(--row-hover-bg, rgba(0, 0, 0, 0.06));
+}
+
 .tab-name {
   overflow: hidden;
   text-overflow: ellipsis;
