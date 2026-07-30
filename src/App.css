@@ -807,6 +807,50 @@ body,
   background: var(--border, #e1e4e8);
 }
 
+/* 编辑器降级模式：Milkdown 加载失败时的只读 textarea */
+.md-editor-fallback {
+  padding: 16px;
+}
+.md-editor-fallback-banner {
+  padding: 10px 14px;
+  background: #fff8c5;
+  border: 1px solid #e3b341;
+  border-radius: 6px;
+  color: #5d4204;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.md-editor-fallback-textarea {
+  width: 100%;
+  min-height: 60vh;
+  padding: 16px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  background: var(--bg-elevated, #fff);
+  color: var(--text, #1f2328);
+  resize: vertical;
+  outline: none;
+}
+
+/* 空状态：侧边栏关闭时的打开按钮（避免死锁） */
+.empty-state-open-sidebar {
+  margin-top: 20px;
+  padding: 8px 18px;
+  font-size: 14px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text, #1f2328);
+  transition: background 0.15s;
+}
+.empty-state-open-sidebar:hover {
+  background: var(--bg-hover, #f6f8fa);
+}
+
 /* ===== v0.8.0：禅模式 ===== */
 .app-shell.zen-mode {
   padding: 0;
