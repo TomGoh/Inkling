@@ -52,6 +52,7 @@ import {
   remarkCalloutPlugin,
 } from "./callout";
 import { slashMenuPlugin } from "./slash-menu";
+import { autoPairPlugin } from "./auto-pair";
 
 interface EditorProps {
   /** 受控的 Markdown 文本。外部传入新值时会覆盖编辑器内容 */
@@ -149,6 +150,8 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
             }),
             // 斜杠菜单：输入 `/` 弹出块类型选择菜单
             slashMenuPlugin(),
+            // 自动配对补全：输入括号/引号自动配对
+            autoPairPlugin(),
           ]);
           // 注入主题
           nord(ctx);

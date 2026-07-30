@@ -1,33 +1,125 @@
+// 图片节点视图
+// 支持：相对路径解析、行内显示、缩放（拖拽右下角手柄）、对齐（右键菜单）。
+// width / align 编码进 markdown title，格式 "width=300,align=center"，
+// 保持源码为标准 markdown 语法，重开文件可恢复属性。
+// commonmark image 是 inline 节点，dom 用 inline-block 的 span 包裹 img，
+// 既能行内排列又能附加缩放手柄与对齐样式。
+
 import type { NodeView } from "@milkdown/kit/prose/view";
+import type { EditorView as PMView } from "@milkdown/kit/prose/view";
 import type { Node } from "@milkdown/kit/prose/model";
 import { $view } from "@milkdown/kit/utils";
 import { imageSchema } from "@milkdown/kit/preset/commonmark";
 import { resolveImageSrc } from "../../lib/fs";
 import { useWorkspace } from "../../store/workspace";
 
-/**
- * 图片节点视图。
- * commonmark 的 image 默认把 src 原样输出到 <img>，但相对路径（如 assets/x.png）
- * 在 WebView 里无法加载。这里把相对路径解析为工作区绝对路径后用 convertFileSrc 转换，
- * 使本地图片可正常显示，同时 markdown 源码仍保持相对路径引用（便于迁移）。
- */
-class ImageNodeView implements NodeView {
-  dom: HTMLImageElement;
-  private node: Node;
+/** 图片对齐方式 */
+type ImageAlign = "left" | "center" | "right";
 
-  constructor(node: Node) {
+/** 从 title 解析 width 与 align */
+function parseImageMeta(title: string | null | undefined): {
+  width: number | null;
+  align: ImageAlign | null;
+  cleanTitle: string | null;
+} {
+  if (!title) return { width: null, align: null, cleanTitle: null };
+  let width: number | null = null;
+  let align: ImageAlign | null = null;
+  // 按 ", " 或 "," 分割，识别 width=N 与 align=xxx
+  const parts = title.split(/,\s*|，/);
+  const others: string[] = [];
+  for (const p of parts) {
+    const wm = p.match(/^width\s*=\s*(\d+)$/i);
+    const am = p.match(/^align\s*=\s*(left|center|right)$/i);
+    if (wm) width = parseInt(wm[1], 10);
+    else if (am) align = am[1].toLowerCase() as ImageAlign;
+    else if (p.trim()) others.push(p.trim());
+  }
+  return { width, align, cleanTitle: others.length ? others.join(", ") : null };
+}
+
+/** 把 width/align 编码回 title */
+function encodeImageMeta(width: number | null, align: ImageAlign | null, cleanTitle: string | null): string | null {
+  const segs: string[] = [];
+  if (width != null) segs.push(`width=${width}`);
+  if (align) segs.push(`align=${align}`);
+  if (cleanTitle) segs.push(cleanTitle);
+  return segs.length ? segs.join(", ") : null;
+}
+
+class ImageNodeView implements NodeView {
+  dom: HTMLSpanElement;
+  private img: HTMLImageElement;
+  private handle: HTMLSpanElement;
+  private node: Node;
+  private view: PMView;
+  private getPos: () => number | undefined;
+  private width: number | null = null;
+  private align: ImageAlign | null = null;
+  private cleanTitle: string | null = null;
+
+  constructor(node: Node, view: PMView, getPos: () => number | undefined) {
     this.node = node;
-    this.dom = document.createElement("img");
-    this.dom.className = "milkdown-image";
-    this.dom.loading = "lazy";
+    this.view = view;
+    this.getPos = getPos;
+
+    this.dom = document.createElement("span");
+    this.dom.className = "milkdown-image-wrap";
+    this.dom.setAttribute("data-image-wrap", "");
+
+    this.img = document.createElement("img");
+    this.img.className = "milkdown-image";
+    this.img.loading = "lazy";
+    this.dom.appendChild(this.img);
+
+    // 缩放手柄
+    this.handle = document.createElement("span");
+    this.handle.className = "image-resize-handle";
+    this.handle.contentEditable = "false";
+    this.handle.title = "拖拽缩放";
+    this.handle.addEventListener("mousedown", this.onResizeStart);
+    this.dom.appendChild(this.handle);
+
+    // 右键菜单：对齐
+    this.dom.addEventListener("contextmenu", this.onContextMenu);
+
     this.render();
   }
 
   private render() {
     const rootPath = useWorkspace.getState().rootPath;
-    this.dom.src = resolveImageSrc(this.node.attrs.src ?? "", rootPath);
-    this.dom.alt = this.node.attrs.alt ?? "";
-    if (this.node.attrs.title) this.dom.title = this.node.attrs.title;
+    const src = this.node.attrs.src ?? "";
+    this.img.src = resolveImageSrc(src, rootPath);
+    this.img.alt = this.node.attrs.alt ?? "";
+
+    const meta = parseImageMeta(this.node.attrs.title);
+    this.width = meta.width;
+    this.align = meta.align;
+    this.cleanTitle = meta.cleanTitle;
+    if (this.cleanTitle) this.img.title = this.cleanTitle;
+    else this.img.removeAttribute("title");
+
+    // 宽度
+    if (this.width != null) this.img.style.width = `${this.width}px`;
+    else this.img.style.width = "";
+
+    // 对齐：center/right 时改为 block + margin，left/默认保持 inline-block
+    this.dom.classList.remove("align-center", "align-right", "align-left");
+    if (this.align === "center") {
+      this.dom.classList.add("align-center");
+      this.dom.style.display = "block";
+      this.dom.style.margin = "0 auto";
+      this.dom.style.textAlign = "center";
+    } else if (this.align === "right") {
+      this.dom.classList.add("align-right");
+      this.dom.style.display = "block";
+      this.dom.style.margin = "0 0 0 auto";
+    } else {
+      this.dom.style.display = "inline-block";
+      this.dom.style.margin = "";
+      this.dom.style.textAlign = "";
+      if (this.align === "left") this.dom.classList.add("align-left");
+    }
   }
 
   update(node: Node): boolean {
@@ -44,7 +136,92 @@ class ImageNodeView implements NodeView {
   ignoreMutation() {
     return true;
   }
+
+  /** 更新节点的 title 属性（编码 width/align） */
+  private updateNodeAttrs(width: number | null, align: ImageAlign | null) {
+    const pos = this.getPos();
+    if (pos == null) return;
+    const title = encodeImageMeta(width, align, this.cleanTitle);
+    this.view.dispatch(
+      this.view.state.tr.setNodeMarkup(pos, undefined, {
+        ...this.node.attrs,
+        title,
+      }),
+    );
+  }
+
+  /** 拖拽缩放 */
+  private onResizeStart = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = this.img.offsetWidth || this.img.naturalWidth || 100;
+    const onMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX;
+      const w = Math.max(40, Math.round(startWidth + dx));
+      this.img.style.width = `${w}px`;
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      const finalWidth = Math.max(40, Math.round(this.img.offsetWidth));
+      this.width = finalWidth;
+      this.updateNodeAttrs(finalWidth, this.align);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  /** 右键菜单：对齐与重置 */
+  private onContextMenu = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const menu = document.createElement("div");
+    menu.className = "image-context-menu";
+
+    const makeItem = (label: string, onClick: () => void) => {
+      const btn = document.createElement("button");
+      btn.className = "image-context-item";
+      btn.textContent = label;
+      btn.addEventListener("click", () => {
+        onClick();
+        document.body.removeChild(menu);
+      });
+      menu.appendChild(btn);
+    };
+
+    makeItem("左对齐", () => this.updateNodeAttrs(this.width, "left"));
+    makeItem("居中", () => this.updateNodeAttrs(this.width, "center"));
+    makeItem("右对齐", () => this.updateNodeAttrs(this.width, "right"));
+    const sep = document.createElement("div");
+    sep.className = "image-context-sep";
+    menu.appendChild(sep);
+    makeItem("重置大小", () => {
+      this.width = null;
+      this.updateNodeAttrs(null, this.align);
+    });
+
+    // 定位菜单
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    document.body.appendChild(menu);
+
+    const close = (ev: MouseEvent) => {
+      if (!menu.contains(ev.target as globalThis.Node)) {
+        if (menu.parentNode) document.body.removeChild(menu);
+        document.removeEventListener("mousedown", close);
+      }
+    };
+    setTimeout(() => document.addEventListener("mousedown", close), 0);
+  };
+
+  destroy() {
+    this.handle.removeEventListener("mousedown", this.onResizeStart);
+    this.dom.removeEventListener("contextmenu", this.onContextMenu);
+  }
 }
 
-/** 图片 NodeView 插件：相对路径转可加载 URL */
-export const imageView = $view(imageSchema.node, () => (node) => new ImageNodeView(node));
+/** 图片 NodeView 插件：相对路径转可加载 URL + 缩放 + 对齐 */
+export const imageView = $view(imageSchema.node, () => (node, view, getPos) =>
+  new ImageNodeView(node, view, getPos),
+);

@@ -71,6 +71,13 @@ const STATIC_GROUPS: ShortcutGroup[] = [
       { keys: `${MOD}+X / C / V`, desc: "剪切 / 复制 / 粘贴" },
     ],
   },
+  {
+    title: "视图与布局",
+    items: [
+      { keys: `F11`, desc: "禅模式（隐藏所有 UI，纯编辑）" },
+      { keys: `Esc`, desc: "退出禅模式" },
+    ],
+  },
 ];
 
 interface ShortcutsHelpProps {

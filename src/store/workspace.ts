@@ -31,6 +31,54 @@ function persistRecentFiles(files: string[]): void {
   }
 }
 
+/** 折叠目录列表的持久化 key（存被用户折叠的目录，未记录的默认展开） */
+const COLLAPSED_DIRS_KEY = "inkling-collapsed-dirs";
+
+/** 读取持久化的折叠目录列表 */
+function loadCollapsedDirs(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_DIRS_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw) as string[];
+    return Array.isArray(arr) ? new Set(arr) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+/** 持久化折叠目录列表 */
+function persistCollapsedDirs(dirs: Set<string>): void {
+  try {
+    localStorage.setItem(COLLAPSED_DIRS_KEY, JSON.stringify([...dirs]));
+  } catch {
+    // 忽略写入失败
+  }
+}
+
+/** 书签列表的持久化 key */
+const BOOKMARKS_KEY = "inkling-bookmarks";
+
+/** 读取持久化的书签列表 */
+function loadBookmarks(): string[] {
+  try {
+    const raw = localStorage.getItem(BOOKMARKS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as string[];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 持久化书签列表 */
+function persistBookmarks(files: string[]): void {
+  try {
+    localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(files));
+  } catch {
+    // 忽略写入失败
+  }
+}
+
 /** 把 path 推到列表头部并去重，截断到最大长度 */
 function pushRecent(list: string[], path: string): string[] {
   const next = [path, ...list.filter((p) => p !== path)];
@@ -85,6 +133,22 @@ interface WorkspaceState {
   /** 最近打开的文件路径列表（最多 10 个，最新在前） */
   recentFiles: string[];
 
+  /** 折叠的目录路径集合（持久化，未记录的目录默认展开） */
+  collapsedDirs: Set<string>;
+  /** 切换目录展开状态并持久化 */
+  toggleDirExpanded: (path: string) => void;
+  /** 设置目录展开状态并持久化 */
+  setDirExpanded: (path: string, expanded: boolean) => void;
+  /** 查询目录是否展开（未记录时默认 true，即默认展开） */
+  isDirExpanded: (path: string) => boolean;
+
+  /** 书签文件路径列表 */
+  bookmarks: string[];
+  /** 切换书签状态（已收藏则取消，未收藏则添加） */
+  toggleBookmark: (path: string) => void;
+  /** 查询是否已收藏 */
+  isBookmarked: (path: string) => boolean;
+
   /** 打开工作区：读取目录树 */
   openWorkspace: (dirPath: string) => Promise<void>;
   /** 打开文件：已打开则切换到对应 tab，否则读取内容新增 tab */
@@ -133,6 +197,40 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   lastSavedAt: null,
   currentHeadingSlug: null,
   recentFiles: loadRecentFiles(),
+  collapsedDirs: loadCollapsedDirs(),
+  bookmarks: loadBookmarks(),
+
+  toggleDirExpanded: (path) => {
+    const next = new Set(get().collapsedDirs);
+    // 当前展开（不在折叠集合）→ 折叠（加入集合）；反之移除
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    set({ collapsedDirs: next });
+    persistCollapsedDirs(next);
+  },
+
+  setDirExpanded: (path, expanded) => {
+    const next = new Set(get().collapsedDirs);
+    if (expanded) next.delete(path);
+    else next.add(path);
+    set({ collapsedDirs: next });
+    persistCollapsedDirs(next);
+  },
+
+  isDirExpanded: (path) => {
+    // 未记录的目录默认展开（不在折叠集合里）
+    return !get().collapsedDirs.has(path);
+  },
+
+  toggleBookmark: (path) => {
+    const next = get().bookmarks.includes(path)
+      ? get().bookmarks.filter((p) => p !== path)
+      : [...get().bookmarks, path];
+    set({ bookmarks: next });
+    persistBookmarks(next);
+  },
+
+  isBookmarked: (path) => get().bookmarks.includes(path),
 
   openWorkspace: async (dirPath) => {
     set({ loading: true });
@@ -409,6 +507,14 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const rf = get().recentFiles.map((p) => (p === from ? to : p));
     set({ recentFiles: rf });
     persistRecentFiles(rf);
+    // 同步 bookmarks（精确匹配文件，目录重命名时前缀匹配子项）
+    const bk = get().bookmarks.map((p) =>
+      p === from ? to : p.startsWith(from + "/") || p.startsWith(from + "\\")
+        ? to + p.slice(from.length)
+        : p,
+    );
+    set({ bookmarks: bk });
+    persistBookmarks(bk);
     void get().refreshTree();
   },
 
@@ -422,6 +528,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const rf = get().recentFiles.filter((p) => p !== path);
     set({ recentFiles: rf });
     persistRecentFiles(rf);
+    // 同步 bookmarks（移除被删除文件及其目录下的子项）
+    const bk = get().bookmarks.filter(
+      (p) => p !== path && !p.startsWith(path + "/") && !p.startsWith(path + "\\"),
+    );
+    set({ bookmarks: bk });
+    persistBookmarks(bk);
     void get().refreshTree();
   },
 }));

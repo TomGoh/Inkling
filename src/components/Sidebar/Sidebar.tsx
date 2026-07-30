@@ -93,9 +93,62 @@ function RecentFiles() {
   );
 }
 
+/** 书签文件区块 */
+function Bookmarks() {
+  const bookmarks = useWorkspace((s) => s.bookmarks);
+  const currentFile = useWorkspace((s) => s.currentFile);
+  const openFile = useWorkspace((s) => s.openFile);
+  const toggleBookmark = useWorkspace((s) => s.toggleBookmark);
+  const [expanded, setExpanded] = useState(true);
+
+  if (bookmarks.length === 0) return null;
+
+  return (
+    <div className="recent-section">
+      <button className="recent-header" onClick={() => setExpanded((v) => !v)}>
+        <span className="tree-icon">{expanded ? "▾" : "▸"}</span>
+        <span className="recent-title">书签</span>
+      </button>
+      {expanded && (
+        <div className="recent-list">
+          {bookmarks.map((path) => {
+            const active = currentFile === path;
+            return (
+              <div
+                key={path}
+                className={`tree-row tree-row-file${active ? " tree-row-active" : ""}`}
+                style={{ paddingLeft: "24px" }}
+                title={path}
+              >
+                <button
+                  className="tree-row-main"
+                  onClick={() => openFile(path)}
+                >
+                  <span className="tree-icon">⭐</span>
+                  <span className="tree-name">{basename(path)}</span>
+                </button>
+                <button
+                  className="tree-row-side"
+                  title="取消书签"
+                  onClick={() => toggleBookmark(path)}
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** 单个树节点（递归渲染） */
 function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
-  const [expanded, setExpanded] = useState(depth < 1);
+  // 折叠状态从 store 读取并持久化（根目录与一级目录默认展开）
+  const isDirExpanded = useWorkspace((s) => s.isDirExpanded);
+  const toggleDirExpanded = useWorkspace((s) => s.toggleDirExpanded);
+  const [expanded, setExpanded] = useState(() => isDirExpanded(node.path));
   const currentFile = useWorkspace((s) => s.currentFile);
   const openTabs = useWorkspace((s) => s.openTabs);
   const openFile = useWorkspace((s) => s.openFile);
@@ -123,6 +176,13 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
     }
   }, [newItem]);
 
+  // 切换展开状态时同步到 store 持久化
+  const handleToggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    toggleDirExpanded(node.path);
+  };
+
   // 监听 Sidebar 派发的动作事件
   useEffect(() => {
     const handler = (e: Event) => {
@@ -138,12 +198,15 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
       ) {
         setNewItem({ parentPath: detail.parentPath, kind: detail.kind });
         setNewItemValue("");
-        if (!expanded) setExpanded(true);
+        if (!expanded) {
+          setExpanded(true);
+          toggleDirExpanded(node.path);
+        }
       }
     };
     window.addEventListener(TREE_ACTION_EVENT, handler);
     return () => window.removeEventListener(TREE_ACTION_EVENT, handler);
-  }, [node.path, node.is_dir, expanded]);
+  }, [node.path, node.is_dir, expanded, toggleDirExpanded]);
 
   /** 触发右键菜单（向上冒泡到 Sidebar） */
   const triggerMenu = (e: React.MouseEvent) => {
@@ -225,7 +288,7 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
           <button
             className="tree-row tree-row-dir"
             style={{ paddingLeft: `${depth * 12 + 8}px` }}
-            onClick={() => setExpanded((v) => !v)}
+            onClick={handleToggle}
             onContextMenu={triggerMenu}
           >
             <span className="tree-icon">{expanded ? "▾" : "▸"}</span>
@@ -321,6 +384,8 @@ function TreeContextMenu({
   const openTabs = useWorkspace((s) => s.openTabs);
   const onFileDeleted = useWorkspace((s) => s.onFileDeleted);
   const refreshTree = useWorkspace((s) => s.refreshTree);
+  const toggleBookmark = useWorkspace((s) => s.toggleBookmark);
+  const isBookmarked = useWorkspace((s) => s.isBookmarked);
   const ref = useRef<HTMLDivElement>(null);
 
   // 点击外部或 Esc 关闭
@@ -449,6 +514,20 @@ function TreeContextMenu({
           删除
         </button>
         <div className="tree-context-sep" />
+        {!node.is_dir && (
+          <>
+            <button
+              className="tree-context-item"
+              onClick={() => {
+                toggleBookmark(node.path);
+                onClose();
+              }}
+            >
+              {isBookmarked(node.path) ? "取消书签" : "加入书签"}
+            </button>
+            <div className="tree-context-sep" />
+          </>
+        )}
         <button className="tree-context-item" onClick={() => void handleCopyPath()}>
           复制路径
         </button>
@@ -505,6 +584,7 @@ export function Sidebar() {
         {!loading && tree && (
           <>
             <RecentFiles />
+            <Bookmarks />
             <TreeNode node={tree} depth={0} />
           </>
         )}

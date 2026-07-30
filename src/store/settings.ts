@@ -17,6 +17,8 @@ export interface SettingsState {
   focusMode: boolean;
   /** 打字机模式：当前编辑行保持垂直居中 */
   typewriterMode: boolean;
+  /** 自动配对补全：输入括号/引号自动配对，光标置中 */
+  autoPair: boolean;
   /** 切换公式自动编号 */
   setFormulaAutoNumber: (v: boolean) => void;
   /** 设置代码块主题 */
@@ -25,6 +27,8 @@ export interface SettingsState {
   setFocusMode: (v: boolean) => void;
   /** 切换打字机模式 */
   setTypewriterMode: (v: boolean) => void;
+  /** 切换自动配对 */
+  setAutoPair: (v: boolean) => void;
   /** 重置全部为默认值 */
   reset: () => void;
 }
@@ -36,6 +40,7 @@ interface PersistedSettings {
   codeBlockTheme: CodeBlockTheme;
   focusMode: boolean;
   typewriterMode: boolean;
+  autoPair: boolean;
 }
 
 const DEFAULTS: PersistedSettings = {
@@ -43,6 +48,7 @@ const DEFAULTS: PersistedSettings = {
   codeBlockTheme: "oneDark",
   focusMode: false,
   typewriterMode: false,
+  autoPair: true,
 };
 
 function loadPersisted(): PersistedSettings {
@@ -71,6 +77,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
   codeBlockTheme: initial.codeBlockTheme,
   focusMode: initial.focusMode,
   typewriterMode: initial.typewriterMode,
+  autoPair: initial.autoPair,
 
   setFormulaAutoNumber: (v) => {
     set({ formulaAutoNumber: v });
@@ -88,6 +95,10 @@ export const useSettings = create<SettingsState>((set, get) => ({
     set({ typewriterMode: v });
     persist(snapshot(get()));
   },
+  setAutoPair: (v) => {
+    set({ autoPair: v });
+    persist(snapshot(get()));
+  },
   reset: () => {
     set({ ...DEFAULTS });
     persist(DEFAULTS);
@@ -100,5 +111,6 @@ function snapshot(s: SettingsState): PersistedSettings {
     codeBlockTheme: s.codeBlockTheme,
     focusMode: s.focusMode,
     typewriterMode: s.typewriterMode,
+    autoPair: s.autoPair,
   };
 }

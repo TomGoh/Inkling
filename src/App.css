@@ -733,3 +733,125 @@ body,
 [data-theme="dark"] .editor-scroll .milkdown .frontmatter-cm .cm-gutters {
   border-right-color: #30363d;
 }
+
+/* ===== v0.8.0：图片缩放/对齐/行内 ===== */
+.milkdown-image-wrap {
+  display: inline-block;
+  position: relative;
+  vertical-align: middle;
+  max-width: 100%;
+}
+.milkdown-image-wrap .milkdown-image {
+  max-width: 100%;
+  height: auto;
+}
+.milkdown-image-wrap.align-center,
+.milkdown-image-wrap.align-right {
+  display: block;
+}
+.milkdown-image-wrap.align-center {
+  margin: 0 auto;
+  text-align: center;
+}
+.milkdown-image-wrap.align-right {
+  margin: 0 0 0 auto;
+}
+/* 缩放手柄：仅 hover 时显示 */
+.image-resize-handle {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 12px;
+  height: 12px;
+  background: #2f81f7;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  z-index: 5;
+}
+.milkdown-image-wrap:hover .image-resize-handle {
+  opacity: 1;
+}
+/* 图片右键菜单 */
+.image-context-menu {
+  position: fixed;
+  min-width: 120px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  z-index: 1000;
+}
+.image-context-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  color: inherit;
+  font-size: 13px;
+}
+.image-context-item:hover {
+  background: var(--bg-hover, #f6f8fa);
+}
+.image-context-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border, #e1e4e8);
+}
+
+/* ===== v0.8.0：禅模式 ===== */
+.app-shell.zen-mode {
+  padding: 0;
+}
+.app-shell.zen-mode .editor-wrap {
+  height: 100vh;
+}
+.app-shell.zen-mode .editor-scroll {
+  height: calc(100vh - 0px);
+  padding: 48px 0;
+}
+.app-shell.zen-mode .md-editor-root {
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+/* ===== v0.8.0：书签行（带取消按钮） ===== */
+.tree-row-side {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-muted, #8b949e);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 6px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.tree-row:hover .tree-row-side,
+.tree-row-side:focus {
+  opacity: 1;
+}
+.tree-row-side:hover {
+  color: var(--danger, #cf222e);
+}
+.tree-row-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font-size: inherit;
+  padding: 0;
+}

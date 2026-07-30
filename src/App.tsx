@@ -73,6 +73,9 @@ function App() {
   const outlineVisible = useUI((s) => s.outlineVisible);
   const toggleSidebar = useUI((s) => s.toggleSidebar);
   const toggleOutline = useUI((s) => s.toggleOutline);
+  const zenMode = useUI((s) => s.zenMode);
+  const toggleZenMode = useUI((s) => s.toggleZenMode);
+  const setZenMode = useUI((s) => s.setZenMode);
 
   // 启用 Ctrl/Cmd+S 手动保存 + 防抖 2 秒自动保存
   useAutoSave();
@@ -83,6 +86,17 @@ function App() {
   // 编辑器内 Milkdown 预设的快捷键（加粗等）不在自定义范围
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // F11 切换禅模式（非修饰键，独立处理）
+      if (e.key === "F11") {
+        e.preventDefault();
+        toggleZenMode();
+        return;
+      }
+      // 禅模式下 Esc 退出
+      if (e.key === "Escape" && useUI.getState().zenMode) {
+        setZenMode(false);
+        return;
+      }
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
       // Ctrl/Cmd+Shift+F 全局搜索（优先于当前文件查找）
@@ -112,9 +126,28 @@ function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [toggleSidebar, toggleOutline]);
+  }, [toggleSidebar, toggleOutline, toggleZenMode, setZenMode]);
 
   const getEditor = () => getEditorRef.current?.();
+
+  // 禅模式：仅渲染编辑器，隐藏所有 UI（侧边栏/大纲/标签页/工具栏/状态栏）
+  if (zenMode && currentFile) {
+    return (
+      <main className="app-shell zen-mode">
+        <div className="editor-wrap">
+          <div className="editor-scroll">
+            <EditorErrorBoundary fileName={currentFile}>
+              <MarkdownEditor
+                value={currentContent}
+                onChange={setContent}
+                onReady={(getEditor) => (getEditorRef.current = getEditor)}
+              />
+            </EditorErrorBoundary>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="app-shell">
@@ -129,6 +162,13 @@ function App() {
               </span>
               <div className="topbar-actions">
                 <SaveIndicator />
+                <button
+                  className="topbar-btn"
+                  onClick={toggleZenMode}
+                  title="禅模式 (F11)"
+                >
+                  ⛶
+                </button>
                 <button
                   className="topbar-btn"
                   onClick={toggleSidebar}
