@@ -25,8 +25,8 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      // 3. tell Vite to ignore watching `src-tauri` 与依赖目录，避免触及 inotify 上限
+      ignored: ["**/src-tauri/**", "**/node_modules/**", "**/.pnpm-store/**"],
     },
   },
 }));

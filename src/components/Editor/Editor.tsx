@@ -203,17 +203,21 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
 
   const [loading, getEditor] = useInstance();
 
-  // 降级检测：loading 持续超过 3 秒仍未就绪，说明工厂抛错返回 undefined，
-  // 切换到只读 textarea 模式显示原始 markdown，避免白屏。
+  // 降级检测：
+  // 1) loading 持续超过 3 秒仍未就绪 → 工厂抛错返回 undefined
+  // 2) loading 切到 false 后 getEditor() 仍为空 → editor.create() 异步阶段抛错
+  //    （Milkdown React 集成层会 .catch(console.error) 吞掉错误，editorRef 不会赋值）
+  // 两种情况都切换到只读 textarea 模式显示原始 markdown，避免白屏。
   const [fallback, setFallback] = useState(false);
   useEffect(() => {
-    if (!loading) {
-      setFallback(false);
-      return;
+    if (loading) {
+      const timer = setTimeout(() => setFallback(true), 3000);
+      return () => clearTimeout(timer);
     }
-    const timer = setTimeout(() => setFallback(true), 3000);
-    return () => clearTimeout(timer);
-  }, [loading]);
+    // loading=false 后必须验证 editor 实例真的存在
+    const editor = getEditor();
+    setFallback(!editor);
+  }, [loading, getEditor]);
 
   // 编辑器就绪后通知外部，便于大纲面板等持有 getEditor
   useEffect(() => {

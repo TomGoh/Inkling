@@ -65,10 +65,19 @@ export const frontmatterSchema = $nodeSchema("frontmatter", () => ({
   },
 }));
 
-/** 注册 remark-frontmatter：识别文档首部 --- 围栏块为 yaml 节点 */
+/**
+ * 注册 remark-frontmatter：识别文档首部 --- 围栏块为 yaml 节点。
+ *
+ * 必须显式传入 "yaml" 作为 initialOptions：
+ * $remark 内部会执行 unified.use(plugin, options)，options 默认是 {} 空对象。
+ * remark-frontmatter 内部用 `options || 'yaml'` 取 settings，但 {} 是 truthy，
+ * 会让 settings 变成 {}，最终 frontmatter({}) 抛 "Missing `type` in matter `{}`"，
+ * 导致 editor.create() 失败、ProseMirror 不渲染、整页白屏。
+ */
 export const remarkFrontmatterPlugin = $remark(
   "remarkFrontmatter",
   () => remarkFrontmatter,
+  "yaml",
 );
 
 /** CodeMirror 宿主主题：与正文代码块风格保持一致 */
