@@ -29,6 +29,7 @@ import { linkClickPlugin } from "./link-click";
 import { outlineTrackerPlugin } from "./outline-tracker";
 import { formulaNumberingPlugin } from "./formula-numbering";
 import { editorModesPlugin } from "./editor-modes";
+import { blockDragPlugin } from "./block-drag";
 import { searchPlugin } from "./search";
 import { useSettings } from "../../store/settings";
 import { useWorkspace } from "../../store/workspace";
@@ -136,6 +137,7 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
               formulaNumberingPlugin(),
               // 专注模式 + 打字机模式
               editorModesPlugin(),
+              blockDragPlugin(),
               // 查找替换：高亮匹配、导航、替换
               searchPlugin(),
               // [TOC] 目录自动生成：根据文档标题实时生成目录

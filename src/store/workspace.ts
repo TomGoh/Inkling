@@ -144,6 +144,20 @@ interface WorkspaceState {
   /** 当前光标所在标题的 slug（用于大纲高亮，null 表示无） */
   currentHeadingSlug: string | null;
 
+  // 分屏：右侧第二面板，独立展示另一个已打开的 tab（只读对照为主）
+  /** 分屏面板展示的文件路径（null 表示未分屏） */
+  splitFile: string | null;
+  /** 分屏面板展示的文件内容（从对应 tab 实时同步） */
+  splitContent: string;
+  /** 在分屏面板打开一个已存在的 tab 作为对照（若未打开则先 openFile） */
+  splitOpen: (filePath: string) => Promise<void>;
+  /** 关闭分屏面板 */
+  splitClose: () => void;
+  /** 在分屏面板与主面板之间交换文件（把当前主文件挪到分屏，分屏文件挪到主） */
+  splitSwap: () => void;
+  /** 更新分屏面板内容（分屏编辑时调用），同步到对应 tab */
+  setSplitContent: (content: string) => void;
+
   /** 最近打开的文件路径列表（最多 10 个，最新在前） */
   recentFiles: string[];
 
@@ -208,6 +222,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   workspaceMode: null,
   tree: null,
   loading: false,
+
+  // 分屏状态
+  splitFile: null,
+  splitContent: "",
   openTabs: [],
   activeTabPath: null,
   currentFile: null,
@@ -324,6 +342,44 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set({ rootPath: parent, workspaceMode: "file", tree: null });
   },
 
+  splitOpen: async (filePath) => {
+    // 确保该文件已在 openTabs 中（不在则先打开，但不要切换主面板活跃 tab）
+    const existed = get().openTabs.find((t) => t.path === filePath);
+    if (!existed) {
+      // 先记录当前活跃 tab，openFile 会切换活跃，之后切回
+      const prevActive = get().activeTabPath;
+      await get().openFile(filePath);
+      if (prevActive && prevActive !== filePath) get().switchTab(prevActive);
+    }
+    const tab = get().openTabs.find((t) => t.path === filePath);
+    if (!tab) return;
+    // 不让分屏文件与主文件相同（无对照意义）
+    if (filePath === get().currentFile) return;
+    set({ splitFile: filePath, splitContent: tab.content });
+  },
+
+  splitClose: () => set({ splitFile: null, splitContent: "" }),
+
+  splitSwap: () => {
+    const { splitFile, currentFile, openTabs } = get();
+    if (!splitFile || !currentFile) return;
+    const mainTab = openTabs.find((t) => t.path === currentFile);
+    const splitTab = openTabs.find((t) => t.path === splitFile);
+    if (!mainTab || !splitTab) return;
+    // 主面板切换到原分屏文件，分屏切换到原主文件
+    get().switchTab(splitFile);
+    set({ splitFile: currentFile, splitContent: mainTab.content });
+  },
+
+  setSplitContent: (content) => {
+    const { splitFile, splitContent, openTabs } = get();
+    if (!splitFile || content === splitContent) return;
+    const nextTabs = openTabs.map((t) =>
+      t.path === splitFile ? { ...t, content, dirty: true } : t,
+    );
+    set({ openTabs: nextTabs, splitContent: content });
+  },
+
   switchTab: (filePath) => {
     const tab = get().openTabs.find((t) => t.path === filePath);
     if (!tab) return;
@@ -344,6 +400,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const idx = openTabs.findIndex((t) => t.path === filePath);
     if (idx === -1) return;
     const nextTabs = openTabs.filter((t) => t.path !== filePath);
+    // 若关闭的是分屏文件，同步关闭分屏面板
+    const splitClosing = get().splitFile === filePath;
 
     // 关闭的是活跃 tab：选择相邻 tab 激活
     if (activeTabPath === filePath) {
@@ -378,14 +436,18 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       // 关闭的不是活跃 tab，只更新列表
       set({ openTabs: nextTabs });
     }
+    // 若关闭的是分屏文件，同步关闭分屏面板
+    if (splitClosing) set({ splitFile: null, splitContent: "" });
   },
 
   closeOthers: (keepPath) => {
-    const { openTabs, activeTabPath } = get();
+    const { openTabs, activeTabPath, splitFile } = get();
     const keep = openTabs.find((t) => t.path === keepPath);
     if (!keep) return;
     // 若活跃 tab 不在保留项中，激活保留项
     const nextActive = activeTabPath === keepPath ? keepPath : keepPath;
+    // 分屏文件若不在保留项，关闭分屏
+    const splitStillValid = splitFile === keepPath;
     set({
       openTabs: [keep],
       activeTabPath: nextActive,
@@ -395,6 +457,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       lastSavedAt: keep.lastSavedAt,
       saveError: null,
       currentHeadingSlug: null,
+      splitFile: splitStillValid ? splitFile : null,
+      splitContent: splitStillValid ? get().splitContent : "",
     });
   },
 
@@ -432,6 +496,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       lastSavedAt: null,
       saveError: null,
       currentHeadingSlug: null,
+      splitFile: null,
+      splitContent: "",
     });
   },
 
@@ -531,7 +597,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   onFileRenamed: (from, to) => {
-    const { openTabs, activeTabPath } = get();
+    const { openTabs, activeTabPath, splitFile } = get();
     const nextTabs = openTabs.map((t) =>
       t.path === from ? { ...t, path: to } : t,
     );
@@ -540,6 +606,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       patch.activeTabPath = to;
       patch.currentFile = to;
     }
+    // 分屏文件被重命名，同步路径
+    if (splitFile === from) patch.splitFile = to;
     set(patch);
     // 同步 recentFiles
     const rf = get().recentFiles.map((p) => (p === from ? to : p));

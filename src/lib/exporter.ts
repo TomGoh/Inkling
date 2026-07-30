@@ -8,6 +8,7 @@ import { editorViewCtx } from "@milkdown/kit/core";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useWorkspace } from "../store/workspace";
+import { parseOutline } from "./outline";
 
 /** 从编辑器获取渲染后的 HTML 内容 */
 function getEditorHTML(getEditor: () => Editor | undefined): string {
@@ -234,5 +235,94 @@ export async function copyRichText(
     } catch {
       return false;
     }
+  }
+}
+
+/**
+ * 导出为 PNG 长图：用 html2canvas 把编辑器渲染结果截图。
+ * - 在离屏容器中以「只读展示样式」渲染一份完整文档副本，避免编辑态属性干扰
+ * - 仅桌面端保存到用户选择路径；浏览器端触发下载
+ */
+export async function exportPNG(
+  getEditor: () => Editor | undefined,
+): Promise<void> {
+  const { default: html2canvas } = await import("html2canvas");
+  const bodyHTML = getEditorHTML(getEditor);
+  if (!bodyHTML) return;
+  const name = getBaseName();
+
+  // 离屏容器：白底、固定宽度、去掉编辑态
+  const container = document.createElement("div");
+  container.style.cssText =
+    "position:fixed;left:-99999px;top:0;width:780px;padding:32px 40px;background:#fff;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:16px;line-height:1.6;";
+  container.innerHTML = bodyHTML;
+  document.body.appendChild(container);
+
+  try {
+    const canvas = await html2canvas(container, {
+      backgroundColor: "#ffffff",
+      scale: 2, // 2 倍清晰度
+      useCORS: true,
+      logging: false,
+    });
+    const blob: Blob = await new Promise((resolve, reject) =>
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("toBlob 失败"))),
+        "image/png",
+      ),
+    );
+
+    if (isTauri()) {
+      const path = await save({
+        defaultPath: `${name}.png`,
+        filters: [{ name: "PNG 图片", extensions: ["png"] }],
+      });
+      if (!path) return;
+      const buf = new Uint8Array(await blob.arrayBuffer());
+      await invoke<void>("write_binary_file", {
+        filePath: path,
+        data: Array.from(buf),
+      });
+    } else {
+      downloadBlob(blob, `${name}.png`);
+    }
+  } finally {
+    document.body.removeChild(container);
+  }
+}
+
+/**
+ * 导出文档大纲：只保留标题层级，生成只含标题的 markdown 文件，可作为目录使用。
+ * - 标题层级用缩进列表表示，便于一眼看出层级关系
+ * - 同时输出原始 # 语法，兼容 GitHub 等渲染器
+ */
+export async function exportOutline(): Promise<void> {
+  const content = useWorkspace.getState().currentContent;
+  if (!content) return;
+  const name = getBaseName();
+  const headings = parseOutline(content);
+
+  // 用缩进列表表示层级：H1 顶层，每深一级缩进 2 空格
+  const lines: string[] = [`# ${name} 目录`, ""];
+  for (const h of headings) {
+    const indent = "  ".repeat(Math.max(0, h.level - 1));
+    lines.push(`${indent}- ${h.text}`);
+  }
+  // 末尾附原始标题语法，便于直接作为新文档骨架
+  lines.push("", "---", "", "## 原始标题结构", "");
+  for (const h of headings) {
+    lines.push(`${"#".repeat(h.level)} ${h.text}`);
+  }
+  const md = lines.join("\n");
+
+  if (isTauri()) {
+    const path = await save({
+      defaultPath: `${name}-outline.md`,
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (!path) return;
+    await invoke<void>("write_text_file", { filePath: path, content: md });
+  } else {
+    downloadBlob(new Blob([md], { type: "text/markdown" }), `${name}-outline.md`);
   }
 }

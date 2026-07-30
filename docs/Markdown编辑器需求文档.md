@@ -148,7 +148,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 ---
 
-## 8. 实现进度（截至 v0.8.0）
+## 8. 实现进度（截至 v0.9.0）
 
 > 本节用于对照 PRD 需求与实际落地情况，方便后续迭代决策。详细技术方案与任务拆解见 `技术方案与任务拆解.md`。
 
@@ -200,6 +200,15 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.3 | 文件夹折叠状态记忆 | ✅ | v0.8.0 | `collapsedDirs` 持久化到 localStorage，重启恢复 |
 | 3.3 | 书签/收藏 | ✅ | v0.8.0 | `bookmarks` 持久化，侧边栏书签区块，文件右键加入/取消，删除文件自动清理 |
 | 3.2 | 表格列宽拖拽 | ✅ | v0.8.0 | `columnResizingPlugin`（已引入），当次会话内有效（markdown 不携带列宽，无法跨会话持久化） |
+| 3.8 | 拼写检查开关 | ✅ | v0.8.4 | `settings.ts` spellcheck 字段（默认关闭），Editor root div 绑定 spellCheck，ProseMirror contentEditable 继承，运行时切换 |
+| 3.3 | 单文件模式 | ✅ | v0.8.4 | `workspaceMode`（folder/file/null）+ `openFileStandalone`，不建文件树但设 rootPath 为父目录便于图片相对路径解析，支持散落多 md 作为标签页 |
+| 3.3 | 多面板分屏 | ✅ | v0.9.0 | workspace store 新增 `splitFile`/`splitContent` 及 `splitOpen`/`splitClose`/`splitSwap`/`setSplitContent`；标签页右键「在分屏打开」启动右侧第二面板，双编辑器实例独立编辑，支持左右交换 |
+| 3.1 | 拖拽块排序 | ✅ | v0.9.0 | `block-drag.ts` ProseMirror 插件，顶层块左侧 ⋮⋮ 手柄（Decoration.widget），HTML5 DnD 整块移动，drop 指示器高亮目标位置 |
+| 3.4 | 导出长图（PNG） | ✅ | v0.9.0 | `exporter.ts` `exportPNG`，html2canvas 离屏渲染编辑器内容为 2x PNG，桌面端写文件/浏览器端下载 |
+| 3.4 | 文档大纲导出 | ✅ | v0.9.0 | `exporter.ts` `exportOutline`，基于 `parseOutline` 提取标题层级，生成带缩进列表 + 原始标题结构的 md 文件 |
+| 3.3 | 多窗口 | ✅ | v0.9.0 | `newWindow.ts` 用 `WebviewWindow` 创建独立窗口，文件路径经 URL 查询参数传递，新窗口启动时自动 `openFileStandalone`；文件树/标签页右键「在新窗口打开」 |
+| 3.1 | 多光标/块选 | ❌ | — | 调研后不做：ProseMirror 作者确认 Sublime 式多光标「very hard」，需自定义 Selection 子类 + 重写输入处理，无现成实现；现有多范围选择仅表格 CellSelection（已支持）。详见 9.3 |
+| 3.7 | 内置图床 | ❌ | — | 调研后 defer：需后端存储（S3/OSS）或第三方云服务账号，与本地优先/绿色理念冲突且引入安全与依赖。现有 `image-upload.ts` 本地 assets 方案为推荐工作流，详见 9.3 |
 
 ### 8.2 发布版本
 
@@ -211,6 +220,11 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 - **v0.6.0** 导出 Word（.docx，走 Pandoc）、应用级快捷键自定义面板（含冲突检测、一键恢复默认）
 - **v0.7.0** 全局搜索（`Ctrl+Shift+F`）、斜杠菜单 `/`、callout 提示框、标签页右键菜单 + 拖拽重排、文件树重命名/删除/新建、最近打开文件列表、编辑位置记忆、编辑器错误边界（修复打开部分 md 文件白屏问题）
 - **v0.8.0** 禅模式（F11）、文件夹折叠状态记忆、书签/收藏、自动配对补全、图片缩放/对齐、行内图片、表格列宽拖拽验证
+- **v0.8.1** 修复打开 md 文件白屏（Editor 工厂 try/catch + 超时降级 + 全局错误捕获 + 侧边栏关闭后无法打开文件死锁）
+- **v0.8.2** 定位并修复白屏根因：`remark-frontmatter` 缺少 `"yaml"` options 导致 `editor.create()` 抛 `Missing type in matter {}`，错误被 Milkdown React 集成层 `.catch(console.error)` 静默吞掉；同步加固降级检测（loading=false 后验证 editor 实例）
+- **v0.8.3** 修复专注模式无效果：CSS 选择器层级写反（`.focus-mode .editor-scroll ...` 实际 DOM 是 `.editor-scroll > .md-editor-root.focus-mode > .ProseMirror`），改为 `.focus-mode .ProseMirror > *`
+- **v0.8.4** 拼写检查开关（偏好设置）、单文件模式（打开散落 md 不绑定文件夹，可继续打开新 md 作为标签页）
+- **v0.9.0** 多面板分屏（标签页右键「在分屏打开」，双编辑器左右对照 + 交换）、拖拽块排序（⋮⋮ 手柄整块重排）、导出长图 PNG（html2canvas）、文档大纲导出、多窗口（文件/标签页右键「在新窗口打开」，Tauri WebviewWindow）；多光标/块选与内置图床经调研后 defer（见 9.3）
 
 ### 8.3 与初版技术方案建议的差异
 
@@ -252,21 +266,27 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 书签/收藏 | 文件右键"加入书签"，侧边栏书签面板列出所有书签，点击跳转 | ✅ |
 | 文件夹折叠状态记忆 | 记住侧边栏每个文件夹的展开/折叠状态，重开应用恢复 | ✅ |
 
-### 9.3 v0.9.0+（P3，复杂或小众功能）
+### 9.3 v0.9.0（P3，复杂或小众功能）— 已发布
 
-| 功能 | 说明 |
-|---|---|
-| 多面板分屏 | 拖标签页到编辑区右侧分栏，左右对照编辑两个文件 |
-| 拖拽块排序 | 段落左侧出现 ⋮⋮ 手柄，按住拖动整段重排 |
-| 多光标编辑 | `Alt+点击` 加光标，`Ctrl+D` 选中下个匹配项，同步编辑 |
-| 拼写检查 | 英文单词标红，右键修正建议（中文不适用，主要给英文/代码注释） |
-| 导出长图 | 整篇文档渲染成 PNG 长图，用 html2canvas 实现，方便分享到社交平台 |
-| 内置图床 | 配置 GitHub/Cloudinary/七牛云凭证，粘贴图片自动上传替换为在线 URL |
-| 多窗口 | 文件右键"在新窗口打开"，Tauri 多窗口，多显示器场景 |
-| 块选模式 | `Shift+Alt+拖动` 矩形选择文本，Markdown 场景用得少 |
-| 文档大纲导出 | 只导出标题层级，生成只含标题的 md 文件，当目录用 |
+| 功能 | 说明 | 状态 |
+|---|---|---|
+| 多面板分屏 | 标签页右键「在分屏打开」启动右侧第二面板，双编辑器实例独立编辑，支持左右交换 | ✅ |
+| 拖拽块排序 | 段落左侧出现 ⋮⋮ 手柄，按住拖动整段重排 | ✅ |
+| 导出长图 | 整篇文档渲染成 PNG 长图，用 html2canvas 实现，方便分享到社交平台 | ✅ |
+| 文档大纲导出 | 只导出标题层级，生成只含标题的 md 文件，当目录用 | ✅ |
+| 多窗口 | 文件右键"在新窗口打开"，Tauri 多窗口，多显示器场景 | ✅ |
+| ~~拼写检查~~ | ✅ v0.8.4 已实现：浏览器原生拼写检查（红波浪线 + 右键修正建议），偏好设置开关 | ✅ |
 
-### 9.4 不做的功能（已排除）
+### 9.4 调研后 defer 的功能
+
+> 以下功能在 v0.9.0 规划中经可行性调研后决定**不在本版实现**，记录结论供后续决策。
+
+| 功能 | 调研结论 | 后续方向 |
+|---|---|---|
+| 多光标编辑 / 块选模式 | ProseMirror 作者 Marijn Haverbeke 明确表示 Sublime 式多光标「very hard」：需自定义 `Selection` 子类并完整重写输入处理逻辑，社区无现成实现。现有多范围选择仅表格的 `CellSelection`（已支持），矩形块选 Markdown 场景几乎用不到，ROI 极低 | 不做。如未来 Milkdown/ProseMirror 上游提供多光标能力再评估 |
+| 内置图床 | 需后端对象存储（S3/OSS/COS）或第三方图床（sm.ms/GitHub Issues）账号与凭证管理，与本项目「本地优先、免账号、绿色免安装」理念冲突，且引入网络依赖与凭证安全风险。现有 `image-upload.ts` 已提供完善的本地方案：拖拽/粘贴图片自动存入工作区 `assets/` 并插入相对路径，整个工作区可随文件夹迁移 | defer。未来可作为可选插件接入，由用户自行配置图床凭证 |
+
+### 9.5 不做的功能（已排除）
 
 - AI 相关能力（润色/翻译/续写/对话）
 - Pandoc 相关导出（ePub/RTF/OPML 等，已有 docx 导出）

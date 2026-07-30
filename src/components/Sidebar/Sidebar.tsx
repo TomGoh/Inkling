@@ -7,6 +7,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import { useWorkspace } from "../../store/workspace";
+import { openInNewWindow } from "../../lib/newWindow";
 import {
   joinPath,
   renamePath,
@@ -465,8 +466,19 @@ function TreeContextMenu({
     onClose();
   };
 
+  /** 在新窗口打开文件（仅桌面端；浏览器回退到当前窗口新 tab） */
+  const handleOpenInNewWindow = async () => {
+    const ok = await openInNewWindow(payload.node.path);
+    if (!ok) {
+      // 浏览器端无多窗口，回退到当前窗口打开
+      await useWorkspace.getState().openFile(payload.node.path);
+    }
+    onClose();
+  };
+
   const { node, x, y } = payload;
   const isRoot = rootPath === node.path;
+  const isMdFile = !node.is_dir && /\.md$/i.test(node.name);
 
   return (
     <div className="tree-context-backdrop">
@@ -525,6 +537,14 @@ function TreeContextMenu({
             >
               {isBookmarked(node.path) ? "取消书签" : "加入书签"}
             </button>
+            {isMdFile && (
+              <button
+                className="tree-context-item"
+                onClick={() => void handleOpenInNewWindow()}
+              >
+                在新窗口打开
+              </button>
+            )}
             <div className="tree-context-sep" />
           </>
         )}

@@ -17,7 +17,8 @@ import { useUI } from "./store/ui";
 import { useShortcuts, matchBinding, type ShortcutId } from "./store/shortcuts";
 import { useAutoSave } from "./lib/useAutoSave";
 import { useFileWatcher } from "./lib/useFileWatcher";
-import { exportHTML, exportPDF, exportDocx, copyMarkdown, copyRichText } from "./lib/exporter";
+import { exportHTML, exportPDF, exportDocx, exportPNG, exportOutline, copyMarkdown, copyRichText } from "./lib/exporter";
+import { getNewWindowFilePath } from "./lib/newWindow";
 import "./App.css";
 
 function SaveIndicator() {
@@ -42,6 +43,14 @@ function App() {
   const currentFile = useWorkspace((s) => s.currentFile);
   const currentContent = useWorkspace((s) => s.currentContent);
   const setContent = useWorkspace((s) => s.setContent);
+  // 分屏：右侧第二面板
+  const splitFile = useWorkspace((s) => s.splitFile);
+  const splitContent = useWorkspace((s) => s.splitContent);
+  const setSplitContent = useWorkspace((s) => s.setSplitContent);
+  const splitClose = useWorkspace((s) => s.splitClose);
+  const splitSwap = useWorkspace((s) => s.splitSwap);
+  // 分屏编辑器实例引用（独立于主编辑器）
+  const splitEditorRef = useRef<(() => Editor | undefined) | null>(null);
 
   // 持有编辑器实例获取函数，供大纲面板与导出使用
   const getEditorRef = useRef<(() => Editor | undefined) | null>(null);
@@ -81,6 +90,16 @@ function App() {
   useAutoSave();
   // 启用外部文件修改监听（仅桌面端）
   useFileWatcher();
+
+  // 多窗口：若本窗口由「在新窗口打开」派生，启动时自动打开目标文件（单文件模式）
+  useEffect(() => {
+    const target = getNewWindowFilePath();
+    if (!target) return;
+    const openFileStandalone = useWorkspace.getState().openFileStandalone;
+    void openFileStandalone(target);
+    // 仅启动时执行一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 全局快捷键：通过 useShortcuts store 读取用户自定义绑定
   // 编辑器内 Milkdown 预设的快捷键（加粗等）不在自定义范围
@@ -246,6 +265,24 @@ function App() {
                         >
                           导出 PDF（打印）
                         </button>
+                        <button
+                          className="export-item"
+                          onClick={() => {
+                            setExportOpen(false);
+                            void exportPNG(getEditor);
+                          }}
+                        >
+                          导出长图（PNG）
+                        </button>
+                        <button
+                          className="export-item"
+                          onClick={() => {
+                            setExportOpen(false);
+                            void exportOutline();
+                          }}
+                        >
+                          导出大纲（仅标题）
+                        </button>
                       </div>
                     </>
                   )}
@@ -327,20 +364,56 @@ function App() {
                 </button>
               </div>
             </div>
-            <div className="editor-scroll">
-              {searchOpen && (
-                <SearchPanel
-                  getEditor={getEditor}
-                  onClose={() => setSearchOpen(false)}
-                />
+            <div className={`editor-body${splitFile ? " editor-body-split" : ""}`}>
+              <div className="editor-scroll">
+                {searchOpen && (
+                  <SearchPanel
+                    getEditor={getEditor}
+                    onClose={() => setSearchOpen(false)}
+                  />
+                )}
+                <EditorErrorBoundary fileName={currentFile}>
+                  <MarkdownEditor
+                    value={currentContent}
+                    onChange={setContent}
+                    onReady={(getEditor) => (getEditorRef.current = getEditor)}
+                  />
+                </EditorErrorBoundary>
+              </div>
+              {splitFile && (
+                <div className="split-pane">
+                  <div className="split-pane-header">
+                    <span className="topbar-file" title={splitFile}>
+                      {splitFile.split(/[\\/]/).pop()}
+                    </span>
+                    <div className="topbar-actions">
+                      <button
+                        className="topbar-btn"
+                        onClick={splitSwap}
+                        title="左右交换"
+                      >
+                        ⇄
+                      </button>
+                      <button
+                        className="topbar-btn"
+                        onClick={splitClose}
+                        title="关闭分屏"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                  <div className="editor-scroll editor-scroll-split-pane">
+                    <EditorErrorBoundary fileName={splitFile}>
+                      <MarkdownEditor
+                        value={splitContent}
+                        onChange={setSplitContent}
+                        onReady={(getEditor) => (splitEditorRef.current = getEditor)}
+                      />
+                    </EditorErrorBoundary>
+                  </div>
+                </div>
               )}
-              <EditorErrorBoundary fileName={currentFile}>
-                <MarkdownEditor
-                  value={currentContent}
-                  onChange={setContent}
-                  onReady={(getEditor) => (getEditorRef.current = getEditor)}
-                />
-              </EditorErrorBoundary>
             </div>
             <StatusBar />
           </>
