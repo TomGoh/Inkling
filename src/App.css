@@ -446,6 +446,50 @@ body,
   border-radius: 6px;
   background: var(--bg-subtle, #f6f8fa);
 }
+
+/* callout 提示框 */
+.editor-scroll .milkdown .callout-block {
+  margin: 0.8rem 0;
+  padding: 0.6rem 0.9rem;
+  border-left: 4px solid var(--callout-accent, #2f81f7);
+  border-radius: 4px;
+  background: var(--callout-bg, rgba(47, 129, 247, 0.08));
+}
+.editor-scroll .milkdown .callout-header {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.3rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--callout-accent, #2f81f7);
+}
+.editor-scroll .milkdown .callout-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.editor-scroll .milkdown .callout-content > :first-child {
+  margin-top: 0;
+}
+.editor-scroll .milkdown .callout-content > :last-child {
+  margin-bottom: 0;
+}
+.editor-scroll .milkdown .callout-note {
+  --callout-accent: #2f81f7;
+  --callout-bg: rgba(47, 129, 247, 0.08);
+}
+.editor-scroll .milkdown .callout-warning {
+  --callout-accent: #d29922;
+  --callout-bg: rgba(210, 153, 34, 0.1);
+}
+.editor-scroll .milkdown .callout-tip {
+  --callout-accent: #2ea043;
+  --callout-bg: rgba(46, 160, 67, 0.1);
+}
+.editor-scroll .milkdown .callout-important {
+  --callout-accent: #cf222e;
+  --callout-bg: rgba(207, 34, 46, 0.08);
+}
 .editor-scroll .milkdown .toc-label {
   font-size: 0.72rem;
   letter-spacing: 0.04em;

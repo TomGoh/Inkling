@@ -100,6 +100,44 @@ export async function fileMtime(filePath: string): Promise<number> {
   return Date.now() / 1000;
 }
 
+/** 重命名/移动文件或目录 */
+export async function renamePath(from: string, to: string): Promise<void> {
+  if (isTauri()) {
+    return invoke<void>("rename_path", { from, to });
+  }
+  // 浏览器 mock：更新内存中的内容键
+  if (MOCK_FILE_CONTENT[from] !== undefined) {
+    MOCK_FILE_CONTENT[to] = MOCK_FILE_CONTENT[from];
+    delete MOCK_FILE_CONTENT[from];
+  }
+}
+
+/** 删除文件或目录（目录递归）。浏览器 mock 仅清内容表 */
+export async function deletePath(path: string): Promise<void> {
+  if (isTauri()) {
+    return invoke<void>("delete_path", { path });
+  }
+  for (const k of Object.keys(MOCK_FILE_CONTENT)) {
+    if (k === path || k.startsWith(path + "/")) delete MOCK_FILE_CONTENT[k];
+  }
+}
+
+/** 创建空文件 */
+export async function createFile(filePath: string): Promise<void> {
+  if (isTauri()) {
+    return invoke<void>("create_file", { filePath });
+  }
+  MOCK_FILE_CONTENT[filePath] = "";
+}
+
+/** 创建目录 */
+export async function createDir(dirPath: string): Promise<void> {
+  if (isTauri()) {
+    return invoke<void>("create_dir", { dirPath });
+  }
+  // 浏览器 mock 无操作
+}
+
 /**
  * 写入二进制文件（图片等）。
  * 桌面端走 Rust 命令；浏览器端无真实 fs，仅返回成功（mock 无法持久化二进制）。

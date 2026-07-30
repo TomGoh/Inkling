@@ -15,7 +15,7 @@ import {
 } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
-import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
+import { Plugin, PluginKey, TextSelection } from "@milkdown/kit/prose/state";
 import { findParentNodeClosestToPos } from "@milkdown/kit/prose";
 import { nord } from "@milkdown/theme-nord";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
@@ -30,6 +30,7 @@ import { formulaNumberingPlugin } from "./formula-numbering";
 import { editorModesPlugin } from "./editor-modes";
 import { searchPlugin } from "./search";
 import { useSettings } from "../../store/settings";
+import { useWorkspace } from "../../store/workspace";
 import {
   remarkMathPlugin,
   mathInlineSchema,
@@ -44,6 +45,11 @@ import {
 } from "./frontmatter";
 import { footnoteRefView, footnoteDefinitionView } from "./footnotes";
 import { tocPlugin, tocSchema, tocView, remarkTocPlugin } from "./toc";
+import {
+  calloutSchema,
+  calloutView,
+  remarkCalloutPlugin,
+} from "./callout";
 
 interface EditorProps {
   /** 受控的 Markdown 文本。外部传入新值时会覆盖编辑器内容 */
@@ -74,6 +80,11 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
   // 光标是否位于表格内，用于控制表格工具栏的上下文按钮组
   const [inTable, setInTable] = useState(false);
   const inTableRef = useRef(false);
+
+  // 编辑位置记忆：持有 store 方法，插件内部通过 ref 调用避免重建
+  const saveCursorState = useWorkspace((s) => s.saveCursorState);
+  const saveCursorStateRef = useRef(saveCursorState);
+  saveCursorStateRef.current = saveCursorState;
 
   useEditor(
     (container) =>
@@ -121,6 +132,19 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
             searchPlugin(),
             // [TOC] 目录自动生成：根据文档标题实时生成目录
             tocPlugin(),
+            // 编辑位置记忆：选区/滚动变化时把位置存到当前 tab
+            new Plugin({
+              key: new PluginKey("inkling-cursor-saver"),
+              view: () => ({
+                update: (view) => {
+                  const pos = view.state.selection.head;
+                  const scrollEl = view.scrollDOM;
+                  const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
+                  saveCursorStateRef.current(pos, scrollTop);
+                },
+                destroy: () => {},
+              }),
+            }),
           ]);
           // 注入主题
           nord(ctx);
@@ -150,6 +174,10 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
         .use(remarkTocPlugin)
         .use(tocSchema)
         .use(tocView)
+        // callout 提示框：> [!WARNING] 等 GFM 语法
+        .use(remarkCalloutPlugin)
+        .use(calloutSchema)
+        .use(calloutView)
         .use(history)
         .use(listener),
     // 依赖数组为空，编辑器只在挂载时创建一次
@@ -202,6 +230,38 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
     });
     lastSyncedRef.current = value;
   }, [value, loading, getEditor]);
+
+  // 编辑位置记忆：value 变化（切 tab）后恢复光标和滚动位置
+  // 用 currentFile 作为依赖，而非 value，避免内容编辑时也触发恢复
+  const currentFile = useWorkspace((s) => s.currentFile);
+  const getActiveCursorState = useWorkspace((s) => s.getActiveCursorState);
+  useEffect(() => {
+    if (loading) return;
+    const editor = getEditor();
+    if (!editor) return;
+    const { pos, scrollTop } = getActiveCursorState();
+    if (pos == null && scrollTop == null) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      // 恢复光标位置，夹紧到文档有效范围
+      if (pos != null) {
+        const docSize = view.state.doc.content.size;
+        const safePos = Math.max(0, Math.min(pos, docSize));
+        try {
+          const sel = TextSelection.near(view.state.doc.resolve(safePos));
+          view.dispatch(view.state.tr.setSelection(sel));
+        } catch {
+          // pos 无效时忽略
+        }
+      }
+      // 恢复滚动位置（下一帧执行，等文档渲染完）
+      if (scrollTop != null && view.scrollDOM) {
+        requestAnimationFrame(() => {
+          if (view.scrollDOM) view.scrollDOM.scrollTop = scrollTop;
+        });
+      }
+    });
+  }, [currentFile, loading, getEditor, getActiveCursorState]);
 
   return (
     <div className={`md-editor-root${focusMode ? " focus-mode" : ""}`}>

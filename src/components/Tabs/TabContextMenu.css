@@ -1,0 +1,44 @@
+.tab-context-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+}
+
+.tab-context-menu {
+  position: fixed;
+  min-width: 140px;
+  background: var(--editor-bg, #ffffff);
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  z-index: 201;
+}
+
+.tab-context-item {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text, #1f2328);
+  font-size: 0.8rem;
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  border-radius: 4px;
+}
+.tab-context-item:hover:not(:disabled) {
+  background: var(--row-hover-bg, rgba(0, 0, 0, 0.06));
+}
+.tab-context-item:disabled {
+  color: var(--text-muted, #8b949e);
+  cursor: default;
+  opacity: 0.5;
+}
+
+.tab-context-sep {
+  height: 1px;
+  background: var(--border, #eaeef2);
+  margin: 4px 0;
+}

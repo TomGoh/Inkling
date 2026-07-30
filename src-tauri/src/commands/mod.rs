@@ -137,3 +137,56 @@ pub fn file_mtime(file_path: String) -> Result<f64, String> {
         .map_err(|e| e.to_string())?;
     Ok(secs)
 }
+
+/// 重命名/移动文件或目录
+#[tauri::command]
+pub fn rename_path(from: String, to: String) -> Result<(), String> {
+    let from_path = Path::new(&from);
+    let to_path = Path::new(&to);
+    if !from_path.exists() {
+        return Err(format!("源路径不存在: {}", from));
+    }
+    if to_path.exists() {
+        return Err(format!("目标已存在: {}", to));
+    }
+    fs::rename(from_path, to_path).map_err(|e| format!("重命名失败: {}", e))
+}
+
+/// 删除文件或目录（目录时递归删除）
+#[tauri::command]
+pub fn delete_path(path: String) -> Result<(), String> {
+    let p = Path::new(&path);
+    if !p.exists() {
+        return Err(format!("路径不存在: {}", path));
+    }
+    if p.is_dir() {
+        fs::remove_dir_all(p).map_err(|e| format!("删除目录失败: {}", e))
+    } else {
+        fs::remove_file(p).map_err(|e| format!("删除文件失败: {}", e))
+    }
+}
+
+/// 创建空文件（如果父目录不存在则创建）
+#[tauri::command]
+pub fn create_file(file_path: String) -> Result<(), String> {
+    let path = Path::new(&file_path);
+    if path.exists() {
+        return Err(format!("文件已存在: {}", file_path));
+    }
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
+        }
+    }
+    fs::write(path, "").map_err(|e| format!("创建文件失败: {}", e))
+}
+
+/// 创建目录（含父目录）
+#[tauri::command]
+pub fn create_dir(dir_path: String) -> Result<(), String> {
+    let path = Path::new(&dir_path);
+    if path.exists() {
+        return Err(format!("目录已存在: {}", dir_path));
+    }
+    fs::create_dir_all(path).map_err(|e| format!("创建目录失败: {}", e))
+}
