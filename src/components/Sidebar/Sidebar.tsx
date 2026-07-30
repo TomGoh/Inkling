@@ -541,6 +541,9 @@ export function Sidebar() {
   const tree = useWorkspace((s) => s.tree);
   const loading = useWorkspace((s) => s.loading);
   const openWorkspace = useWorkspace((s) => s.openWorkspace);
+  const openFileStandalone = useWorkspace((s) => s.openFileStandalone);
+  const recentFiles = useWorkspace((s) => s.recentFiles);
+  const bookmarks = useWorkspace((s) => s.bookmarks);
   const [menu, setMenu] = useState<MenuPayload | null>(null);
 
   // 监听 TreeNode 派发的右键事件
@@ -564,6 +567,22 @@ export function Sidebar() {
     }
   }, [openWorkspace]);
 
+  // 打开单个 md 文件（单文件模式）：不绑定文件夹，可继续打开散落在不同目录的 md 作为标签页
+  const handleOpenFile = useCallback(async () => {
+    if (!isTauri()) {
+      await openFileStandalone("/mock-workspace/intro.md");
+      return;
+    }
+    const selected = await open({
+      directory: false,
+      multiple: false,
+      filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+    });
+    if (typeof selected === "string") {
+      await openFileStandalone(selected);
+    }
+  }, [openFileStandalone]);
+
   return (
     <aside className="sidebar">
       <div className="sidebar-header">
@@ -573,20 +592,29 @@ export function Sidebar() {
         <button className="sidebar-btn" onClick={handleOpenFolder} title="打开文件夹">
           打开
         </button>
+        <button className="sidebar-btn" onClick={handleOpenFile} title="打开单个 Markdown 文件">
+          打开文件
+        </button>
       </div>
       <div className="sidebar-tree">
         {loading && <div className="sidebar-empty">加载中…</div>}
-        {!loading && !tree && (
-          <div className="sidebar-empty">
-            点击「打开」选择一个包含 .md 文件的文件夹
-          </div>
-        )}
         {!loading && tree && (
           <>
             <RecentFiles />
             <Bookmarks />
             <TreeNode node={tree} depth={0} />
           </>
+        )}
+        {!loading && !tree && (recentFiles.length > 0 || bookmarks.length > 0) && (
+          <>
+            <RecentFiles />
+            <Bookmarks />
+          </>
+        )}
+        {!loading && !tree && recentFiles.length === 0 && bookmarks.length === 0 && (
+          <div className="sidebar-empty">
+            点击「打开」选择文件夹，或「打开文件」直接打开一个 .md
+          </div>
         )}
       </div>
       {menu && <TreeContextMenu payload={menu} onClose={() => setMenu(null)} />}

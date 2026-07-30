@@ -85,6 +85,13 @@ function pushRecent(list: string[], path: string): string[] {
   return next.slice(0, RECENT_FILES_MAX);
 }
 
+/** 取文件所在目录路径（兼容 / 与 \），根目录则返回原路径 */
+function parentDir(filePath: string): string {
+  const idx = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
+  if (idx <= 0) return filePath;
+  return filePath.slice(0, idx);
+}
+
 /** 单个打开的标签页 */
 export interface OpenTab {
   /** 文件完整路径 */
@@ -104,6 +111,13 @@ export interface OpenTab {
 interface WorkspaceState {
   /** 工作区根路径（null 表示未打开） */
   rootPath: string | null;
+  /**
+   * 工作区模式：
+   * - "folder"：打开了文件夹，tree 有效
+   * - "file"：单文件模式，仅打开了散落的 md 文件，不构建文件树；rootPath 为当前文件父目录（仅用于图片相对路径解析）
+   * - null：未打开任何东西
+   */
+  workspaceMode: "folder" | "file" | null;
   /** 文件树根节点 */
   tree: FileNode | null;
   /** 加载中标志 */
@@ -151,8 +165,14 @@ interface WorkspaceState {
 
   /** 打开工作区：读取目录树 */
   openWorkspace: (dirPath: string) => Promise<void>;
-  /** 打开文件：已打开则切换到对应 tab，否则读取内容新增 tab */
+  /** 打开文件：已打开则切换到对应 tab，否则读取内容新增 tab。不改变当前工作区模式 */
   openFile: (filePath: string) => Promise<void>;
+  /**
+   * 以单文件模式打开一个 md：不构建文件树，但把 rootPath 设为该文件父目录
+   * （仅供图片相对路径解析），workspaceMode 置为 "file"。
+   * 用于"打开文件"入口——支持散落在不同文件夹的多个 md 作为标签页。
+   */
+  openFileStandalone: (filePath: string) => Promise<void>;
   /** 切换活跃标签页 */
   switchTab: (filePath: string) => void;
   /** 关闭标签页（若关闭的是活跃 tab，自动激活相邻 tab） */
@@ -185,6 +205,7 @@ interface WorkspaceState {
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
   rootPath: null,
+  workspaceMode: null,
   tree: null,
   loading: false,
   openTabs: [],
@@ -236,7 +257,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set({ loading: true });
     try {
       const tree = await listDir(dirPath);
-      set({ rootPath: dirPath, tree, loading: false });
+      set({
+        rootPath: dirPath,
+        workspaceMode: "folder",
+        tree,
+        loading: false,
+      });
     } catch (e) {
       set({ loading: false });
       throw e;
@@ -285,6 +311,17 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       set({ loading: false });
       throw e;
     }
+  },
+
+  openFileStandalone: async (filePath) => {
+    // 先用 openFile 完成 tab 读取/切换/recent 更新
+    await get().openFile(filePath);
+    // 单文件模式：不构建文件树，但设 rootPath 为父目录以便图片相对路径解析。
+    // 仅当当前不是 folder 模式时才设为 file 模式，避免覆盖已打开的文件夹工作区。
+    const { workspaceMode } = get();
+    if (workspaceMode === "folder") return;
+    const parent = parentDir(filePath);
+    set({ rootPath: parent, workspaceMode: "file", tree: null });
   },
 
   switchTab: (filePath) => {
@@ -482,8 +519,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   refreshTree: async () => {
-    const { rootPath } = get();
-    if (!rootPath) return;
+    const { rootPath, workspaceMode } = get();
+    // 单文件模式不构建文件树，跳过刷新
+    if (!rootPath || workspaceMode !== "folder") return;
     try {
       const tree = await listDir(rootPath);
       set({ tree });

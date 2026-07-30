@@ -19,6 +19,8 @@ export interface SettingsState {
   typewriterMode: boolean;
   /** 自动配对补全：输入括号/引号自动配对，光标置中 */
   autoPair: boolean;
+  /** 拼写检查：浏览器原生拼写检查（红波浪线） */
+  spellcheck: boolean;
   /** 切换公式自动编号 */
   setFormulaAutoNumber: (v: boolean) => void;
   /** 设置代码块主题 */
@@ -29,6 +31,8 @@ export interface SettingsState {
   setTypewriterMode: (v: boolean) => void;
   /** 切换自动配对 */
   setAutoPair: (v: boolean) => void;
+  /** 切换拼写检查 */
+  setSpellcheck: (v: boolean) => void;
   /** 重置全部为默认值 */
   reset: () => void;
 }
@@ -41,6 +45,7 @@ interface PersistedSettings {
   focusMode: boolean;
   typewriterMode: boolean;
   autoPair: boolean;
+  spellcheck: boolean;
 }
 
 const DEFAULTS: PersistedSettings = {
@@ -49,6 +54,7 @@ const DEFAULTS: PersistedSettings = {
   focusMode: false,
   typewriterMode: false,
   autoPair: true,
+  spellcheck: false,
 };
 
 function loadPersisted(): PersistedSettings {
@@ -78,6 +84,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
   focusMode: initial.focusMode,
   typewriterMode: initial.typewriterMode,
   autoPair: initial.autoPair,
+  spellcheck: initial.spellcheck,
 
   setFormulaAutoNumber: (v) => {
     set({ formulaAutoNumber: v });
@@ -99,6 +106,10 @@ export const useSettings = create<SettingsState>((set, get) => ({
     set({ autoPair: v });
     persist(snapshot(get()));
   },
+  setSpellcheck: (v) => {
+    set({ spellcheck: v });
+    persist(snapshot(get()));
+  },
   reset: () => {
     set({ ...DEFAULTS });
     persist(DEFAULTS);
@@ -112,5 +123,6 @@ function snapshot(s: SettingsState): PersistedSettings {
     focusMode: s.focusMode,
     typewriterMode: s.typewriterMode,
     autoPair: s.autoPair,
+    spellcheck: s.spellcheck,
   };
 }

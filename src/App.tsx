@@ -347,12 +347,12 @@ function App() {
         ) : (
           <div className="empty-state">
             <h2>Inkling</h2>
-            <p>从左侧侧边栏「打开」文件夹，选择一个 .md 文件开始编辑</p>
+            <p>从左侧侧边栏「打开」文件夹，或「打开文件」直接打开一个 .md 开始编辑</p>
             {!sidebarVisible && (
               <button
                 className="empty-state-open-sidebar"
                 onClick={toggleSidebar}
-                title="打开侧边栏 (Ctrl/Cmd+\\)"
+                title="打开侧边栏 (Ctrl/Cmd+\)"
               >
                 ▣ 打开侧边栏
               </button>

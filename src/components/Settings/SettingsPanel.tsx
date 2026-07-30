@@ -17,11 +17,13 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const focusMode = useSettings((s) => s.focusMode);
   const typewriterMode = useSettings((s) => s.typewriterMode);
   const autoPair = useSettings((s) => s.autoPair);
+  const spellcheck = useSettings((s) => s.spellcheck);
   const setFormulaAutoNumber = useSettings((s) => s.setFormulaAutoNumber);
   const setCodeBlockTheme = useSettings((s) => s.setCodeBlockTheme);
   const setFocusMode = useSettings((s) => s.setFocusMode);
   const setTypewriterMode = useSettings((s) => s.setTypewriterMode);
   const setAutoPair = useSettings((s) => s.setAutoPair);
+  const setSpellcheck = useSettings((s) => s.setSpellcheck);
   const reset = useSettings((s) => s.reset);
 
   return (
@@ -83,6 +85,19 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
               className="settings-toggle"
               checked={autoPair}
               onChange={(e) => setAutoPair(e.target.checked)}
+            />
+          </label>
+
+          <label className="settings-row">
+            <div className="settings-label">
+              <span className="settings-name">拼写检查</span>
+              <span className="settings-desc">浏览器原生拼写检查（红波浪线）</span>
+            </div>
+            <input
+              type="checkbox"
+              className="settings-toggle"
+              checked={spellcheck}
+              onChange={(e) => setSpellcheck(e.target.checked)}
             />
           </label>
 

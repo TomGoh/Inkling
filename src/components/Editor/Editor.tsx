@@ -246,6 +246,8 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
 
   // 专注模式：给 root 加 class，CSS 弱化非聚焦块
   const focusMode = useSettings((s) => s.focusMode);
+  // 拼写检查：通过 root div 的 spellCheck 属性，contentEditable 子节点（ProseMirror）继承此值
+  const spellcheck = useSettings((s) => s.spellcheck);
 
   // 外部 value 变化时，覆盖编辑器内容（仅当与上次同步值不同时）
   useEffect(() => {
@@ -335,7 +337,10 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
   }
 
   return (
-    <div className={`md-editor-root${focusMode ? " focus-mode" : ""}`}>
+    <div
+      className={`md-editor-root${focusMode ? " focus-mode" : ""}`}
+      spellCheck={spellcheck}
+    >
       <TableToolbar getEditor={getEditor} inTable={inTable} />
       <Milkdown />
     </div>
