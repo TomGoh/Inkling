@@ -64,6 +64,8 @@ const STATIC_GROUPS: ShortcutGroup[] = [
     title: "文件与编辑",
     items: [
       { keys: `${MOD}+S`, desc: "保存当前文件" },
+      { keys: `${MOD}+F`, desc: "查找替换（当前文件）" },
+      { keys: `${MOD}+${SHIFT}+F`, desc: "全局搜索（工作区所有文件）" },
       { keys: `${MOD}+Z`, desc: "撤销" },
       { keys: `${MOD}+${SHIFT}+Z`, desc: "重做" },
       { keys: `${MOD}+X / C / V`, desc: "剪切 / 复制 / 粘贴" },

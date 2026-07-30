@@ -4,6 +4,9 @@
 pub mod pandoc;
 pub use pandoc::{pandoc_check, pandoc_export_docx};
 
+pub mod search;
+pub use search::{search_in_workspace, SearchHit};
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;

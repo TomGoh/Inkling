@@ -3,7 +3,8 @@ mod commands;
 
 use commands::{
     create_dir, create_file, delete_path, file_mtime, list_dir, pandoc_check,
-    pandoc_export_docx, read_text_file, rename_path, write_binary_file, write_text_file,
+    pandoc_export_docx, read_text_file, rename_path, search_in_workspace, write_binary_file,
+    write_text_file,
 };
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -38,7 +39,8 @@ pub fn run() {
             rename_path,
             delete_path,
             create_file,
-            create_dir
+            create_dir,
+            search_in_workspace
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

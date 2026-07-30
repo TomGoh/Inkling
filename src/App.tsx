@@ -8,6 +8,8 @@ import { OutlinePanel } from "./components/Outline/OutlinePanel";
 import { TabsBar } from "./components/Tabs/TabsBar";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import { ShortcutsHelp } from "./components/Shortcuts/ShortcutsHelp";
+import { GlobalSearchPanel } from "./components/GlobalSearch/GlobalSearchPanel";
+import { EditorErrorBoundary } from "./components/Editor/EditorErrorBoundary";
 import { ShortcutsCustomize } from "./components/Shortcuts/ShortcutsCustomize";
 import { useWorkspace } from "./store/workspace";
 import { useTheme } from "./store/theme";
@@ -54,6 +56,8 @@ function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   // 快捷键帮助面板展开状态
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // 全局搜索面板展开状态
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   // 快捷键自定义面板展开状态
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
@@ -81,6 +85,12 @@ function App() {
     const handler = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
+      // Ctrl/Cmd+Shift+F 全局搜索（优先于当前文件查找）
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setGlobalSearchOpen(true);
+        return;
+      }
       const store = useShortcuts.getState();
       const tryMatch = (id: ShortcutId) => matchBinding(store.getBinding(id), e);
       if (tryMatch("find")) {
@@ -284,11 +294,13 @@ function App() {
                   onClose={() => setSearchOpen(false)}
                 />
               )}
-              <MarkdownEditor
-                value={currentContent}
-                onChange={setContent}
-                onReady={(getEditor) => (getEditorRef.current = getEditor)}
-              />
+              <EditorErrorBoundary fileName={currentFile}>
+                <MarkdownEditor
+                  value={currentContent}
+                  onChange={setContent}
+                  onReady={(getEditor) => (getEditorRef.current = getEditor)}
+                />
+              </EditorErrorBoundary>
             </div>
             <StatusBar />
           </>
@@ -314,6 +326,12 @@ function App() {
       )}
       {customizeOpen && (
         <ShortcutsCustomize onClose={() => setCustomizeOpen(false)} />
+      )}
+      {globalSearchOpen && (
+        <GlobalSearchPanel
+          getEditor={getEditor}
+          onClose={() => setGlobalSearchOpen(false)}
+        />
       )}
     </main>
   );

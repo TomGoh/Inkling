@@ -16,6 +16,7 @@ import {
 import { history } from "@milkdown/kit/plugin/history";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { Plugin, PluginKey, TextSelection } from "@milkdown/kit/prose/state";
+import type { EditorView } from "@milkdown/kit/prose/view";
 import { findParentNodeClosestToPos } from "@milkdown/kit/prose";
 import { nord } from "@milkdown/theme-nord";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
@@ -50,6 +51,7 @@ import {
   calloutView,
   remarkCalloutPlugin,
 } from "./callout";
+import { slashMenuPlugin } from "./slash-menu";
 
 interface EditorProps {
   /** 受控的 Markdown 文本。外部传入新值时会覆盖编辑器内容 */
@@ -138,13 +140,15 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
               view: () => ({
                 update: (view) => {
                   const pos = view.state.selection.head;
-                  const scrollEl = view.scrollDOM;
+                  const scrollEl = (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM;
                   const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
                   saveCursorStateRef.current(pos, scrollTop);
                 },
                 destroy: () => {},
               }),
             }),
+            // 斜杠菜单：输入 `/` 弹出块类型选择菜单
+            slashMenuPlugin(),
           ]);
           // 注入主题
           nord(ctx);
@@ -220,15 +224,34 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
     if (value === lastSyncedRef.current) return;
     const editor = getEditor();
     if (!editor) return;
-    editor.action((ctx) => {
-      const view = ctx.get(editorViewCtx);
-      const parser = ctx.get(parserCtx);
-      const newDoc = parser(value);
-      view.dispatch(
-        view.state.tr.replaceWith(0, view.state.doc.content.size, newDoc.content),
-      );
-    });
-    lastSyncedRef.current = value;
+    try {
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        const parser = ctx.get(parserCtx);
+        const newDoc = parser(value);
+        view.dispatch(
+          view.state.tr.replaceWith(0, view.state.doc.content.size, newDoc.content),
+        );
+      });
+      lastSyncedRef.current = value;
+    } catch (e) {
+      // 解析失败时降级：清空编辑器并写入纯文本段落，避免异常冒泡导致白屏
+      console.error("编辑器内容解析失败：", e);
+      try {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const schema = view.state.schema;
+          const textNode = schema.text(value);
+          const para = schema.nodes.paragraph.create(null, textNode);
+          view.dispatch(
+            view.state.tr.replaceWith(0, view.state.doc.content.size, para),
+          );
+        });
+        lastSyncedRef.current = value;
+      } catch {
+        // 连降级都失败，放弃同步，交由 ErrorBoundary 兜底
+      }
+    }
   }, [value, loading, getEditor]);
 
   // 编辑位置记忆：value 变化（切 tab）后恢复光标和滚动位置
@@ -255,9 +278,11 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
         }
       }
       // 恢复滚动位置（下一帧执行，等文档渲染完）
-      if (scrollTop != null && view.scrollDOM) {
+      const scrollEl = (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM;
+      if (scrollTop != null && scrollEl) {
         requestAnimationFrame(() => {
-          if (view.scrollDOM) view.scrollDOM.scrollTop = scrollTop;
+          const el = (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM;
+          if (el) el.scrollTop = scrollTop;
         });
       }
     });

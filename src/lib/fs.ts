@@ -138,6 +138,51 @@ export async function createDir(dirPath: string): Promise<void> {
   // 浏览器 mock 无操作
 }
 
+/** 全局搜索命中项 */
+export interface SearchHit {
+  path: string;
+  line: number;
+  column: number;
+  preview: string;
+}
+
+/** 在工作区所有 .md 文件中搜索文本内容 */
+export async function searchInWorkspace(
+  root: string,
+  query: string,
+  caseSensitive: boolean,
+  useRegex: boolean,
+): Promise<SearchHit[]> {
+  if (isTauri()) {
+    return invoke<SearchHit[]>("search_in_workspace", {
+      root,
+      query,
+      caseSensitive,
+      useRegex,
+    });
+  }
+  // 浏览器 mock：扫描内存中的 mock 文件
+  const hits: SearchHit[] = [];
+  const q = useRegex ? query : query;
+  let re: RegExp;
+  try {
+    const pattern = useRegex ? q : q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    re = new RegExp(pattern, caseSensitive ? "g" : "gi");
+  } catch {
+    return hits;
+  }
+  for (const [path, content] of Object.entries(MOCK_FILE_CONTENT)) {
+    const lines = content.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      re.lastIndex = 0;
+      if (re.test(lines[i])) {
+        hits.push({ path, line: i + 1, column: 1, preview: lines[i] });
+      }
+    }
+  }
+  return hits;
+}
+
 /**
  * 写入二进制文件（图片等）。
  * 桌面端走 Rust 命令；浏览器端无真实 fs，仅返回成功（mock 无法持久化二进制）。

@@ -100,7 +100,6 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
   const openTabs = useWorkspace((s) => s.openTabs);
   const openFile = useWorkspace((s) => s.openFile);
   const onFileRenamed = useWorkspace((s) => s.onFileRenamed);
-  const onFileDeleted = useWorkspace((s) => s.onFileDeleted);
   const refreshTree = useWorkspace((s) => s.refreshTree);
 
   const [renaming, setRenaming] = useState(false);
