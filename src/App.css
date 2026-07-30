@@ -189,12 +189,15 @@ body,
   flex-direction: column;
 }
 
-/* 专注模式：弱化非当前块，聚焦块保持完整不透明 */
-.focus-mode .editor-scroll .ProseMirror > * {
+/* 专注模式：弱化非当前块，聚焦块保持完整不透明。
+   focus-mode class 加在 .md-editor-root 上，ProseMirror 在其内部，
+   不能用 ".focus-mode .editor-scroll ..."（那要求 focus-mode 是 editor-scroll 的祖先，
+   但实际 DOM 是 .editor-scroll > .md-editor-root.focus-mode > .ProseMirror） */
+.focus-mode .ProseMirror > * {
   opacity: 0.35;
   transition: opacity 0.2s ease;
 }
-.focus-mode .editor-scroll .ProseMirror > .inkling-focused {
+.focus-mode .ProseMirror > .inkling-focused {
   opacity: 1;
 }
 
