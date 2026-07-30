@@ -9,6 +9,8 @@ interface UIState {
   sidebarVisible: boolean;
   /** 大纲面板是否可见 */
   outlineVisible: boolean;
+  /** 禅模式：隐藏所有 UI，仅保留编辑器 */
+  zenMode: boolean;
   /** 切换侧边栏可见性 */
   toggleSidebar: () => void;
   /** 切换大纲面板可见性 */
@@ -17,6 +19,10 @@ interface UIState {
   setSidebarVisible: (v: boolean) => void;
   /** 直接设置大纲面板可见性 */
   setOutlineVisible: (v: boolean) => void;
+  /** 切换禅模式 */
+  toggleZenMode: () => void;
+  /** 直接设置禅模式 */
+  setZenMode: (v: boolean) => void;
 }
 
 const STORAGE_KEY = "inkling-ui";
@@ -55,6 +61,8 @@ const initial = loadPersisted();
 export const useUI = create<UIState>((set, get) => ({
   sidebarVisible: initial.sidebarVisible,
   outlineVisible: initial.outlineVisible,
+  // 禅模式不持久化，默认从普通模式启动
+  zenMode: false,
 
   toggleSidebar: () => {
     const next = !get().sidebarVisible;
@@ -74,4 +82,6 @@ export const useUI = create<UIState>((set, get) => ({
     set({ outlineVisible: v });
     persist({ sidebarVisible: get().sidebarVisible, outlineVisible: v });
   },
+  toggleZenMode: () => set({ zenMode: !get().zenMode }),
+  setZenMode: (v) => set({ zenMode: v }),
 }));

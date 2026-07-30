@@ -1,7 +1,7 @@
 {
   "name": "inkling",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.9.0",
   "description": "A WYSIWYG Markdown editor",
   "type": "module",
   "scripts": {
@@ -38,6 +38,7 @@
     "@tauri-apps/plugin-dialog": "^2.7.2",
     "@tauri-apps/plugin-opener": "^2",
     "@types/katex": "^0.16.8",
+    "html2canvas": "^1.4.1",
     "katex": "^0.18.1",
     "mermaid": "^11.16.0",
     "react": "^19.1.0",

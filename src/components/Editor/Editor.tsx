@@ -29,6 +29,7 @@ import { linkClickPlugin } from "./link-click";
 import { outlineTrackerPlugin } from "./outline-tracker";
 import { formulaNumberingPlugin } from "./formula-numbering";
 import { editorModesPlugin } from "./editor-modes";
+import { blockDragPlugin } from "./block-drag";
 import { searchPlugin } from "./search";
 import { useSettings } from "../../store/settings";
 import { useWorkspace } from "../../store/workspace";
@@ -52,6 +53,7 @@ import {
   remarkCalloutPlugin,
 } from "./callout";
 import { slashMenuPlugin } from "./slash-menu";
+import { autoPairPlugin } from "./auto-pair";
 
 interface EditorProps {
   /** 受控的 Markdown 文本。外部传入新值时会覆盖编辑器内容 */
@@ -89,106 +91,135 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
   saveCursorStateRef.current = saveCursorState;
 
   useEditor(
-    (container) =>
-      Editor.make()
-        .config((ctx) => {
-          ctx.set(rootCtx, container);
-          ctx.set(defaultValueCtx, value);
-          // 监听 markdown 变更，精准回调
-          ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
-            // 编辑器内部产生的变更才回调；外部 value 同步进来的不回调
-            if (markdown !== lastSyncedRef.current) {
-              lastSyncedRef.current = markdown;
-              onChangeRef.current?.(markdown);
-            }
-          });
-          // 注入选区跟踪插件：光标进入/离开表格时更新 inTable 状态
-          ctx.update(prosePluginsCtx, (ps) => [
-            ...ps,
-            new Plugin({
-              key: new PluginKey("inkling-table-tracker"),
-              view: () => ({
-                update: (view) => {
-                  const found = findParentNodeClosestToPos(
-                    (n) => n.type.name === "table",
-                  )(view.state.selection.$head);
-                  const next = !!found;
-                  if (next !== inTableRef.current) {
-                    inTableRef.current = next;
-                    setInTable(next);
-                  }
-                },
+    (container) => {
+      // 整个工厂包 try/catch：任何插件初始化抛错时返回 undefined，
+      // 避免异常冒泡导致 React 卸载整棵树白屏。
+      // 返回 undefined 后 useInstance 的 loading 不会结束，
+      // 下方的降级检测会在超时后切换到只读 textarea 显示原始内容。
+      try {
+        return Editor.make()
+          .config((ctx) => {
+            ctx.set(rootCtx, container);
+            ctx.set(defaultValueCtx, value);
+            // 监听 markdown 变更，精准回调
+            ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
+              // 编辑器内部产生的变更才回调；外部 value 同步进来的不回调
+              if (markdown !== lastSyncedRef.current) {
+                lastSyncedRef.current = markdown;
+                onChangeRef.current?.(markdown);
+              }
+            });
+            // 注入选区跟踪插件：光标进入/离开表格时更新 inTable 状态
+            ctx.update(prosePluginsCtx, (ps) => [
+              ...ps,
+              new Plugin({
+                key: new PluginKey("inkling-table-tracker"),
+                view: () => ({
+                  update: (view) => {
+                    const found = findParentNodeClosestToPos(
+                      (n) => n.type.name === "table",
+                    )(view.state.selection.$head);
+                    const next = !!found;
+                    if (next !== inTableRef.current) {
+                      inTableRef.current = next;
+                      setInTable(next);
+                    }
+                  },
+                }),
               }),
-            }),
-            // 图片拖拽/粘贴上传：复制到 assets/ 并插入相对路径
-            imageUploadPlugin(),
-            // 链接跟随：Ctrl/Cmd+点击打开外部链接或跳转内部锚点
-            linkClickPlugin(),
-            // 大纲当前标题跟踪：光标变化时更新 store 中的高亮标题
-            outlineTrackerPlugin(),
-            // 公式自动编号：给 math_display 节点按顺序设置 number attr
-            formulaNumberingPlugin(),
-            // 专注模式 + 打字机模式
-            editorModesPlugin(),
-            // 查找替换：高亮匹配、导航、替换
-            searchPlugin(),
-            // [TOC] 目录自动生成：根据文档标题实时生成目录
-            tocPlugin(),
-            // 编辑位置记忆：选区/滚动变化时把位置存到当前 tab
-            new Plugin({
-              key: new PluginKey("inkling-cursor-saver"),
-              view: () => ({
-                update: (view) => {
-                  const pos = view.state.selection.head;
-                  const scrollEl = (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM;
-                  const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
-                  saveCursorStateRef.current(pos, scrollTop);
-                },
-                destroy: () => {},
+              // 图片拖拽/粘贴上传：复制到 assets/ 并插入相对路径
+              imageUploadPlugin(),
+              // 链接跟随：Ctrl/Cmd+点击打开外部链接或跳转内部锚点
+              linkClickPlugin(),
+              // 大纲当前标题跟踪：光标变化时更新 store 中的高亮标题
+              outlineTrackerPlugin(),
+              // 公式自动编号：给 math_display 节点按顺序设置 number attr
+              formulaNumberingPlugin(),
+              // 专注模式 + 打字机模式
+              editorModesPlugin(),
+              blockDragPlugin(),
+              // 查找替换：高亮匹配、导航、替换
+              searchPlugin(),
+              // [TOC] 目录自动生成：根据文档标题实时生成目录
+              tocPlugin(),
+              // 编辑位置记忆：选区/滚动变化时把位置存到当前 tab
+              new Plugin({
+                key: new PluginKey("inkling-cursor-saver"),
+                view: () => ({
+                  update: (view) => {
+                    const pos = view.state.selection.head;
+                    const scrollEl = (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM;
+                    const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
+                    saveCursorStateRef.current(pos, scrollTop);
+                  },
+                  destroy: () => {},
+                }),
               }),
-            }),
-            // 斜杠菜单：输入 `/` 弹出块类型选择菜单
-            slashMenuPlugin(),
-          ]);
-          // 注入主题
-          nord(ctx);
-        })
-        .use(commonmark)
-        .use(gfm)
-        // 列宽拖拽调整（gfm 默认未启用，需单独引入）
-        .use(columnResizingPlugin)
-        // 代码块：CodeMirror 高亮 + 行号 + 语言切换
-        .use(codeBlockView)
-        // 图片：相对路径解析为可加载 URL（保持 markdown 源码为相对路径）
-        .use(imageView)
-        // 数学公式：remark-math 解析 + KaTeX 渲染（行内 $...$ 和块级 $$...$$）
-        .use(remarkMathPlugin)
-        .use(mathInlineSchema)
-        .use(mathDisplaySchema)
-        .use(mathInlineView)
-        .use(mathDisplayView)
-        // YAML Front Matter：remark-frontmatter 解析 + CodeMirror 编辑
-        .use(remarkFrontmatterPlugin)
-        .use(frontmatterSchema)
-        .use(frontmatterView)
-        // 脚注：GFM 预设已注册 schema，这里仅覆盖 NodeView 提供跳转交互
-        .use(footnoteRefView)
-        .use(footnoteDefinitionView)
-        // [TOC] 目录块节点
-        .use(remarkTocPlugin)
-        .use(tocSchema)
-        .use(tocView)
-        // callout 提示框：> [!WARNING] 等 GFM 语法
-        .use(remarkCalloutPlugin)
-        .use(calloutSchema)
-        .use(calloutView)
-        .use(history)
-        .use(listener),
+              // 斜杠菜单：输入 `/` 弹出块类型选择菜单
+              slashMenuPlugin(),
+              // 自动配对补全：输入括号/引号自动配对
+              autoPairPlugin(),
+            ]);
+            // 注入主题
+            nord(ctx);
+          })
+          .use(commonmark)
+          .use(gfm)
+          // 列宽拖拽调整（gfm 默认未启用，需单独引入）
+          .use(columnResizingPlugin)
+          // 代码块：CodeMirror 高亮 + 行号 + 语言切换
+          .use(codeBlockView)
+          // 图片：相对路径解析为可加载 URL（保持 markdown 源码为相对路径）
+          .use(imageView)
+          // 数学公式：remark-math 解析 + KaTeX 渲染（行内 $...$ 和块级 $$...$$）
+          .use(remarkMathPlugin)
+          .use(mathInlineSchema)
+          .use(mathDisplaySchema)
+          .use(mathInlineView)
+          .use(mathDisplayView)
+          // YAML Front Matter：remark-frontmatter 解析 + CodeMirror 编辑
+          .use(remarkFrontmatterPlugin)
+          .use(frontmatterSchema)
+          .use(frontmatterView)
+          // 脚注：GFM 预设已注册 schema，这里仅覆盖 NodeView 提供跳转交互
+          .use(footnoteRefView)
+          .use(footnoteDefinitionView)
+          // [TOC] 目录块节点
+          .use(remarkTocPlugin)
+          .use(tocSchema)
+          .use(tocView)
+          // callout 提示框：> [!WARNING] 等 GFM 语法
+          .use(remarkCalloutPlugin)
+          .use(calloutSchema)
+          .use(calloutView)
+          .use(history)
+          .use(listener);
+      } catch (e) {
+        console.error("Milkdown 编辑器初始化失败：", e);
+        return undefined;
+      }
+    },
     // 依赖数组为空，编辑器只在挂载时创建一次
     [],
   );
 
   const [loading, getEditor] = useInstance();
+
+  // 降级检测：
+  // 1) loading 持续超过 3 秒仍未就绪 → 工厂抛错返回 undefined
+  // 2) loading 切到 false 后 getEditor() 仍为空 → editor.create() 异步阶段抛错
+  //    （Milkdown React 集成层会 .catch(console.error) 吞掉错误，editorRef 不会赋值）
+  // 两种情况都切换到只读 textarea 模式显示原始 markdown，避免白屏。
+  const [fallback, setFallback] = useState(false);
+  useEffect(() => {
+    if (loading) {
+      const timer = setTimeout(() => setFallback(true), 3000);
+      return () => clearTimeout(timer);
+    }
+    // loading=false 后必须验证 editor 实例真的存在
+    const editor = getEditor();
+    setFallback(!editor);
+  }, [loading, getEditor]);
 
   // 编辑器就绪后通知外部，便于大纲面板等持有 getEditor
   useEffect(() => {
@@ -217,6 +248,8 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
 
   // 专注模式：给 root 加 class，CSS 弱化非聚焦块
   const focusMode = useSettings((s) => s.focusMode);
+  // 拼写检查：通过 root div 的 spellCheck 属性，contentEditable 子节点（ProseMirror）继承此值
+  const spellcheck = useSettings((s) => s.spellcheck);
 
   // 外部 value 变化时，覆盖编辑器内容（仅当与上次同步值不同时）
   useEffect(() => {
@@ -288,8 +321,28 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
     });
   }, [currentFile, loading, getEditor, getActiveCursorState]);
 
+  // 降级模式：Milkdown 初始化失败，显示只读 textarea 展示原始 markdown
+  if (fallback) {
+    return (
+      <div className="md-editor-root md-editor-fallback">
+        <div className="md-editor-fallback-banner">
+          ⚠️ 富文本编辑器加载失败，已切换到只读源码模式。内容未丢失，可正常保存。
+        </div>
+        <textarea
+          className="md-editor-fallback-textarea"
+          value={value}
+          readOnly
+          spellCheck={false}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className={`md-editor-root${focusMode ? " focus-mode" : ""}`}>
+    <div
+      className={`md-editor-root${focusMode ? " focus-mode" : ""}`}
+      spellCheck={spellcheck}
+    >
       <TableToolbar getEditor={getEditor} inTable={inTable} />
       <Milkdown />
     </div>

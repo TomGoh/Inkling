@@ -31,10 +31,65 @@ function persistRecentFiles(files: string[]): void {
   }
 }
 
+/** 折叠目录列表的持久化 key（存被用户折叠的目录，未记录的默认展开） */
+const COLLAPSED_DIRS_KEY = "inkling-collapsed-dirs";
+
+/** 读取持久化的折叠目录列表 */
+function loadCollapsedDirs(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_DIRS_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw) as string[];
+    return Array.isArray(arr) ? new Set(arr) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+/** 持久化折叠目录列表 */
+function persistCollapsedDirs(dirs: Set<string>): void {
+  try {
+    localStorage.setItem(COLLAPSED_DIRS_KEY, JSON.stringify([...dirs]));
+  } catch {
+    // 忽略写入失败
+  }
+}
+
+/** 书签列表的持久化 key */
+const BOOKMARKS_KEY = "inkling-bookmarks";
+
+/** 读取持久化的书签列表 */
+function loadBookmarks(): string[] {
+  try {
+    const raw = localStorage.getItem(BOOKMARKS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as string[];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 持久化书签列表 */
+function persistBookmarks(files: string[]): void {
+  try {
+    localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(files));
+  } catch {
+    // 忽略写入失败
+  }
+}
+
 /** 把 path 推到列表头部并去重，截断到最大长度 */
 function pushRecent(list: string[], path: string): string[] {
   const next = [path, ...list.filter((p) => p !== path)];
   return next.slice(0, RECENT_FILES_MAX);
+}
+
+/** 取文件所在目录路径（兼容 / 与 \），根目录则返回原路径 */
+function parentDir(filePath: string): string {
+  const idx = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
+  if (idx <= 0) return filePath;
+  return filePath.slice(0, idx);
 }
 
 /** 单个打开的标签页 */
@@ -56,6 +111,13 @@ export interface OpenTab {
 interface WorkspaceState {
   /** 工作区根路径（null 表示未打开） */
   rootPath: string | null;
+  /**
+   * 工作区模式：
+   * - "folder"：打开了文件夹，tree 有效
+   * - "file"：单文件模式，仅打开了散落的 md 文件，不构建文件树；rootPath 为当前文件父目录（仅用于图片相对路径解析）
+   * - null：未打开任何东西
+   */
+  workspaceMode: "folder" | "file" | null;
   /** 文件树根节点 */
   tree: FileNode | null;
   /** 加载中标志 */
@@ -82,13 +144,49 @@ interface WorkspaceState {
   /** 当前光标所在标题的 slug（用于大纲高亮，null 表示无） */
   currentHeadingSlug: string | null;
 
+  // 分屏：右侧第二面板，独立展示另一个已打开的 tab（只读对照为主）
+  /** 分屏面板展示的文件路径（null 表示未分屏） */
+  splitFile: string | null;
+  /** 分屏面板展示的文件内容（从对应 tab 实时同步） */
+  splitContent: string;
+  /** 在分屏面板打开一个已存在的 tab 作为对照（若未打开则先 openFile） */
+  splitOpen: (filePath: string) => Promise<void>;
+  /** 关闭分屏面板 */
+  splitClose: () => void;
+  /** 在分屏面板与主面板之间交换文件（把当前主文件挪到分屏，分屏文件挪到主） */
+  splitSwap: () => void;
+  /** 更新分屏面板内容（分屏编辑时调用），同步到对应 tab */
+  setSplitContent: (content: string) => void;
+
   /** 最近打开的文件路径列表（最多 10 个，最新在前） */
   recentFiles: string[];
 
+  /** 折叠的目录路径集合（持久化，未记录的目录默认展开） */
+  collapsedDirs: Set<string>;
+  /** 切换目录展开状态并持久化 */
+  toggleDirExpanded: (path: string) => void;
+  /** 设置目录展开状态并持久化 */
+  setDirExpanded: (path: string, expanded: boolean) => void;
+  /** 查询目录是否展开（未记录时默认 true，即默认展开） */
+  isDirExpanded: (path: string) => boolean;
+
+  /** 书签文件路径列表 */
+  bookmarks: string[];
+  /** 切换书签状态（已收藏则取消，未收藏则添加） */
+  toggleBookmark: (path: string) => void;
+  /** 查询是否已收藏 */
+  isBookmarked: (path: string) => boolean;
+
   /** 打开工作区：读取目录树 */
   openWorkspace: (dirPath: string) => Promise<void>;
-  /** 打开文件：已打开则切换到对应 tab，否则读取内容新增 tab */
+  /** 打开文件：已打开则切换到对应 tab，否则读取内容新增 tab。不改变当前工作区模式 */
   openFile: (filePath: string) => Promise<void>;
+  /**
+   * 以单文件模式打开一个 md：不构建文件树，但把 rootPath 设为该文件父目录
+   * （仅供图片相对路径解析），workspaceMode 置为 "file"。
+   * 用于"打开文件"入口——支持散落在不同文件夹的多个 md 作为标签页。
+   */
+  openFileStandalone: (filePath: string) => Promise<void>;
   /** 切换活跃标签页 */
   switchTab: (filePath: string) => void;
   /** 关闭标签页（若关闭的是活跃 tab，自动激活相邻 tab） */
@@ -121,8 +219,13 @@ interface WorkspaceState {
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
   rootPath: null,
+  workspaceMode: null,
   tree: null,
   loading: false,
+
+  // 分屏状态
+  splitFile: null,
+  splitContent: "",
   openTabs: [],
   activeTabPath: null,
   currentFile: null,
@@ -133,12 +236,51 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   lastSavedAt: null,
   currentHeadingSlug: null,
   recentFiles: loadRecentFiles(),
+  collapsedDirs: loadCollapsedDirs(),
+  bookmarks: loadBookmarks(),
+
+  toggleDirExpanded: (path) => {
+    const next = new Set(get().collapsedDirs);
+    // 当前展开（不在折叠集合）→ 折叠（加入集合）；反之移除
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    set({ collapsedDirs: next });
+    persistCollapsedDirs(next);
+  },
+
+  setDirExpanded: (path, expanded) => {
+    const next = new Set(get().collapsedDirs);
+    if (expanded) next.delete(path);
+    else next.add(path);
+    set({ collapsedDirs: next });
+    persistCollapsedDirs(next);
+  },
+
+  isDirExpanded: (path) => {
+    // 未记录的目录默认展开（不在折叠集合里）
+    return !get().collapsedDirs.has(path);
+  },
+
+  toggleBookmark: (path) => {
+    const next = get().bookmarks.includes(path)
+      ? get().bookmarks.filter((p) => p !== path)
+      : [...get().bookmarks, path];
+    set({ bookmarks: next });
+    persistBookmarks(next);
+  },
+
+  isBookmarked: (path) => get().bookmarks.includes(path),
 
   openWorkspace: async (dirPath) => {
     set({ loading: true });
     try {
       const tree = await listDir(dirPath);
-      set({ rootPath: dirPath, tree, loading: false });
+      set({
+        rootPath: dirPath,
+        workspaceMode: "folder",
+        tree,
+        loading: false,
+      });
     } catch (e) {
       set({ loading: false });
       throw e;
@@ -189,6 +331,55 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }
   },
 
+  openFileStandalone: async (filePath) => {
+    // 先用 openFile 完成 tab 读取/切换/recent 更新
+    await get().openFile(filePath);
+    // 单文件模式：不构建文件树，但设 rootPath 为父目录以便图片相对路径解析。
+    // 仅当当前不是 folder 模式时才设为 file 模式，避免覆盖已打开的文件夹工作区。
+    const { workspaceMode } = get();
+    if (workspaceMode === "folder") return;
+    const parent = parentDir(filePath);
+    set({ rootPath: parent, workspaceMode: "file", tree: null });
+  },
+
+  splitOpen: async (filePath) => {
+    // 确保该文件已在 openTabs 中（不在则先打开，但不要切换主面板活跃 tab）
+    const existed = get().openTabs.find((t) => t.path === filePath);
+    if (!existed) {
+      // 先记录当前活跃 tab，openFile 会切换活跃，之后切回
+      const prevActive = get().activeTabPath;
+      await get().openFile(filePath);
+      if (prevActive && prevActive !== filePath) get().switchTab(prevActive);
+    }
+    const tab = get().openTabs.find((t) => t.path === filePath);
+    if (!tab) return;
+    // 不让分屏文件与主文件相同（无对照意义）
+    if (filePath === get().currentFile) return;
+    set({ splitFile: filePath, splitContent: tab.content });
+  },
+
+  splitClose: () => set({ splitFile: null, splitContent: "" }),
+
+  splitSwap: () => {
+    const { splitFile, currentFile, openTabs } = get();
+    if (!splitFile || !currentFile) return;
+    const mainTab = openTabs.find((t) => t.path === currentFile);
+    const splitTab = openTabs.find((t) => t.path === splitFile);
+    if (!mainTab || !splitTab) return;
+    // 主面板切换到原分屏文件，分屏切换到原主文件
+    get().switchTab(splitFile);
+    set({ splitFile: currentFile, splitContent: mainTab.content });
+  },
+
+  setSplitContent: (content) => {
+    const { splitFile, splitContent, openTabs } = get();
+    if (!splitFile || content === splitContent) return;
+    const nextTabs = openTabs.map((t) =>
+      t.path === splitFile ? { ...t, content, dirty: true } : t,
+    );
+    set({ openTabs: nextTabs, splitContent: content });
+  },
+
   switchTab: (filePath) => {
     const tab = get().openTabs.find((t) => t.path === filePath);
     if (!tab) return;
@@ -209,6 +400,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const idx = openTabs.findIndex((t) => t.path === filePath);
     if (idx === -1) return;
     const nextTabs = openTabs.filter((t) => t.path !== filePath);
+    // 若关闭的是分屏文件，同步关闭分屏面板
+    const splitClosing = get().splitFile === filePath;
 
     // 关闭的是活跃 tab：选择相邻 tab 激活
     if (activeTabPath === filePath) {
@@ -243,14 +436,18 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       // 关闭的不是活跃 tab，只更新列表
       set({ openTabs: nextTabs });
     }
+    // 若关闭的是分屏文件，同步关闭分屏面板
+    if (splitClosing) set({ splitFile: null, splitContent: "" });
   },
 
   closeOthers: (keepPath) => {
-    const { openTabs, activeTabPath } = get();
+    const { openTabs, activeTabPath, splitFile } = get();
     const keep = openTabs.find((t) => t.path === keepPath);
     if (!keep) return;
     // 若活跃 tab 不在保留项中，激活保留项
     const nextActive = activeTabPath === keepPath ? keepPath : keepPath;
+    // 分屏文件若不在保留项，关闭分屏
+    const splitStillValid = splitFile === keepPath;
     set({
       openTabs: [keep],
       activeTabPath: nextActive,
@@ -260,6 +457,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       lastSavedAt: keep.lastSavedAt,
       saveError: null,
       currentHeadingSlug: null,
+      splitFile: splitStillValid ? splitFile : null,
+      splitContent: splitStillValid ? get().splitContent : "",
     });
   },
 
@@ -297,6 +496,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       lastSavedAt: null,
       saveError: null,
       currentHeadingSlug: null,
+      splitFile: null,
+      splitContent: "",
     });
   },
 
@@ -384,8 +585,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   refreshTree: async () => {
-    const { rootPath } = get();
-    if (!rootPath) return;
+    const { rootPath, workspaceMode } = get();
+    // 单文件模式不构建文件树，跳过刷新
+    if (!rootPath || workspaceMode !== "folder") return;
     try {
       const tree = await listDir(rootPath);
       set({ tree });
@@ -395,7 +597,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   onFileRenamed: (from, to) => {
-    const { openTabs, activeTabPath } = get();
+    const { openTabs, activeTabPath, splitFile } = get();
     const nextTabs = openTabs.map((t) =>
       t.path === from ? { ...t, path: to } : t,
     );
@@ -404,11 +606,21 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       patch.activeTabPath = to;
       patch.currentFile = to;
     }
+    // 分屏文件被重命名，同步路径
+    if (splitFile === from) patch.splitFile = to;
     set(patch);
     // 同步 recentFiles
     const rf = get().recentFiles.map((p) => (p === from ? to : p));
     set({ recentFiles: rf });
     persistRecentFiles(rf);
+    // 同步 bookmarks（精确匹配文件，目录重命名时前缀匹配子项）
+    const bk = get().bookmarks.map((p) =>
+      p === from ? to : p.startsWith(from + "/") || p.startsWith(from + "\\")
+        ? to + p.slice(from.length)
+        : p,
+    );
+    set({ bookmarks: bk });
+    persistBookmarks(bk);
     void get().refreshTree();
   },
 
@@ -422,6 +634,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const rf = get().recentFiles.filter((p) => p !== path);
     set({ recentFiles: rf });
     persistRecentFiles(rf);
+    // 同步 bookmarks（移除被删除文件及其目录下的子项）
+    const bk = get().bookmarks.filter(
+      (p) => p !== path && !p.startsWith(path + "/") && !p.startsWith(path + "\\"),
+    );
+    set({ bookmarks: bk });
+    persistBookmarks(bk);
     void get().refreshTree();
   },
 }));

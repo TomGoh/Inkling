@@ -189,13 +189,56 @@ body,
   flex-direction: column;
 }
 
-/* 专注模式：弱化非当前块，聚焦块保持完整不透明 */
-.focus-mode .editor-scroll .ProseMirror > * {
+/* 专注模式：弱化非当前块，聚焦块保持完整不透明。
+   focus-mode class 加在 .md-editor-root 上，ProseMirror 在其内部，
+   不能用 ".focus-mode .editor-scroll ..."（那要求 focus-mode 是 editor-scroll 的祖先，
+   但实际 DOM 是 .editor-scroll > .md-editor-root.focus-mode > .ProseMirror） */
+.focus-mode .ProseMirror > * {
   opacity: 0.35;
   transition: opacity 0.2s ease;
 }
-.focus-mode .editor-scroll .ProseMirror > .inkling-focused {
+.focus-mode .ProseMirror > .inkling-focused {
   opacity: 1;
+}
+
+/* 块拖拽排序手柄：每个顶层块左侧的 ⋮⋮，hover 时显现，拖拽整块重排 */
+.editor-scroll .milkdown .ProseMirror {
+  position: relative;
+}
+.editor-scroll .milkdown .ProseMirror > * {
+  position: relative;
+}
+.inkling-block-handle {
+  position: absolute;
+  left: -1.75rem;
+  top: 0.1em;
+  width: 1.1rem;
+  cursor: grab;
+  user-select: none;
+  color: var(--text-faint, #bbb);
+  font-size: 0.85em;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 2;
+}
+.editor-scroll .milkdown .ProseMirror > *:hover .inkling-block-handle,
+.inkling-block-handle:hover {
+  opacity: 1;
+}
+.inkling-block-handle:active {
+  cursor: grabbing;
+}
+/* drop 指示器：蓝色横线，标记插入位置 */
+.inkling-drop-indicator {
+  width: 100%;
+  height: 2px;
+  background: #0969da;
+  margin: -1px 0;
+  box-shadow: 0 0 4px rgba(9, 105, 218, 0.5);
+}
+[data-theme="dark"] .inkling-block-handle {
+  color: #555;
 }
 
 /* Milkdown 编辑区容器样式 */
@@ -732,4 +775,227 @@ body,
 
 [data-theme="dark"] .editor-scroll .milkdown .frontmatter-cm .cm-gutters {
   border-right-color: #30363d;
+}
+
+/* ===== v0.8.0：图片缩放/对齐/行内 ===== */
+.milkdown-image-wrap {
+  display: inline-block;
+  position: relative;
+  vertical-align: middle;
+  max-width: 100%;
+}
+.milkdown-image-wrap .milkdown-image {
+  max-width: 100%;
+  height: auto;
+}
+.milkdown-image-wrap.align-center,
+.milkdown-image-wrap.align-right {
+  display: block;
+}
+.milkdown-image-wrap.align-center {
+  margin: 0 auto;
+  text-align: center;
+}
+.milkdown-image-wrap.align-right {
+  margin: 0 0 0 auto;
+}
+/* 缩放手柄：仅 hover 时显示 */
+.image-resize-handle {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 12px;
+  height: 12px;
+  background: #2f81f7;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 0.15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  z-index: 5;
+}
+.milkdown-image-wrap:hover .image-resize-handle {
+  opacity: 1;
+}
+/* 图片右键菜单 */
+.image-context-menu {
+  position: fixed;
+  min-width: 120px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  z-index: 1000;
+}
+.image-context-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  color: inherit;
+  font-size: 13px;
+}
+.image-context-item:hover {
+  background: var(--bg-hover, #f6f8fa);
+}
+.image-context-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border, #e1e4e8);
+}
+
+/* 编辑器降级模式：Milkdown 加载失败时的只读 textarea */
+.md-editor-fallback {
+  padding: 16px;
+}
+.md-editor-fallback-banner {
+  padding: 10px 14px;
+  background: #fff8c5;
+  border: 1px solid #e3b341;
+  border-radius: 6px;
+  color: #5d4204;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.md-editor-fallback-textarea {
+  width: 100%;
+  min-height: 60vh;
+  padding: 16px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  background: var(--bg-elevated, #fff);
+  color: var(--text, #1f2328);
+  resize: vertical;
+  outline: none;
+}
+
+/* 空状态：侧边栏关闭时的打开按钮（避免死锁） */
+.empty-state-open-sidebar {
+  margin-top: 20px;
+  padding: 8px 18px;
+  font-size: 14px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text, #1f2328);
+  transition: background 0.15s;
+}
+.empty-state-open-sidebar:hover {
+  background: var(--bg-hover, #f6f8fa);
+}
+
+/* ===== v0.8.0：禅模式 ===== */
+.app-shell.zen-mode {
+  padding: 0;
+}
+.app-shell.zen-mode .editor-wrap {
+  height: 100vh;
+}
+.app-shell.zen-mode .editor-scroll {
+  height: calc(100vh - 0px);
+  padding: 48px 0;
+}
+.app-shell.zen-mode .md-editor-root {
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+/* ===== v0.8.0：书签行（带取消按钮） ===== */
+.tree-row-side {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-muted, #8b949e);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 6px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.tree-row:hover .tree-row-side,
+.tree-row-side:focus {
+  opacity: 1;
+}
+.tree-row-side:hover {
+  color: var(--danger, #cf222e);
+}
+.tree-row-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font-size: inherit;
+  padding: 0;
+}
+
+/* ===== v0.9.0：多面板分屏 ===== */
+/* 编辑器主体容器：默认单列；分屏时横向排列主面板与分屏面板 */
+.editor-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.editor-body-split {
+  flex-direction: row;
+  gap: 0;
+}
+.editor-body-split > .editor-scroll {
+  flex: 1;
+  min-width: 0;
+}
+/* 分屏面板：右侧第二面板，与主面板等宽 */
+.split-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border, #d0d7de);
+  background: var(--editor-bg, #ffffff);
+}
+.split-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 1rem;
+  border-bottom: 1px solid var(--border, #d0d7de);
+  background: var(--topbar-bg, #ffffff);
+  flex-shrink: 0;
+}
+.split-pane-header .topbar-actions {
+  gap: 0.4rem;
+}
+/* 分屏面板内的编辑器滚动区，与主面板一致 */
+.editor-scroll-split-pane {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+}
+.editor-scroll-split-pane .milkdown {
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 2.5rem 3rem;
+  background: var(--editor-bg, #ffffff);
+}
+/* 深色主题下分屏分隔线 */
+[data-theme="dark"] .split-pane {
+  border-left-color: var(--border, #30363d);
 }

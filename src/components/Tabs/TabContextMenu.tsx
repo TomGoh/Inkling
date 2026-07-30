@@ -4,6 +4,7 @@
 
 import { useEffect, useRef } from "react";
 import { useWorkspace, type OpenTab } from "../../store/workspace";
+import { openInNewWindow } from "../../lib/newWindow";
 import "./TabContextMenu.css";
 
 interface TabContextMenuProps {
@@ -26,6 +27,9 @@ export function TabContextMenu({ tab, x, y, onClose }: TabContextMenuProps) {
   const closeToRight = useWorkspace((s) => s.closeToRight);
   const closeAll = useWorkspace((s) => s.closeAll);
   const openTabs = useWorkspace((s) => s.openTabs);
+  const splitOpen = useWorkspace((s) => s.splitOpen);
+  const splitFile = useWorkspace((s) => s.splitFile);
+  const currentFile = useWorkspace((s) => s.currentFile);
 
   const ref = useRef<HTMLDivElement>(null);
 
@@ -112,8 +116,31 @@ export function TabContextMenu({ tab, x, y, onClose }: TabContextMenuProps) {
     onClose();
   };
 
+  /** 在分屏面板打开此 tab 作为对照 */
+  const handleSplitOpen = () => {
+    // 不允许把当前主文件再分屏（无对照意义）
+    if (tab.path === currentFile) {
+      onClose();
+      return;
+    }
+    void splitOpen(tab.path);
+    onClose();
+  };
+
+  /** 在新窗口打开此文件（桌面端创建独立窗口；浏览器回退忽略） */
+  const handleOpenInNewWindow = async () => {
+    const ok = await openInNewWindow(tab.path);
+    if (!ok) {
+      // 浏览器端无多窗口能力，提示用户
+      alert("多窗口仅在桌面端可用");
+    }
+    onClose();
+  };
+
   const idx = openTabs.findIndex((t) => t.path === tab.path);
   const hasRight = idx < openTabs.length - 1;
+  // 分屏菜单项可用性：当前主文件不可分屏；若已分屏且分屏的就是此 tab，则禁用
+  const canSplit = tab.path !== currentFile && splitFile !== tab.path;
 
   // 计算菜单位置，避免溢出视口
   const style: React.CSSProperties = {
@@ -150,6 +177,20 @@ export function TabContextMenu({ tab, x, y, onClose }: TabContextMenuProps) {
           全部关闭
         </button>
         <div className="tab-context-sep" />
+        <button
+          className="tab-context-item"
+          onClick={handleSplitOpen}
+          disabled={!canSplit}
+          title={canSplit ? "在右侧分屏面板打开此文件作为对照" : "当前主文件或已在分屏中"}
+        >
+          在分屏打开
+        </button>
+        <button
+          className="tab-context-item"
+          onClick={() => void handleOpenInNewWindow()}
+        >
+          在新窗口打开
+        </button>
         <button className="tab-context-item" onClick={handleCopyPath}>
           复制路径
         </button>
