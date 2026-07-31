@@ -193,6 +193,7 @@ function App() {
           <div className="editor-scroll">
             <EditorErrorBoundary fileName={currentFile}>
               <MarkdownEditor
+                key={currentFile}
                 filePath={currentFile}
                 value={currentContent}
                 onChange={setContent}
@@ -412,6 +413,7 @@ function App() {
                 )}
                 <EditorErrorBoundary fileName={currentFile}>
                   <MarkdownEditor
+                    key={currentFile}
                     filePath={currentFile}
                     value={currentContent}
                     onChange={setContent}
@@ -446,6 +448,7 @@ function App() {
                   <div className="editor-scroll editor-scroll-split-pane">
                     <EditorErrorBoundary fileName={splitFile}>
                       <MarkdownEditor
+                        key={splitFile}
                         filePath={splitFile}
                         value={splitContent}
                         onChange={setSplitContent}

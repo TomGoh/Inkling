@@ -78,6 +78,7 @@ interface EditorProps {
  * 挂载点通过 config 里 ctx.set(rootCtx, container) 注入。
  */
 function EditorInner({
+  filePath,
   value,
   onChange,
   onReady,
@@ -376,6 +377,7 @@ function EditorInner({
  * 启用列宽拖拽，并提供插入表格、行列增删、对齐、删除表格的工具栏。
  */
 export function MarkdownEditor({
+  filePath,
   value,
   onChange,
   onReady,
@@ -384,6 +386,7 @@ export function MarkdownEditor({
   return (
     <MilkdownProvider>
       <EditorInner
+        filePath={filePath}
         value={value}
         onChange={onChange}
         onReady={onReady}
