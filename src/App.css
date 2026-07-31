@@ -366,49 +366,82 @@ body,
   pointer-events: none;
 }
 
-/* 代码块（CodeMirror，统一深色主题） */
+/* 代码块（CodeMirror，外观跟随独立的代码高亮主题） */
 .editor-scroll .milkdown .code-block {
+  --code-block-bg: #282c34;
+  --code-block-toolbar-bg: #21252b;
+  --code-block-control-bg: #282c34;
+  --code-block-gutter-bg: #282c34;
+  --code-block-border: #30363d;
+  --code-block-gutter-border: #3b4048;
+  --code-block-text: #abb2bf;
+  --code-block-muted: #5c6370;
+  --code-block-focus: #528bff;
   margin: 1rem 0;
   border-radius: 6px;
   overflow: hidden;
-  border: 1px solid #30363d;
-  background: #282c34;
+  border: 1px solid var(--code-block-border);
+  background: var(--code-block-bg);
+  color: var(--code-block-text);
+}
+.editor-scroll .milkdown .code-block[data-code-theme="light"] {
+  --code-block-bg: #ffffff;
+  --code-block-toolbar-bg: #f6f8fa;
+  --code-block-control-bg: #ffffff;
+  --code-block-gutter-bg: #f6f8fa;
+  --code-block-border: #d0d7de;
+  --code-block-gutter-border: #d0d7de;
+  --code-block-text: #1f2328;
+  --code-block-muted: #6e7681;
+  --code-block-focus: #0969da;
+}
+.editor-scroll .milkdown .code-block[data-code-theme="none"] {
+  --code-block-bg: var(--editor-bg, #ffffff);
+  --code-block-toolbar-bg: var(--bg-subtle, #f6f8fa);
+  --code-block-control-bg: var(--editor-bg, #ffffff);
+  --code-block-gutter-bg: var(--bg-subtle, #f6f8fa);
+  --code-block-border: var(--border, #d0d7de);
+  --code-block-gutter-border: var(--border, #d0d7de);
+  --code-block-text: var(--text, #1f2328);
+  --code-block-muted: var(--text-muted, #6e7681);
+  --code-block-focus: #2f81f7;
 }
 .editor-scroll .milkdown .code-block-toolbar {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   padding: 0.25rem 0.5rem;
-  background: #21252b;
-  border-bottom: 1px solid #30363d;
+  background: var(--code-block-toolbar-bg);
+  border-bottom: 1px solid var(--code-block-border);
 }
 .editor-scroll .milkdown .code-block-lang {
   font-size: 0.75rem;
   padding: 0.1rem 0.4rem;
-  border: 1px solid #30363d;
+  border: 1px solid var(--code-block-border);
   border-radius: 4px;
-  background: #282c34;
-  color: #abb2bf;
+  background: var(--code-block-control-bg);
+  color: var(--code-block-text);
   cursor: pointer;
   outline: none;
 }
 .editor-scroll .milkdown .code-block-lang:focus {
-  border-color: #528bff;
+  border-color: var(--code-block-focus);
 }
 .editor-scroll .milkdown .code-block-cm {
   max-height: 32rem;
   overflow: auto;
 }
 .editor-scroll .milkdown .code-block-cm .cm-editor {
-  background: #282c34;
+  background: var(--code-block-bg);
+  color: var(--code-block-text);
 }
 .editor-scroll .milkdown .code-block-cm .cm-scroller {
   overflow: auto;
 }
 .editor-scroll .milkdown .code-block-cm .cm-gutters {
-  background: #282c34;
-  border-right: 1px solid #3b4048;
-  color: #5c6370;
+  background: var(--code-block-gutter-bg);
+  border-right: 1px solid var(--code-block-gutter-border);
+  color: var(--code-block-muted);
 }
 
 /* Mermaid 图表块 */
