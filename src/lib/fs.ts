@@ -3,6 +3,7 @@
 // 这样保证沙箱内可开发验证，真实环境走原生 fs
 
 import { invoke, isTauri, convertFileSrc } from "@tauri-apps/api/core";
+import { resolve as resolvePath } from "@tauri-apps/api/path";
 
 /** 文件树节点（与 Rust 端 FileNode 对应） */
 export interface FileNode {
@@ -211,19 +212,53 @@ export function joinPath(base: string, rel: string): string {
 }
 
 /**
+ * 以 Markdown 文件所在目录为基准解析路径。
+ * Tauri 的原生路径实现会按当前平台处理分隔符、绝对路径及 ./../ 片段。
+ */
+export async function resolvePathFromDocument(
+  documentPath: string,
+  ...paths: string[]
+): Promise<string> {
+  if (!isTauri() || !documentPath) return paths.join("/");
+  return resolvePath(documentPath, "..", ...paths);
+}
+
+/**
  * 把 markdown 中的图片 src 解析为 WebView 可加载的 URL。
  * - http(s)/data/blob/asset 协议：原样返回
- * - 绝对路径：convertFileSrc 转换
- * - 相对路径：相对工作区根目录拼接后 convertFileSrc 转换
+ * - 本地路径：以当前 Markdown 文件所在目录为基准解析并正规化，再用 convertFileSrc 转换
  * - 浏览器环境：原样返回（无法访问本地文件）
  */
-export function resolveImageSrc(src: string, rootPath: string | null): string {
+export async function resolveImageSrc(
+  src: string,
+  documentPath: string,
+): Promise<string> {
   if (!src) return src;
   if (!isTauri()) return src;
-  // 协议 URL 直接放行
+  // 非本地协议 URL 直接放行；file: URL 仍需转成 Tauri 可读取的本地路径。
   if (/^(https?:|data:|blob:|asset:|tauri:)/i.test(src)) return src;
-  // Windows 绝对路径（如 C:\）或 Unix 绝对路径（/）
-  const isAbsolute = /^[a-zA-Z]:[\\/]/.test(src) || src.startsWith("/");
-  const abs = isAbsolute ? src : rootPath ? joinPath(rootPath, src) : src;
+
+  // Markdown 图片地址遵循 URI 编码；转成本地路径前解码空格、#、中文等字符。
+  // 非法的百分号序列保留原值，避免单张图片导致编辑器初始化失败。
+  let localPath = src;
+  try {
+    if (/^file:/i.test(src)) {
+      const url = new URL(src);
+      const host =
+        url.hostname && url.hostname !== "localhost"
+          ? `//${url.hostname}`
+          : "";
+      localPath = host + decodeURIComponent(url.pathname);
+      // file:///C:/... 的 pathname 会多一个前导 /，Windows 路径需去掉。
+      if (!host && /^\/[a-zA-Z]:\//.test(localPath)) {
+        localPath = localPath.slice(1);
+      }
+    } else {
+      localPath = decodeURIComponent(src);
+    }
+  } catch {
+    // 保留未经编码的普通文件路径
+  }
+  const abs = await resolvePathFromDocument(documentPath, localPath);
   return convertFileSrc(abs);
 }

@@ -57,6 +57,8 @@ import { slashMenuPlugin } from "./slash-menu";
 import { autoPairPlugin } from "./auto-pair";
 
 interface EditorProps {
+  /** 当前 Markdown 文件完整路径，用于解析相对图片路径 */
+  filePath: string;
   /** 受控的 Markdown 文本。外部传入新值时会覆盖编辑器内容 */
   value: string;
   /** 内容变更回调，输出当前 Markdown 源码 */
@@ -138,8 +140,8 @@ function EditorInner({
                   },
                 }),
               }),
-              // 图片拖拽/粘贴上传：复制到 assets/ 并插入相对路径
-              imageUploadPlugin(),
+              // 图片拖拽/粘贴上传：复制到当前文档的 assets/ 并插入相对路径
+              imageUploadPlugin(filePath),
               // 链接跟随：Ctrl/Cmd+点击打开外部链接或跳转内部锚点
               linkClickPlugin(),
               // 仅主编辑器发布大纲；分屏编辑器不传回调，避免覆盖主面板。
@@ -187,7 +189,7 @@ function EditorInner({
           // 代码块：CodeMirror 高亮 + 行号 + 语言切换
           .use(codeBlockView)
           // 图片：相对路径解析为可加载 URL（保持 markdown 源码为相对路径）
-          .use(imageView)
+          .use(imageView(filePath))
           // 数学公式：remark-math 解析 + KaTeX 渲染（行内 $...$ 和块级 $$...$$）
           .use(remarkMathPlugin)
           .use(mathInlineSchema)
@@ -216,7 +218,7 @@ function EditorInner({
         return undefined;
       }
     },
-    // 依赖数组为空，编辑器只在挂载时创建一次
+    // 依赖数组为空，编辑器只在挂载时创建一次；filePath 变化由外层 key 触发重建
     [],
   );
 
