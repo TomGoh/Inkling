@@ -110,8 +110,9 @@ function buildCommands(view: EditorView): SlashCommand[] {
         if (!headingType) return;
         const sel = v.state.selection;
         const tr = v.state.tr.deleteRange(anchor, sel.from);
-        const $pos = tr.doc.resolve(Math.min(anchor, tr.doc.content.size));
-        tr.setNodeMarkup($pos.before(), headingType, { level: lv });
+        // anchor 即段落节点位置（$head.start()-1），直接用它；
+        // 不能用 $pos.before()，文档第一个节点时会抛 "there is no position before the top-level node"
+        tr.setNodeMarkup(anchor, headingType, { level: lv });
         v.dispatch(tr);
         v.focus();
       },
@@ -183,8 +184,7 @@ function buildCommands(view: EditorView): SlashCommand[] {
       icon: "</>",
       run: (v, anchor) => {
         const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
-        const $pos = tr.doc.resolve(Math.min(anchor, tr.doc.content.size));
-        tr.setNodeMarkup($pos.before(), schema.nodes.code_block, { language: "text" });
+        tr.setNodeMarkup(anchor, schema.nodes.code_block, { language: "text" });
         v.dispatch(tr);
         v.focus();
       },
@@ -262,8 +262,7 @@ function buildCommands(view: EditorView): SlashCommand[] {
       icon: "☿",
       run: (v, anchor) => {
         const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
-        const $pos = tr.doc.resolve(Math.min(anchor, tr.doc.content.size));
-        tr.setNodeMarkup($pos.before(), schema.nodes.code_block, { language: "mermaid" });
+        tr.setNodeMarkup(anchor, schema.nodes.code_block, { language: "mermaid" });
         v.dispatch(tr);
         v.focus();
       },

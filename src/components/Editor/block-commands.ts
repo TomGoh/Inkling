@@ -26,7 +26,10 @@ function insertNodeAfter(view: EditorView, node: any): void {
 /** 转换当前块为指定类型（保留选区位置） */
 function setBlockType(view: EditorView, nodeType: any, attrs?: Record<string, unknown>): void {
   const { $from } = view.state.selection;
-  view.dispatch(view.state.tr.setNodeMarkup($from.before(), nodeType, attrs).scrollIntoView());
+  // $from.before() 在文档第一个顶层节点时会抛 "there is no position before the top-level node"，
+  // 改用 $from.start() - 1 得到当前所在块节点的位置（语义等价但对首节点安全）
+  const nodePos = $from.start($from.depth) - 1;
+  view.dispatch(view.state.tr.setNodeMarkup(nodePos, nodeType, attrs).scrollIntoView());
   view.focus();
 }
 
