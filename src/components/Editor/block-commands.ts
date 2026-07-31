@@ -7,13 +7,28 @@
 
 import type { EditorView } from "@milkdown/kit/prose/view";
 import type { Node } from "@milkdown/kit/prose/model";
+import { TextSelection } from "@milkdown/kit/prose/state";
 
-/** 包裹当前选区所在块为指定节点（列表/引用） */
+/** 包裹当前选区所在块为指定节点（引用：单层） */
 function wrapBlock(view: EditorView, nodeType: any): void {
   const { $from, $to } = view.state.selection;
   const range = $from.blockRange($to);
   if (!range) return;
   view.dispatch(view.state.tr.wrap(range, [{ type: nodeType }]).scrollIntoView());
+  view.focus();
+}
+
+/** 包裹当前选区所在块为列表：需同时包 list_item 层（list content 为 list_item+） */
+function wrapListBlock(view: EditorView, listType: any): void {
+  const schema = view.state.schema;
+  const listItem = schema.nodes.list_item;
+  if (!listType || !listItem) return;
+  const { $from, $to } = view.state.selection;
+  const range = $from.blockRange($to);
+  if (!range) return;
+  view.dispatch(
+    view.state.tr.wrap(range, [{ type: listType }, { type: listItem }]).scrollIntoView(),
+  );
   view.focus();
 }
 
@@ -52,12 +67,12 @@ export function turnIntoHeading(view: EditorView, level: number): void {
 
 export function wrapBulletList(view: EditorView): void {
   const t = view.state.schema.nodes.bullet_list;
-  if (t) wrapBlock(view, t);
+  if (t) wrapListBlock(view, t);
 }
 
 export function wrapOrderedList(view: EditorView): void {
   const t = view.state.schema.nodes.ordered_list;
-  if (t) wrapBlock(view, t);
+  if (t) wrapListBlock(view, t);
 }
 
 export function wrapBlockquote(view: EditorView): void {
@@ -107,5 +122,43 @@ export function insertFrontmatter(view: EditorView): void {
   if (view.state.doc.firstChild?.type.name === "frontmatter") return;
   const fm = schema.nodes.frontmatter.create({ value: "title: \ndate: " });
   view.dispatch(view.state.tr.insert(0, fm).scrollIntoView());
+  view.focus();
+}
+
+/**
+ * 删除光标所在的顶层块节点（引用/代码块/Mermaid/提示框/元数据/列表/公式/TOC/分割线等）。
+ * - 定位到 depth=0 的块节点，整体删除
+ * - 删除后若文档变空，补一个空段落避免无法编辑
+ * - 光标移到被删块的前一块末尾（或新空段落）
+ */
+export function deleteCurrentBlock(view: EditorView): void {
+  const { state } = view;
+  const { $head } = state.selection;
+  if ($head.depth === 0) {
+    // 光标在文档顶层（极少见），直接在光标处删一个块
+    return;
+  }
+  // 找到顶层块节点（depth=1 的父节点）
+  const topPos = $head.before(1);
+  const topNode = state.doc.nodeAt(topPos);
+  if (!topNode) return;
+  const end = topPos + topNode.nodeSize;
+  let tr = state.tr.delete(topPos, end);
+  // 文档变空时补一个空段落
+  if (tr.doc.content.size === 0 || tr.doc.childCount === 0) {
+    const para = state.schema.nodes.paragraph.create();
+    tr = tr.insert(0, para);
+    tr = tr.setSelection(TextSelection.near(tr.doc.resolve(1)));
+  } else {
+    // 光标移到删除位置附近的前一个块末尾
+    const beforePos = Math.max(0, topPos - 1);
+    try {
+      const safe = Math.max(0, Math.min(beforePos, tr.doc.content.size));
+      tr = tr.setSelection(TextSelection.near(tr.doc.resolve(safe)));
+    } catch {
+      // 忽略无效位置
+    }
+  }
+  view.dispatch(tr.scrollIntoView());
   view.focus();
 }

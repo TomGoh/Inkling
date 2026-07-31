@@ -151,7 +151,9 @@ function buildCommands(view: EditorView): SlashCommand[] {
       run: (v, anchor) => {
         const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
         const range = tr.selection.$from.blockRange(tr.selection.$to);
-        if (range) tr.wrap(range, [{ type: schema.nodes.bullet_list }]);
+        // bullet_list 的 content 是 list_item+，必须同时包 list_item 这一层，
+        // 否则 paragraph 直接进 bullet_list 会报 "content does not fit in gap"
+        if (range) tr.wrap(range, [{ type: schema.nodes.bullet_list }, { type: schema.nodes.list_item }]);
         v.dispatch(tr.scrollIntoView());
         v.focus();
       },
@@ -167,7 +169,8 @@ function buildCommands(view: EditorView): SlashCommand[] {
       run: (v, anchor) => {
         const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
         const range = tr.selection.$from.blockRange(tr.selection.$to);
-        if (range) tr.wrap(range, [{ type: schema.nodes.ordered_list }]);
+        // ordered_list 的 content 是 list_item+，同上需包两层
+        if (range) tr.wrap(range, [{ type: schema.nodes.ordered_list }, { type: schema.nodes.list_item }]);
         v.dispatch(tr.scrollIntoView());
         v.focus();
       },

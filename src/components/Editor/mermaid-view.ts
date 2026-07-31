@@ -176,8 +176,9 @@ export function createMermaidView(
       if (!editing) void render(next.textContent);
       return true;
     },
-    // 编辑模式下拦截事件，避免 ProseMirror 抢焦点；非编辑模式也拦截以避免双击选词
-    stopEvent: () => true,
+    // 仅编辑模式下拦截事件（避免 ProseMirror 抢 textarea 焦点）；
+    // 非编辑模式不拦截，使节点可被选中后用 Backspace/Delete 删除
+    stopEvent: () => editing,
     ignoreMutation: () => true,
   };
 }

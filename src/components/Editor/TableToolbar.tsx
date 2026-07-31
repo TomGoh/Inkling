@@ -24,6 +24,7 @@ import {
   insertCallout,
   insertToc,
   insertFrontmatter,
+  deleteCurrentBlock,
 } from "./block-commands";
 import "./TableToolbar.css";
 
@@ -153,6 +154,12 @@ export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
         <button className="tt-btn" onClick={() => withView((v) => insertCallout(v, "note"))} title="提示框（注意）">! 提示框</button>
         <button className="tt-btn" onClick={() => withView(insertToc)} title="目录 [TOC]">☰ 目录</button>
         <button className="tt-btn" onClick={() => withView(insertFrontmatter)} title="YAML Front Matter">Y 元数据</button>
+      </div>
+
+      <span className="tt-sep" />
+
+      <div className="tt-group">
+        <button className="tt-btn tt-danger" onClick={() => withView(deleteCurrentBlock)} title="删除光标所在的整个块（引用/代码块/图表/提示框/元数据等）">✕ 删除块</button>
       </div>
 
       {inTable && (

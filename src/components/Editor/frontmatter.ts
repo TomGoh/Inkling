@@ -144,7 +144,12 @@ function createFrontmatterView(): NodeViewConstructor {
     return {
       dom,
       ignoreMutation: () => true,
-      stopEvent: () => true,
+      // 仅当事件发生在 CodeMirror 内部时拦截（让 CM 接管键盘输入）；
+      // 点击标签/边框等外部区域不拦截，使节点可被选中后用 Backspace/Delete 删除
+      stopEvent: (event: Event) => {
+        const target = event.target as HTMLElement | null;
+        return !!target && cmHost.contains(target);
+      },
       selectNode: () => cm.focus(),
       deselectNode: () => {},
       setSelection: () => cm.focus(),
