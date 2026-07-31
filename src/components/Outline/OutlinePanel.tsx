@@ -1,19 +1,23 @@
 // 大纲面板
 // 解析当前文档的标题，生成可点击的目录树。
 // 点击标题 → 滚动编辑器到对应标题位置。
-// 当前光标所在标题高亮（由 outline-tracker 插件更新 store）。
+// 当前光标所在标题高亮（由主编辑器的 outline-tracker 插件发布）。
 
-import { useMemo } from "react";
 import type { Editor } from "@milkdown/kit/core";
 import { editorViewCtx } from "@milkdown/kit/core";
 import { TextSelection } from "@milkdown/kit/prose/state";
-import { parseOutline, slugify } from "../../lib/outline";
-import { useWorkspace } from "../../store/workspace";
+import {
+  findEditorHeadingPos,
+  type EditorOutlineHeading,
+  type EditorOutlineSnapshot,
+} from "../../lib/outline";
 import "./OutlinePanel.css";
 
 interface OutlinePanelProps {
   /** 获取 Milkdown 编辑器实例，用于滚动定位 */
   getEditor: () => Editor | undefined;
+  /** 主编辑器插件发布的渲染标题与当前标题 */
+  snapshot: EditorOutlineSnapshot;
 }
 
 const OUTLINE_SCROLL_DURATION = 280;
@@ -62,33 +66,17 @@ function animateScrollTo(scroller: HTMLElement, targetTop: number) {
   outlineScrollFrames.set(scroller, frame);
 }
 
-/** 滚动编辑器到第 occurrence 个 slug 匹配的标题节点 */
+/** 滚动编辑器到快照对应的标题节点 */
 function scrollToHeading(
   getEditor: () => Editor | undefined,
-  slug: string,
-  occurrence: number,
+  heading: EditorOutlineHeading,
 ) {
   const editor = getEditor();
   if (!editor) return;
   editor.action((ctx) => {
     const view = ctx.get(editorViewCtx);
     const doc = view.state.doc;
-    let foundPos: number | null = null;
-    let matched = 0;
-    doc.descendants((node, pos) => {
-      if (foundPos != null) return false;
-      if (node.type.name === "heading") {
-        if (slugify(node.textContent) === slug) {
-          if (matched === occurrence) {
-            foundPos = pos;
-            return false;
-          }
-          matched++;
-        }
-      }
-      return true;
-    });
-    const targetPos = foundPos;
+    const targetPos = findEditorHeadingPos(doc, heading);
     if (targetPos != null) {
       // 先更新选区并聚焦。若先启动 smooth scroll，ProseMirror 会在选区
       // 更新时恢复旧滚动位置，导致第一次点击的滚动被抵消。
@@ -118,15 +106,11 @@ function scrollToHeading(
   });
 }
 
-export function OutlinePanel({ getEditor }: OutlinePanelProps) {
-  const currentContent = useWorkspace((s) => s.currentContent);
-  const currentHeadingSlug = useWorkspace((s) => s.currentHeadingSlug);
-
-  const headings = useMemo(
-    () => parseOutline(currentContent),
-    [currentContent],
-  );
-  const slugOccurrences = new Map<string, number>();
+export function OutlinePanel({
+  getEditor,
+  snapshot,
+}: OutlinePanelProps) {
+  const { headings, activeIndex } = snapshot;
 
   return (
     <aside className="outline-panel">
@@ -138,17 +122,14 @@ export function OutlinePanel({ getEditor }: OutlinePanelProps) {
           <div className="outline-empty">文档暂无标题</div>
         ) : (
           headings.map((h) => {
-            const slug = slugify(h.text);
-            const occurrence = slugOccurrences.get(slug) ?? 0;
-            slugOccurrences.set(slug, occurrence + 1);
-            const active = slug === currentHeadingSlug;
+            const active = h.index === activeIndex;
             return (
               <button
                 key={h.id}
                 className={`outline-item outline-h${h.level}${active ? " outline-item-active" : ""}`}
                 style={{ paddingLeft: `${(h.level - 1) * 12 + 8}px` }}
                 title={h.text}
-                onClick={() => scrollToHeading(getEditor, slug, occurrence)}
+                onClick={() => scrollToHeading(getEditor, h)}
               >
                 <span className="outline-item-text">{h.text}</span>
               </button>
