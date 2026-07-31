@@ -98,6 +98,29 @@ function buildCommands(view: EditorView): SlashCommand[] {
   const schema = view.state.schema;
   const cmds: SlashCommand[] = [];
 
+  /**
+   * 在当前光标处插入一个块节点：
+   * - 若当前段落为空（无文本），直接替换该段落为目标节点，避免多出空行
+   * - 否则在当前块之后插入，并把光标移到新节点后
+   * 删除 `/` 与过滤词的动作已由调用方在传入的 tr 上完成。
+   */
+  const insertBlockAtCursor = (
+    tr: import("@milkdown/kit/prose/state").Transaction,
+    node: import("@milkdown/kit/prose/model").Node,
+  ) => {
+    const $from = tr.selection.$from;
+    const parent = $from.parent;
+    // 当前在空段落内：直接替换
+    if (parent.type.name === "paragraph" && parent.content.size === 0) {
+      const start = $from.before($from.depth);
+      tr.replaceWith(start, start + parent.nodeSize, node);
+    } else {
+      // 非空：插到当前块之后
+      const pos = $from.after($from.depth);
+      tr.insert(pos, node);
+    }
+  };
+
   // 标题 1-3
   for (let level = 1; level <= 3; level++) {
     const lv = level;
@@ -126,13 +149,10 @@ function buildCommands(view: EditorView): SlashCommand[] {
       keywords: "bullet list ul 无序列表 列表",
       icon: "•",
       run: (v, anchor) => {
-        v.dispatch(v.state.tr.deleteRange(anchor, v.state.selection.from));
-        const wrap = v.state.tr;
-        const range = wrap.selection.$from.blockRange(wrap.selection.$to);
-        if (range) {
-          wrap.wrap(range, [{ type: schema.nodes.bullet_list }]);
-          v.dispatch(wrap);
-        }
+        const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
+        const range = tr.selection.$from.blockRange(tr.selection.$to);
+        if (range) tr.wrap(range, [{ type: schema.nodes.bullet_list }]);
+        v.dispatch(tr.scrollIntoView());
         v.focus();
       },
     });
@@ -145,13 +165,10 @@ function buildCommands(view: EditorView): SlashCommand[] {
       keywords: "ordered list ol 有序列表 编号",
       icon: "1.",
       run: (v, anchor) => {
-        v.dispatch(v.state.tr.deleteRange(anchor, v.state.selection.from));
-        const wrap = v.state.tr;
-        const range = wrap.selection.$from.blockRange(wrap.selection.$to);
-        if (range) {
-          wrap.wrap(range, [{ type: schema.nodes.ordered_list }]);
-          v.dispatch(wrap);
-        }
+        const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
+        const range = tr.selection.$from.blockRange(tr.selection.$to);
+        if (range) tr.wrap(range, [{ type: schema.nodes.ordered_list }]);
+        v.dispatch(tr.scrollIntoView());
         v.focus();
       },
     });
@@ -164,13 +181,10 @@ function buildCommands(view: EditorView): SlashCommand[] {
       keywords: "quote blockquote 引用",
       icon: "❝",
       run: (v, anchor) => {
-        v.dispatch(v.state.tr.deleteRange(anchor, v.state.selection.from));
-        const wrap = v.state.tr;
-        const range = wrap.selection.$from.blockRange(wrap.selection.$to);
-        if (range) {
-          wrap.wrap(range, [{ type: schema.nodes.blockquote }]);
-          v.dispatch(wrap);
-        }
+        const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
+        const range = tr.selection.$from.blockRange(tr.selection.$to);
+        if (range) tr.wrap(range, [{ type: schema.nodes.blockquote }]);
+        v.dispatch(tr.scrollIntoView());
         v.focus();
       },
     });
@@ -199,9 +213,8 @@ function buildCommands(view: EditorView): SlashCommand[] {
       icon: "—",
       run: (v, anchor) => {
         const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
-        v.dispatch(tr);
-        const pos = v.state.selection.$from.after();
-        v.dispatch(v.state.tr.insert(pos, schema.nodes.hr.create()));
+        insertBlockAtCursor(tr, schema.nodes.hr.create());
+        v.dispatch(tr.scrollIntoView());
         v.focus();
       },
     });
@@ -214,26 +227,35 @@ function buildCommands(view: EditorView): SlashCommand[] {
       keywords: "table 表格",
       icon: "▦",
       run: (v, anchor) => {
-        v.dispatch(v.state.tr.deleteRange(anchor, v.state.selection.from));
+        const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
         const cell = schema.nodes.table_cell;
         const header = schema.nodes.table_header;
         const row = schema.nodes.table_row;
-        if (!cell || !header || !row) {
+        // GFM 把 table_row 拆成两种节点：表头行 table_header_row（content: (table_header)*）
+        // 与普通行 table_row（content: (table_cell)*）；table 的 content 要求
+        // 「table_header_row table_row+」。若把 table_header 塞进 table_row，
+        // 会触发 "invalid content for node table_row" 导致列宽调整等操作报错。
+        const headerRow = schema.nodes.table_header_row;
+        if (!cell || !header || !row || !headerRow) {
+          v.dispatch(tr);
           v.focus();
           return;
         }
-        // table_cell / table_header 的 contentSpec 是 block 级（需 paragraph 等），
+        // table_cell / table_header 的 contentSpec 是 paragraph（恰好一个），
         // 不能直接塞 text node，否则节点结构非法会导致 cell 无法编辑。
-        const makeRow = (isHeader: boolean) => {
-          const cellType = isHeader ? header : cell;
-          return row.create(null, [
-            cellType.create(null, schema.nodes.paragraph.create()),
-            cellType.create(null, schema.nodes.paragraph.create()),
+        const makeHeaderRow = () =>
+          headerRow.create(null, [
+            header.create(null, schema.nodes.paragraph.create()),
+            header.create(null, schema.nodes.paragraph.create()),
           ]);
-        };
-        const table = schema.nodes.table.create(null, [makeRow(true), makeRow(false)]);
-        const pos = v.state.selection.$from.after();
-        v.dispatch(v.state.tr.insert(pos, table));
+        const makeBodyRow = () =>
+          row.create(null, [
+            cell.create(null, schema.nodes.paragraph.create()),
+            cell.create(null, schema.nodes.paragraph.create()),
+          ]);
+        const table = schema.nodes.table.create(null, [makeHeaderRow(), makeBodyRow()]);
+        insertBlockAtCursor(tr, table);
+        v.dispatch(tr.scrollIntoView());
         v.focus();
       },
     });
@@ -246,9 +268,9 @@ function buildCommands(view: EditorView): SlashCommand[] {
       keywords: "math formula 公式 display",
       icon: "∑",
       run: (v, anchor) => {
-        v.dispatch(v.state.tr.deleteRange(anchor, v.state.selection.from));
-        const pos = v.state.selection.$from.after();
-        v.dispatch(v.state.tr.insert(pos, schema.nodes.math_display.create()));
+        const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
+        insertBlockAtCursor(tr, schema.nodes.math_display.create());
+        v.dispatch(tr.scrollIntoView());
         v.focus();
       },
     });
@@ -283,13 +305,13 @@ function buildCommands(view: EditorView): SlashCommand[] {
         keywords: ct.kw,
         icon: "!",
         run: (v, anchor) => {
-          v.dispatch(v.state.tr.deleteRange(anchor, v.state.selection.from));
-          const pos = v.state.selection.$from.after();
+          const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
           const callout = schema.nodes.callout.create(
             { calloutType: ct.t },
             schema.nodes.paragraph.create(),
           );
-          v.dispatch(v.state.tr.insert(pos, callout));
+          insertBlockAtCursor(tr, callout);
+          v.dispatch(tr.scrollIntoView());
           v.focus();
         },
       });
@@ -303,9 +325,9 @@ function buildCommands(view: EditorView): SlashCommand[] {
       keywords: "toc 目录 contents",
       icon: "☰",
       run: (v, anchor) => {
-        v.dispatch(v.state.tr.deleteRange(anchor, v.state.selection.from));
-        const pos = v.state.selection.$from.after();
-        v.dispatch(v.state.tr.insert(pos, schema.nodes.toc.create()));
+        const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
+        insertBlockAtCursor(tr, schema.nodes.toc.create());
+        v.dispatch(tr.scrollIntoView());
         v.focus();
       },
     });

@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from "react";
-import type { Editor } from "@milkdown/kit/core";
+import { editorViewCtx, type Editor } from "@milkdown/kit/core";
 import { MarkdownEditor } from "./components/Editor/Editor";
 import { TableToolbar } from "./components/Editor/TableToolbar";
 import { SearchPanel } from "./components/Editor/SearchPanel";
@@ -64,10 +64,24 @@ function App() {
   const [mainEditorReady, setMainEditorReady] = useState(false);
   // 主编辑器光标是否在表格内（驱动工具栏的表格上下文按钮组）
   const [mainInTable, setMainInTable] = useState(false);
+  // Ctrl+N 新建未命名草稿后，编辑器重建完成时自动聚焦
+  const pendingFocusRef = useRef(false);
   const handleEditorReady = useCallback(
     (getEditor: (() => Editor | undefined) | null) => {
       getEditorRef.current = getEditor;
       setMainEditorReady(getEditor !== null);
+      if (getEditor && pendingFocusRef.current) {
+        pendingFocusRef.current = false;
+        const editor = getEditor();
+        if (editor) {
+          // 延迟一帧等编辑器挂载稳定
+          requestAnimationFrame(() => {
+            editor.action((ctx) => {
+              ctx.get(editorViewCtx).focus();
+            });
+          });
+        }
+      }
     },
     [],
   );
@@ -181,6 +195,7 @@ function App() {
       // Ctrl/Cmd+N 新建未命名草稿（不关联磁盘文件，Ctrl+S 时另存为）
       if (!e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
         e.preventDefault();
+        pendingFocusRef.current = true;
         useWorkspace.getState().newTab();
         return;
       }

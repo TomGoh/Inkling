@@ -2,10 +2,11 @@
 // 与斜杠菜单的插入逻辑等价，但不依赖 `/` 触发位置——直接在当前选区操作：
 // - 转换类（标题/代码块/Mermaid）：把当前所在顶层块改为目标类型
 // - 包裹类（列表/引用）：wrap 当前块
-// - 插入类（分割线/公式/callout/TOC）：在当前块之后插入新块
+// - 插入类（分割线/公式/callout/TOC）：若当前段落为空则替换，否则插在当前块之后
 // - frontmatter：插在文档首部
 
 import type { EditorView } from "@milkdown/kit/prose/view";
+import type { Node } from "@milkdown/kit/prose/model";
 
 /** 包裹当前选区所在块为指定节点（列表/引用） */
 function wrapBlock(view: EditorView, nodeType: any): void {
@@ -16,10 +17,21 @@ function wrapBlock(view: EditorView, nodeType: any): void {
   view.focus();
 }
 
-/** 在当前顶层块之后插入新节点 */
-function insertNodeAfter(view: EditorView, node: any): void {
-  const pos = view.state.selection.$from.after();
-  view.dispatch(view.state.tr.insert(pos, node).scrollIntoView());
+/**
+ * 在当前光标处插入一个块节点：
+ * - 当前段落为空：直接替换该段落，避免多出空行
+ * - 否则：插到当前块之后
+ */
+function insertBlockHere(view: EditorView, node: Node): void {
+  const { $from } = view.state.selection;
+  const parent = $from.parent;
+  if (parent.type.name === "paragraph" && parent.content.size === 0) {
+    const start = $from.before($from.depth);
+    view.dispatch(view.state.tr.replaceWith(start, start + parent.nodeSize, node).scrollIntoView());
+  } else {
+    const pos = $from.after($from.depth);
+    view.dispatch(view.state.tr.insert(pos, node).scrollIntoView());
+  }
   view.focus();
 }
 
@@ -60,12 +72,12 @@ export function turnIntoCodeBlock(view: EditorView): void {
 
 export function insertHr(view: EditorView): void {
   const t = view.state.schema.nodes.hr;
-  if (t) insertNodeAfter(view, t.create());
+  if (t) insertBlockHere(view, t.create());
 }
 
 export function insertMathBlock(view: EditorView): void {
   const t = view.state.schema.nodes.math_display;
-  if (t) insertNodeAfter(view, t.create());
+  if (t) insertBlockHere(view, t.create());
 }
 
 export function turnIntoMermaid(view: EditorView): void {
@@ -80,12 +92,12 @@ export function insertCallout(view: EditorView, calloutType: "note" | "warning" 
     { calloutType },
     schema.nodes.paragraph.create(),
   );
-  insertNodeAfter(view, callout);
+  insertBlockHere(view, callout);
 }
 
 export function insertToc(view: EditorView): void {
   const t = view.state.schema.nodes.toc;
-  if (t) insertNodeAfter(view, t.create());
+  if (t) insertBlockHere(view, t.create());
 }
 
 export function insertFrontmatter(view: EditorView): void {

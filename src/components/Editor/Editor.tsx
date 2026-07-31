@@ -15,7 +15,7 @@ import {
 } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
-import { Plugin, PluginKey, TextSelection } from "@milkdown/kit/prose/state";
+import { Plugin, PluginKey, TextSelection, AllSelection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { findParentNodeClosestToPos } from "@milkdown/kit/prose";
 import { nord } from "@milkdown/theme-nord";
@@ -189,6 +189,25 @@ function EditorInner({
               slashMenuPlugin(),
               // 自动配对补全：输入括号/引号自动配对
               autoPairPlugin(),
+              // Ctrl/Cmd+A 全选整个文档（ProseMirror 默认 Mod-a 只选当前块文本）
+              new Plugin({
+                key: new PluginKey("inkling-select-all"),
+                props: {
+                  handleKeyDown: (_view, event) => {
+                    const mod = event.ctrlKey || event.metaKey;
+                    if (!mod || event.shiftKey || event.altKey) return false;
+                    if (event.key.toLowerCase() !== "a") return false;
+                    const view = _view;
+                    const { state } = view;
+                    const sel = new AllSelection(state.doc);
+                    if (!state.selection.eq(sel)) {
+                      view.dispatch(state.tr.setSelection(sel).scrollIntoView());
+                    }
+                    event.preventDefault();
+                    return true;
+                  },
+                },
+              }),
             ]);
             // 注入主题
             nord(ctx);
@@ -261,6 +280,41 @@ function EditorInner({
   // 公式自动编号 / 专注模式开关切换时，dispatch 空 tr 触发重算（appendTransaction + decorations）
   const getEditorRef = useRef(getEditor);
   getEditorRef.current = getEditor;
+
+  /**
+   * 点击编辑器空白区域（文档下方 padding / 末尾不可编辑块之后）时，
+   * 在文档末尾追加一个空段落并把光标移过去，让用户能直接开始输入，
+   * 而不必先手动回车到对应行。
+   * 点击落在有效内容节点上时，posAtCoords 返回有效位置，交给 ProseMirror 处理。
+   */
+  const handleRootMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    const editor = getEditorRef.current();
+    if (!editor) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      const pos = view.posAtCoords({ left: e.clientX, top: e.clientY });
+      if (pos != null) return; // 有效位置，交给 ProseMirror
+      // 点击在编辑区之外：在文档末尾追加空段落并聚焦
+      e.preventDefault();
+      const { state } = view;
+      const doc = state.doc;
+      const lastChild = doc.lastChild;
+      let tr = state.tr;
+      let focusPos: number;
+      if (!lastChild || lastChild.type.name !== "paragraph") {
+        const para = state.schema.nodes.paragraph.create();
+        const end = doc.content.size;
+        tr = tr.insert(end, para);
+        focusPos = end + 1; // 段落内容起始
+      } else {
+        focusPos = doc.content.size - 1; // 末尾段落内末尾
+      }
+      const sel = TextSelection.near(tr.doc.resolve(focusPos), -1);
+      tr = tr.setSelection(sel).scrollIntoView();
+      view.dispatch(tr);
+      view.focus();
+    });
+  };
   useEffect(() => {
     let lastFormula = useSettings.getState().formulaAutoNumber;
     let lastFocus = useSettings.getState().focusMode;
@@ -374,6 +428,7 @@ function EditorInner({
     <div
       className={`md-editor-root${focusMode ? " focus-mode" : ""}`}
       spellCheck={spellcheck}
+      onMouseDown={handleRootMouseDown}
     >
       <Milkdown />
     </div>

@@ -337,7 +337,7 @@ class CodeBlockNodeView implements NodeView {
  */
 export const codeBlockView = $view(codeBlockSchema.node, () => (node, view, getPos) => {
   if (node.attrs.language === "mermaid") {
-    return createMermaidView(node);
+    return createMermaidView(node, view, getPos);
   }
   return new CodeBlockNodeView(node, view, getPos);
 });

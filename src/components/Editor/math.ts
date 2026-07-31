@@ -5,6 +5,7 @@
 
 import { $nodeSchema, $remark, $view } from "@milkdown/kit/utils";
 import type { NodeView, NodeViewConstructor } from "@milkdown/kit/prose/view";
+import type { EditorView as PMView } from "@milkdown/kit/prose/view";
 import type { Node } from "@milkdown/kit/prose/model";
 import remarkMath from "remark-math";
 import katex from "katex";
@@ -109,12 +110,17 @@ export const mathDisplaySchema = $nodeSchema("math_display", () => ({
 /** 注册 remark-math：产生 inlineMath / math mdast 节点 */
 export const remarkMathPlugin = $remark("remarkMath", () => remarkMath);
 
-/** 用 KaTeX 渲染数学节点的 NodeView 工厂 */
+/** 用 KaTeX 渲染数学节点的 NodeView 工厂。双击节点可内联编辑 LaTeX 源码。 */
 function createMathView(displayMode: boolean): NodeViewConstructor {
-  return (node: Node): NodeView => {
+  return (node: Node, view: PMView, getPos: () => number | undefined): NodeView => {
     const dom = document.createElement(displayMode ? "div" : "span");
     dom.className = displayMode ? "math-display" : "math-inline";
     dom.setAttribute(displayMode ? "data-math-display" : "data-math-inline", "");
+    dom.title = "双击编辑公式";
+
+    let current = node;
+    let editing = false;
+    let editor: HTMLTextAreaElement | null = null;
 
     const render = (value: string, number: number | null) => {
       dom.setAttribute("data-value", value);
@@ -133,7 +139,57 @@ function createMathView(displayMode: boolean): NodeViewConstructor {
         dom.textContent = value;
       }
     };
-    render(node.attrs.value as string, displayMode ? (node.attrs.number as number | null) : null);
+    render(current.attrs.value as string, displayMode ? (current.attrs.number as number | null) : null);
+
+    const startEdit = () => {
+      if (editing) return;
+      editing = true;
+      editor = document.createElement("textarea");
+      editor.className = "math-editor";
+      editor.value = current.attrs.value as string;
+      editor.spellcheck = false;
+      editor.rows = displayMode ? 3 : 1;
+      editor.placeholder = displayMode ? "输入 LaTeX 公式（如 a^2 + b^2 = c^2）" : "输入行内公式";
+      dom.innerHTML = "";
+      dom.appendChild(editor);
+      requestAnimationFrame(() => editor?.focus());
+    };
+
+    const commitEdit = () => {
+      if (!editing || !editor) return;
+      const newVal = editor.value;
+      editor = null;
+      editing = false;
+      render(newVal, displayMode ? (current.attrs.number as number | null) : null);
+      if (newVal !== (current.attrs.value as string)) {
+        const pos = getPos();
+        if (pos != null) {
+          view.dispatch(
+            view.state.tr.setNodeMarkup(pos, undefined, { value: newVal }),
+          );
+        }
+      }
+    };
+
+    dom.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      startEdit();
+    });
+
+    // 失焦提交：捕获阶段监听 focusout，判断焦点是否离开了 editor
+    dom.addEventListener(
+      "focusout",
+      (e) => {
+        if (!editing) return;
+        const fe = e as FocusEvent;
+        const related = fe.relatedTarget as HTMLElement | null;
+        if (editor && related !== editor && !dom.contains(related)) {
+          commitEdit();
+        }
+      },
+      true,
+    );
 
     return {
       dom,
@@ -143,19 +199,27 @@ function createMathView(displayMode: boolean): NodeViewConstructor {
         ) {
           return false;
         }
-        if (
-          next.attrs.value === node.attrs.value &&
-          next.attrs.number === node.attrs.number
-        ) {
+        // 编辑中不覆盖，避免打断输入
+        if (editing) {
+          current = next;
           return true;
         }
+        if (
+          next.attrs.value === current.attrs.value &&
+          next.attrs.number === current.attrs.number
+        ) {
+          current = next;
+          return true;
+        }
+        current = next;
         render(
           next.attrs.value as string,
           displayMode ? (next.attrs.number as number | null) : null,
         );
         return true;
       },
-      stopEvent: () => true,
+      // 编辑中拦截事件避免 ProseMirror 抢焦点
+      stopEvent: () => editing,
       ignoreMutation: () => true,
     };
   };
