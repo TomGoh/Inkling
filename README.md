@@ -2,6 +2,9 @@
 
 一款「所见即所得」的本地 Markdown 编辑器，对标 Typora。基于 Tauri 2 + React 19 + Milkdown 构建，编辑与预览融为一体——无需左右分栏、无需切换模式，输入 Markdown 语法后立即渲染成富文本，底层保存的始终是标准 Markdown 纯文本。
 
+[![Build Windows](https://github.com/zhkp/Inkling/actions/workflows/build-windows.yml/badge.svg?branch=main)](https://github.com/zhkp/Inkling/actions/workflows/build-windows.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
 ## 功能特性
 
 ### 编辑器内核
@@ -167,6 +170,15 @@ pnpm tauri build
 - **v0.3.0** 主题系统与明暗模式、导出 HTML/PDF、大纲面板、Mermaid 图表、KaTeX 公式
 - **v0.2.0** 图片渲染与拖拽/粘贴上传、链接跟随
 - **v0.1.0** 基础所见即所得编辑器
+
+## 贡献者
+
+感谢以下小伙伴为本项目做出的贡献（按字母序）：
+
+- **Haoze Wu** ([@TomGoh](https://github.com/TomGoh)) — 修复本地图片相对路径解析（PR #8）、中文句号字形修复建议（issue #9）
+- **zhkp** ([@zhkp](https://github.com/zhkp)) — 项目作者，主要开发与维护
+
+欢迎更多朋友参与贡献，详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
 
 ## License
 
