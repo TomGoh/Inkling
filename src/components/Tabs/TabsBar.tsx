@@ -14,6 +14,15 @@ function baseName(path: string): string {
   return path.split(/[\\/]/).pop() || path;
 }
 
+/** tab 显示名：未命名草稿显示「未命名 N」，普通文件显示文件名 */
+function tabLabel(tab: OpenTab): string {
+  if (tab.isUntitled) {
+    const m = tab.path.match(/(\d+)$/);
+    return m ? `未命名 ${m[1]}` : "未命名";
+  }
+  return baseName(tab.path);
+}
+
 export function TabsBar() {
   const openTabs = useWorkspace((s) => s.openTabs);
   const activeTabPath = useWorkspace((s) => s.activeTabPath);
@@ -32,7 +41,7 @@ export function TabsBar() {
   const handleClose = (tab: OpenTab) => {
     if (tab.dirty) {
       const ok = window.confirm(
-        `「${baseName(tab.path)}」有未保存的修改，确定关闭吗？`,
+        `「${tabLabel(tab)}」有未保存的修改，确定关闭吗？`,
       );
       if (!ok) return;
     }
@@ -91,7 +100,7 @@ export function TabsBar() {
                 }
               }}
             >
-              <span className="tab-name">{baseName(tab.path)}</span>
+              <span className="tab-name">{tabLabel(tab)}</span>
               {tab.dirty && <span className="tab-dirty" title="未保存">●</span>}
               <button
                 className="tab-close"

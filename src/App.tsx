@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState, useEffect } from "react";
 import type { Editor } from "@milkdown/kit/core";
 import { MarkdownEditor } from "./components/Editor/Editor";
+import { TableToolbar } from "./components/Editor/TableToolbar";
 import { SearchPanel } from "./components/Editor/SearchPanel";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { StatusBar } from "./components/StatusBar/StatusBar";
@@ -61,6 +62,8 @@ function App() {
   // 持有编辑器实例获取函数，供大纲面板与导出使用
   const getEditorRef = useRef<(() => Editor | undefined) | null>(null);
   const [mainEditorReady, setMainEditorReady] = useState(false);
+  // 主编辑器光标是否在表格内（驱动工具栏的表格上下文按钮组）
+  const [mainInTable, setMainInTable] = useState(false);
   const handleEditorReady = useCallback(
     (getEditor: (() => Editor | undefined) | null) => {
       getEditorRef.current = getEditor;
@@ -175,6 +178,12 @@ function App() {
       }
       const mod = e.ctrlKey || e.metaKey;
       if (!mod) return;
+      // Ctrl/Cmd+N 新建未命名草稿（不关联磁盘文件，Ctrl+S 时另存为）
+      if (!e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        useWorkspace.getState().newTab();
+        return;
+      }
       // Ctrl/Cmd+Shift+F 全局搜索（优先于当前文件查找）
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
@@ -240,8 +249,8 @@ function App() {
           <>
             <TabsBar />
             <div className="editor-topbar">
-              <span className="topbar-file" title={currentFile}>
-                {currentFile.split(/[\\/]/).pop()}
+              <span className="topbar-file" title={currentFile.startsWith("untitled-") ? "未命名草稿（Ctrl+S 另存为）" : currentFile}>
+                {currentFile.startsWith("untitled-") ? "未命名" : currentFile.split(/[\\/]/).pop()}
               </span>
               <div className="topbar-actions">
                 <SaveIndicator />
@@ -428,6 +437,7 @@ function App() {
                 </button>
               </div>
             </div>
+            <TableToolbar getEditor={getEditor} inTable={mainInTable} />
             <div className={`editor-body${splitFile ? " editor-body-split" : ""}`}>
               <div className="editor-scroll">
                 {searchOpen && (
@@ -444,6 +454,7 @@ function App() {
                     onChange={setContent}
                     onReady={handleEditorReady}
                     onOutlineChange={handleOutlineChange}
+                    onInTableChange={setMainInTable}
                   />
                 </EditorErrorBoundary>
               </div>

@@ -222,11 +222,15 @@ function buildCommands(view: EditorView): SlashCommand[] {
           v.focus();
           return;
         }
-        const makeRow = (isHeader: boolean) =>
-          row.create(null, [
-            (isHeader ? header : cell).create(null, schema.text(isHeader ? "  " : " ")),
-            (isHeader ? header : cell).create(null, schema.text(isHeader ? "  " : " ")),
+        // table_cell / table_header 的 contentSpec 是 block 级（需 paragraph 等），
+        // 不能直接塞 text node，否则节点结构非法会导致 cell 无法编辑。
+        const makeRow = (isHeader: boolean) => {
+          const cellType = isHeader ? header : cell;
+          return row.create(null, [
+            cellType.create(null, schema.nodes.paragraph.create()),
+            cellType.create(null, schema.nodes.paragraph.create()),
           ]);
+        };
         const table = schema.nodes.table.create(null, [makeRow(true), makeRow(false)]);
         const pos = v.state.selection.$from.after();
         v.dispatch(v.state.tr.insert(pos, table));

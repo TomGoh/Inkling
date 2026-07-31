@@ -21,7 +21,8 @@ import { findParentNodeClosestToPos } from "@milkdown/kit/prose";
 import { nord } from "@milkdown/theme-nord";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
 import "@milkdown/kit/prose/tables/style/tables.css";
-import { TableToolbar } from "./TableToolbar";
+// TableToolbar 已提升到 App.tsx 的 topbar 下方作为固定非滚动行，
+// 此处不再内部渲染；inTable 状态通过 onInTableChange 回调外露。
 import { codeBlockView } from "./code-block-view";
 import { imageView } from "./image-node-view";
 import { imageUploadPlugin } from "./image-upload";
@@ -67,6 +68,8 @@ interface EditorProps {
   onReady?: (getEditor: (() => Editor | undefined) | null) => void;
   /** 主编辑器渲染标题或当前标题变化时发布大纲快照 */
   onOutlineChange?: (snapshot: EditorOutlineSnapshot) => void;
+  /** 光标进入/离开表格时回调，供外部工具栏切换上下文按钮组 */
+  onInTableChange?: (inTable: boolean) => void;
 }
 
 /**
@@ -83,6 +86,7 @@ function EditorInner({
   onChange,
   onReady,
   onOutlineChange,
+  onInTableChange,
 }: EditorProps) {
   // 记录最近一次同步进编辑器的 value，避免 onChange 回写的值又触发覆盖，造成循环
   const lastSyncedRef = useRef(value);
@@ -98,6 +102,12 @@ function EditorInner({
   // 光标是否位于表格内，用于控制表格工具栏的上下文按钮组
   const [inTable, setInTable] = useState(false);
   const inTableRef = useRef(false);
+  // inTable 变化时通知外部（工具栏已提升到 App.tsx）
+  const onInTableChangeRef = useRef(onInTableChange);
+  onInTableChangeRef.current = onInTableChange;
+  useEffect(() => {
+    onInTableChangeRef.current?.(inTable);
+  }, [inTable]);
 
   // 编辑位置记忆：持有 store 方法，插件内部通过 ref 调用避免重建
   const saveCursorState = useWorkspace((s) => s.saveCursorState);
@@ -365,7 +375,6 @@ function EditorInner({
       className={`md-editor-root${focusMode ? " focus-mode" : ""}`}
       spellCheck={spellcheck}
     >
-      <TableToolbar getEditor={getEditor} inTable={inTable} />
       <Milkdown />
     </div>
   );
@@ -382,6 +391,7 @@ export function MarkdownEditor({
   onChange,
   onReady,
   onOutlineChange,
+  onInTableChange,
 }: EditorProps) {
   return (
     <MilkdownProvider>
@@ -391,6 +401,7 @@ export function MarkdownEditor({
         onChange={onChange}
         onReady={onReady}
         onOutlineChange={onOutlineChange}
+        onInTableChange={onInTableChange}
       />
     </MilkdownProvider>
   );

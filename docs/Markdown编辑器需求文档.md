@@ -214,9 +214,13 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 9.1 | 中文句号字形修复 | ✅ | v1.0.0 | issue #9：`index.html` `lang="zh-CN"` + 全局字体栈增加简体中文字体（Noto Sans CJK SC / Microsoft YaHei / PingFang SC），修复 Linux 下 U+3002 回退到 CJK JP 居中字形 |
 | 3.2 | 本地图片相对路径 | ✅ | v1.0.0 | PR #8：`EditorProps` 增加 `filePath`，`imageUploadPlugin`/`imageView` 据此解析本地图片相对路径；切换文件由外层 `key` 触发编辑器重建刷新闭包 |
 | 3.3 | 文件关联双击打开 | ✅ | v1.0.1 | 双击 .md 文件启动程序自动打开该文件；Rust 端 `md_file_from_args` 从 argv 提取路径存 `PendingFile` state，前端 `take_pending_file` 拉取（避免事件早于监听器注册丢失）；`tauri-plugin-single-instance` 单实例转发，程序已运行时双击不开新实例，`emit_to("main")` 定向到主窗口 |
+| 3.3 | 新建未命名草稿 | ✅ | v1.1.0 | `Ctrl+N` 新建未关联磁盘文件的草稿 tab（`OpenTab.isUntitled`，虚拟路径 `untitled-N`）；`Ctrl+S` 弹另存为对话框选保存位置，保存后转为普通文件 tab 并加入最近列表；未命名草稿不自动保存（`useAutoSave` 跳过） |
+| 3.8 | 插入工具栏 | ✅ | v1.1.0 | 工具栏从编辑器内部提升到标题栏下方固定非滚动行（修复 sticky 在 flex 滚动容器内失效导致下滑消失）；把斜杠菜单支持的块类型全部做成按钮（H1-3/列表/引用/代码块/分割线/表格/公式/Mermaid/提示框/目录/元数据），`block-commands.ts` 复用插入逻辑；表格内时显示行列增删/对齐上下文按钮 |
+| 3.2 | 斜杠菜单表格可填写 | ✅ | v1.1.0 | 修复：slash-menu 手动构造 table_cell 时塞了 `schema.text(" ")`，但 cell contentSpec 是 block 级，结构非法导致无法编辑；改为 `schema.nodes.paragraph.create()` 空段落 |
 
 ### 8.2 发布版本
 
+- **v1.1.0** 新建文件（Ctrl+N 未命名草稿 + Ctrl+S 另存为对话框，保存后才自动保存）、工具栏重构（提升到标题栏下方固定，斜杠菜单支持的块类型全部做成按钮）、修复斜杠菜单插入的表格无法填写
 - **v0.1.0** 骨架与基础编辑（Milkdown 集成、文件树、保存、字数统计）
 - **v0.2.0** 图片渲染与拖拽/粘贴上传、表格工具栏、代码块语法高亮、链接跟随
 - **v0.3.0** 主题系统与明暗模式、导出 HTML/PDF、大纲面板、Mermaid 图表、KaTeX 公式

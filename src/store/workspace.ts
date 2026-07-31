@@ -4,6 +4,7 @@
 // 切换 tab 时同步更新，保持下游组件接口不变。
 
 import { create } from "zustand";
+import { isTauri } from "@tauri-apps/api/core";
 import { listDir, readTextFile, writeTextFile, type FileNode } from "../lib/fs";
 
 /** 最近打开文件列表的持久化 key */
@@ -94,7 +95,7 @@ function parentDir(filePath: string): string {
 
 /** 单个打开的标签页 */
 export interface OpenTab {
-  /** 文件完整路径 */
+  /** 文件完整路径（未命名草稿用 untitled-N 虚拟路径） */
   path: string;
   /** 文件内容 */
   content: string;
@@ -106,6 +107,8 @@ export interface OpenTab {
   cursorPos: number | null;
   /** 编辑位置记忆：编辑器滚动条垂直偏移（null 表示未记录） */
   scrollTop: number | null;
+  /** 未命名草稿：尚未保存到磁盘的新建文件，保存时弹另存为对话框 */
+  isUntitled?: boolean;
 }
 
 interface WorkspaceState {
@@ -187,6 +190,11 @@ interface WorkspaceState {
    * 用于"打开文件"入口——支持散落在不同文件夹的多个 md 作为标签页。
    */
   openFileStandalone: (filePath: string) => Promise<void>;
+  /**
+   * 新建未命名草稿标签页（Ctrl+N）。不关联磁盘文件，内容为空。
+   * 首次 Ctrl+S 保存时弹另存为对话框选择保存位置，保存后转为普通文件 tab。
+   */
+  newTab: () => void;
   /** 切换活跃标签页 */
   switchTab: (filePath: string) => void;
   /** 关闭标签页（若关闭的是活跃 tab，自动激活相邻 tab） */
@@ -340,6 +348,34 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     if (workspaceMode === "folder") return;
     const parent = parentDir(filePath);
     set({ rootPath: parent, workspaceMode: "file", tree: null });
+  },
+
+  newTab: () => {
+    const { openTabs } = get();
+    // 生成唯一虚拟路径 untitled-1, untitled-2...（避免与已打开草稿重名）
+    let n = 1;
+    const existing = new Set(openTabs.map((t) => t.path));
+    while (existing.has(`untitled-${n}`)) n++;
+    const path = `untitled-${n}`;
+    const tab: OpenTab = {
+      path,
+      content: "",
+      dirty: false,
+      lastSavedAt: null,
+      cursorPos: null,
+      scrollTop: null,
+      isUntitled: true,
+    };
+    set({
+      openTabs: [...get().openTabs, tab],
+      activeTabPath: path,
+      currentFile: path,
+      currentContent: "",
+      dirty: false,
+      saveError: null,
+      lastSavedAt: null,
+      currentHeadingSlug: null,
+    });
   },
 
   splitOpen: async (filePath) => {
@@ -528,27 +564,50 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   saveCurrent: async () => {
-    const { currentFile, currentContent, dirty, saving, activeTabPath, openTabs } = get();
-    if (!currentFile) return;
+    const { currentContent, dirty, saving, activeTabPath, openTabs } = get();
+    if (!activeTabPath) return;
+    const tab = openTabs.find((t) => t.path === activeTabPath);
+    if (!tab) return;
     if (!dirty || saving) return;
+
+    let savePath = tab.path;
+    // 未命名草稿：首次保存弹另存为对话框选择保存位置
+    if (tab.isUntitled) {
+      if (!isTauri()) {
+        // 浏览器 mock 模式：直接用原虚拟路径写内存
+        savePath = tab.path;
+      } else {
+        const { save } = await import("@tauri-apps/plugin-dialog");
+        const picked = await save({
+          defaultPath: "未命名.md",
+          filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+        });
+        if (!picked) return; // 用户取消
+        savePath = picked;
+      }
+    }
+
     set({ saving: true, saveError: null });
     try {
-      await writeTextFile(currentFile, currentContent);
+      await writeTextFile(savePath, currentContent);
       const now = Date.now();
-      // 同步活跃 tab 的保存状态
-      if (activeTabPath) {
-        const nextTabs = openTabs.map((t) =>
-          t.path === activeTabPath
-            ? { ...t, dirty: false, lastSavedAt: now }
-            : t,
-        );
-        set({ openTabs: nextTabs });
-      }
+      // 同步活跃 tab：未命名草稿保存后转为普通文件（path 更新为真实路径）
+      const nextTabs = openTabs.map((t) =>
+        t.path === activeTabPath
+          ? { ...t, path: savePath, isUntitled: false, dirty: false, lastSavedAt: now }
+          : t,
+      );
+      const nextRecent = tab.isUntitled ? pushRecent(get().recentFiles, savePath) : get().recentFiles;
+      if (tab.isUntitled) persistRecentFiles(nextRecent);
       set({
+        openTabs: nextTabs,
+        activeTabPath: savePath,
+        currentFile: savePath,
         saving: false,
         dirty: false,
         saveError: null,
         lastSavedAt: now,
+        recentFiles: nextRecent,
       });
     } catch (e) {
       set({

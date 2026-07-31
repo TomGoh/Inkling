@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CmdKey, Editor } from "@milkdown/kit/core";
+import type { EditorView } from "@milkdown/kit/prose/view";
 import { commandsCtx, editorViewCtx } from "@milkdown/kit/core";
 import {
   insertTableCommand,
@@ -11,6 +12,19 @@ import {
   setAlignCommand,
   selectTableCommand,
 } from "@milkdown/kit/preset/gfm";
+import {
+  turnIntoHeading,
+  wrapBulletList,
+  wrapOrderedList,
+  wrapBlockquote,
+  turnIntoCodeBlock,
+  insertHr,
+  insertMathBlock,
+  turnIntoMermaid,
+  insertCallout,
+  insertToc,
+  insertFrontmatter,
+} from "./block-commands";
 import "./TableToolbar.css";
 
 interface TableToolbarProps {
@@ -50,6 +64,16 @@ export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
     });
   };
 
+  /** 用 EditorView 执行块级插入/转换命令 */
+  const withView = (fn: (view: EditorView) => void) => {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      fn(view);
+    });
+  };
+
   const insertTable = (row: number, col: number) => {
     callCmd(insertTableCommand.key, { row, col });
     setPickerOpen(false);
@@ -71,109 +95,96 @@ export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
 
   return (
     <div className="table-toolbar">
+      {/* 块插入按钮组：与斜杠菜单支持的功能对应 */}
       <div className="tt-group">
-        <button
-          className="tt-btn tt-has-picker"
-          onClick={() => setPickerOpen((v) => !v)}
-          title="插入表格"
-        >
-          <span className="tt-icon">▦</span>
-          <span>表格</span>
-        </button>
-        {pickerOpen && (
-          <div className="table-picker" ref={pickerRef}>
-            <div className="picker-grid">
-              {Array.from({ length: GRID }).map((_, r) =>
-                Array.from({ length: GRID }).map((__, c) => (
-                  <button
-                    key={`${r}-${c}`}
-                    className={`picker-cell ${r < hover.row && c < hover.col ? "active" : ""}`}
-                    onMouseEnter={() => setHover({ row: r + 1, col: c + 1 })}
-                    onClick={() => insertTable(r + 1, c + 1)}
-                  />
-                ))
-              )}
+        <button className="tt-btn" onClick={() => withView((v) => turnIntoHeading(v, 1))} title="标题 1">H1</button>
+        <button className="tt-btn" onClick={() => withView((v) => turnIntoHeading(v, 2))} title="标题 2">H2</button>
+        <button className="tt-btn" onClick={() => withView((v) => turnIntoHeading(v, 3))} title="标题 3">H3</button>
+      </div>
+
+      <span className="tt-sep" />
+
+      <div className="tt-group">
+        <button className="tt-btn" onClick={() => withView(wrapBulletList)} title="无序列表">• 列表</button>
+        <button className="tt-btn" onClick={() => withView(wrapOrderedList)} title="有序列表">1. 列表</button>
+        <button className="tt-btn" onClick={() => withView(wrapBlockquote)} title="引用块">❝ 引用</button>
+        <button className="tt-btn" onClick={() => withView(turnIntoCodeBlock)} title="代码块">{"</>"} 代码</button>
+      </div>
+
+      <span className="tt-sep" />
+
+      <div className="tt-group">
+        <button className="tt-btn" onClick={() => withView(insertHr)} title="分割线">—</button>
+        <div className="tt-group tt-has-picker">
+          <button
+            className="tt-btn"
+            onClick={() => setPickerOpen((v) => !v)}
+            title="插入表格"
+          >
+            <span className="tt-icon">▦</span> 表格
+          </button>
+          {pickerOpen && (
+            <div className="table-picker" ref={pickerRef}>
+              <div className="picker-grid">
+                {Array.from({ length: GRID }).map((_, r) =>
+                  Array.from({ length: GRID }).map((__, c) => (
+                    <button
+                      key={`${r}-${c}`}
+                      className={`picker-cell ${r < hover.row && c < hover.col ? "active" : ""}`}
+                      onMouseEnter={() => setHover({ row: r + 1, col: c + 1 })}
+                      onClick={() => insertTable(r + 1, c + 1)}
+                    />
+                  ))
+                )}
+              </div>
+              <div className="picker-label">
+                {hover.row} 行 × {hover.col} 列
+              </div>
             </div>
-            <div className="picker-label">
-              {hover.row} 行 × {hover.col} 列
-            </div>
-          </div>
-        )}
+          )}
+        </div>
+        <button className="tt-btn" onClick={() => withView(insertMathBlock)} title="块级公式">∑ 公式</button>
+        <button className="tt-btn" onClick={() => withView(turnIntoMermaid)} title="Mermaid 图表">☿ Mermaid</button>
+      </div>
+
+      <span className="tt-sep" />
+
+      <div className="tt-group">
+        <button className="tt-btn" onClick={() => withView((v) => insertCallout(v, "note"))} title="提示框（注意）">! 提示框</button>
+        <button className="tt-btn" onClick={() => withView(insertToc)} title="目录 [TOC]">☰ 目录</button>
+        <button className="tt-btn" onClick={() => withView(insertFrontmatter)} title="YAML Front Matter">Y 元数据</button>
       </div>
 
       {inTable && (
         <>
           <span className="tt-sep" />
+
           <div className="tt-group">
-            <button
-              className="tt-btn"
-              onClick={() => callCmd(addRowBeforeCommand.key)}
-              title="在上方插入行"
-            >
-              ↕ 上行
-            </button>
-            <button
-              className="tt-btn"
-              onClick={() => callCmd(addRowAfterCommand.key)}
-              title="在下方插入行"
-            >
-              ↕ 下行
-            </button>
-            <button
-              className="tt-btn"
-              onClick={() => callCmd(deleteSelectedCellsCommand.key)}
-              title="删除当前行（先选中行）"
-            >
-              ✕ 删行
-            </button>
+            <button className="tt-btn" onClick={() => callCmd(addRowBeforeCommand.key)} title="在上方插入行">↕ 上行</button>
+            <button className="tt-btn" onClick={() => callCmd(addRowAfterCommand.key)} title="在下方插入行">↕ 下行</button>
+            <button className="tt-btn" onClick={() => callCmd(deleteSelectedCellsCommand.key)} title="删除当前行（先选中行）">✕ 删行</button>
           </div>
 
           <span className="tt-sep" />
 
           <div className="tt-group">
-            <button
-              className="tt-btn"
-              onClick={() => callCmd(addColBeforeCommand.key)}
-              title="在左侧插入列"
-            >
-              ↔ 左列
-            </button>
-            <button
-              className="tt-btn"
-              onClick={() => callCmd(addColAfterCommand.key)}
-              title="在右侧插入列"
-            >
-              ↔ 右列
-            </button>
-            <button
-              className="tt-btn"
-              onClick={() => callCmd(deleteSelectedCellsCommand.key)}
-              title="删除当前列（先选中列）"
-            >
-              ✕ 删列
-            </button>
+            <button className="tt-btn" onClick={() => callCmd(addColBeforeCommand.key)} title="在左侧插入列">↔ 左列</button>
+            <button className="tt-btn" onClick={() => callCmd(addColAfterCommand.key)} title="在右侧插入列">↔ 右列</button>
+            <button className="tt-btn" onClick={() => callCmd(deleteSelectedCellsCommand.key)} title="删除当前列（先选中列）">✕ 删列</button>
           </div>
 
           <span className="tt-sep" />
 
           <div className="tt-group">
-            <button className="tt-btn" onClick={() => setAlign("left")} title="左对齐">
-              ⬅
-            </button>
-            <button className="tt-btn" onClick={() => setAlign("center")} title="居中">
-              ⬌
-            </button>
-            <button className="tt-btn" onClick={() => setAlign("right")} title="右对齐">
-              ➡
-            </button>
+            <button className="tt-btn" onClick={() => setAlign("left")} title="左对齐">⬅</button>
+            <button className="tt-btn" onClick={() => setAlign("center")} title="居中">⬌</button>
+            <button className="tt-btn" onClick={() => setAlign("right")} title="右对齐">➡</button>
           </div>
 
           <span className="tt-sep" />
 
           <div className="tt-group">
-            <button className="tt-btn tt-danger" onClick={deleteTable} title="删除整张表格">
-              删除表格
-            </button>
+            <button className="tt-btn tt-danger" onClick={deleteTable} title="删除整张表格">删除表格</button>
           </div>
         </>
       )}
