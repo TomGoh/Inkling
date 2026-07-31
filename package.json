@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.9.0",
   "description": "A WYSIWYG Markdown editor",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",

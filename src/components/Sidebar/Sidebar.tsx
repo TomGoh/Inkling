@@ -609,12 +609,24 @@ export function Sidebar() {
         <span className="sidebar-title">
           {rootPath ? rootPath.split(/[\\/]/).pop() : "工作区"}
         </span>
-        <button className="sidebar-btn" onClick={handleOpenFolder} title="打开文件夹">
-          打开
-        </button>
-        <button className="sidebar-btn" onClick={handleOpenFile} title="打开单个 Markdown 文件">
-          打开文件
-        </button>
+        <div className="sidebar-actions">
+          <button
+            className="sidebar-btn-icon"
+            onClick={handleOpenFolder}
+            title="打开文件夹"
+            aria-label="打开文件夹"
+          >
+            📁
+          </button>
+          <button
+            className="sidebar-btn-icon"
+            onClick={handleOpenFile}
+            title="打开 Markdown 文件"
+            aria-label="打开 Markdown 文件"
+          >
+            📄
+          </button>
+        </div>
       </div>
       <div className="sidebar-tree">
         {loading && <div className="sidebar-empty">加载中…</div>}
@@ -633,7 +645,7 @@ export function Sidebar() {
         )}
         {!loading && !tree && recentFiles.length === 0 && bookmarks.length === 0 && (
           <div className="sidebar-empty">
-            点击「打开」选择文件夹，或「打开文件」直接打开一个 .md
+            点击 📁 打开文件夹，或 📄 打开单个 Markdown 文件
           </div>
         )}
       </div>

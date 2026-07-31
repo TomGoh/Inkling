@@ -167,3 +167,7 @@ pnpm tauri build
 - **v0.3.0** 主题系统与明暗模式、导出 HTML/PDF、大纲面板、Mermaid 图表、KaTeX 公式
 - **v0.2.0** 图片渲染与拖拽/粘贴上传、链接跟随
 - **v0.1.0** 基础所见即所得编辑器
+
+## License
+
+[MIT](./LICENSE) © 2026 zhkp
