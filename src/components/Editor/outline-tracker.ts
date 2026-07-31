@@ -31,9 +31,8 @@ export const outlineTrackerPlugin = () =>
           // 找到当前块级节点的起始位置，向前遍历查找标题
           const blockStart = $head.before($head.depth);
           if (blockStart > 0) {
-            doc.nodesBetween(0, blockStart, (node, _pos, parent) => {
-              if (slug) return false;
-              if (parent && node.type.name === "heading") {
+            doc.nodesBetween(0, blockStart, (node) => {
+              if (node.type.name === "heading") {
                 slug = slugify(node.textContent);
               }
               return true;
