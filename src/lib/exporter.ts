@@ -8,6 +8,7 @@ import { editorViewCtx } from "@milkdown/kit/core";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { useWorkspace } from "../store/workspace";
+import { resolvePathFromDocument } from "./fs";
 import { parseOutline } from "./outline";
 
 /** 从编辑器获取渲染后的 HTML 内容 */
@@ -190,19 +191,22 @@ export async function exportDocx(): Promise<{
   const content = useWorkspace.getState().currentContent;
   if (!content) return { ok: false, error: "无内容可导出" };
   const name = getBaseName();
-  const rootPath = useWorkspace.getState().rootPath;
-
-  const path = await save({
-    defaultPath: `${name}.docx`,
-    filters: [{ name: "Word 文档", extensions: ["docx"] }],
-  });
-  if (!path) return { ok: false };
+  const currentFile = useWorkspace.getState().currentFile;
 
   try {
+    const resourceDir = currentFile
+      ? await resolvePathFromDocument(currentFile)
+      : null;
+    const path = await save({
+      defaultPath: `${name}.docx`,
+      filters: [{ name: "Word 文档", extensions: ["docx"] }],
+    });
+    if (!path) return { ok: false };
+
     await invoke<void>("pandoc_export_docx", {
       markdown: content,
       outputPath: path,
-      resourceDir: rootPath ?? null,
+      resourceDir,
     });
     return { ok: true };
   } catch (e) {

@@ -1,12 +1,11 @@
 // 图片拖拽/粘贴上传插件
-// 拦截编辑器的 drop 和 paste 事件，将图片文件复制到工作区 assets/ 目录，
+// 拦截编辑器的 drop 和 paste 事件，将图片文件复制到当前 Markdown 同目录的 assets/，
 // 并在编辑器中插入相对路径引用的图片节点。
-// markdown 源码保持相对路径（assets/xxx.png），便于整个工作区迁移。
+// markdown 源码保持相对路径（assets/xxx.png），便于连同文档一起迁移。
 
 import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
-import { writeBinaryFile, joinPath } from "../../lib/fs";
-import { useWorkspace } from "../../store/workspace";
+import { resolvePathFromDocument, writeBinaryFile } from "../../lib/fs";
 
 const key = new PluginKey("inkling-image-upload");
 
@@ -29,29 +28,32 @@ function genImageName(file: File): string {
 }
 
 /**
- * 将图片文件写入工作区 assets/ 并在编辑器中插入图片节点。
+ * 将图片文件写入当前 Markdown 同目录的 assets/ 并在编辑器中插入图片节点。
  * @param files 图片文件列表
  * @param view ProseMirror 编辑器视图
  * @param pos 插入位置（drop 时由坐标计算，paste 时为 null 用当前选区）
- * @param rootPath 工作区根路径
+ * @param documentPath 当前 Markdown 文件完整路径
  */
 async function insertImages(
   files: File[],
   view: EditorView,
   pos: number | null,
-  rootPath: string,
+  documentPath: string,
 ): Promise<void> {
   const imageFiles = files.filter(isImageFile);
   if (imageFiles.length === 0) return;
 
-  const assetsDir = joinPath(rootPath, "assets");
   let insertPos = pos;
 
   for (const file of imageFiles) {
     try {
       const buf = await file.arrayBuffer();
       const name = genImageName(file);
-      const fullPath = joinPath(assetsDir, name);
+      const fullPath = await resolvePathFromDocument(
+        documentPath,
+        "assets",
+        name,
+      );
       await writeBinaryFile(fullPath, new Uint8Array(buf));
 
       // markdown 中用正斜杠相对路径（跨平台兼容）
@@ -79,7 +81,7 @@ async function insertImages(
  * - handleDrop：从系统文件管理器拖入图片，插入到鼠标释放位置
  * - handlePaste：粘贴剪贴板图片（截图等），插入到当前光标位置
  */
-export const imageUploadPlugin = () =>
+export const imageUploadPlugin = (documentPath: string) =>
   new Plugin({
     key,
     props: {
@@ -88,13 +90,10 @@ export const imageUploadPlugin = () =>
         if (!files || files.length === 0) return false;
         if (!Array.from(files).some(isImageFile)) return false;
 
-        const rootPath = useWorkspace.getState().rootPath;
-        if (!rootPath) return false;
-
         event.preventDefault();
         const coords = { left: event.clientX, top: event.clientY };
         const pos = view.posAtCoords(coords)?.pos ?? null;
-        void insertImages(Array.from(files), view, pos, rootPath);
+        void insertImages(Array.from(files), view, pos, documentPath);
         return true;
       },
       handlePaste: (view, event: ClipboardEvent) => {
@@ -102,11 +101,8 @@ export const imageUploadPlugin = () =>
         if (!files || files.length === 0) return false;
         if (!Array.from(files).some(isImageFile)) return false;
 
-        const rootPath = useWorkspace.getState().rootPath;
-        if (!rootPath) return false;
-
         event.preventDefault();
-        void insertImages(Array.from(files), view, null, rootPath);
+        void insertImages(Array.from(files), view, null, documentPath);
         return true;
       },
     },

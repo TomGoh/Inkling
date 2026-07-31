@@ -11,7 +11,6 @@ import type { Node } from "@milkdown/kit/prose/model";
 import { $view } from "@milkdown/kit/utils";
 import { imageSchema } from "@milkdown/kit/preset/commonmark";
 import { resolveImageSrc } from "../../lib/fs";
-import { useWorkspace } from "../../store/workspace";
 
 /** 图片对齐方式 */
 type ImageAlign = "left" | "center" | "right";
@@ -54,14 +53,24 @@ class ImageNodeView implements NodeView {
   private node: Node;
   private view: PMView;
   private getPos: () => number | undefined;
+  private documentPath: string;
+  private source: string | null = null;
+  private sourceGeneration = 0;
+  private destroyed = false;
   private width: number | null = null;
   private align: ImageAlign | null = null;
   private cleanTitle: string | null = null;
 
-  constructor(node: Node, view: PMView, getPos: () => number | undefined) {
+  constructor(
+    node: Node,
+    view: PMView,
+    getPos: () => number | undefined,
+    documentPath: string,
+  ) {
     this.node = node;
     this.view = view;
     this.getPos = getPos;
+    this.documentPath = documentPath;
 
     this.dom = document.createElement("span");
     this.dom.className = "milkdown-image-wrap";
@@ -87,9 +96,8 @@ class ImageNodeView implements NodeView {
   }
 
   private render() {
-    const rootPath = useWorkspace.getState().rootPath;
     const src = this.node.attrs.src ?? "";
-    this.img.src = resolveImageSrc(src, rootPath);
+    this.renderSource(src);
     this.img.alt = this.node.attrs.alt ?? "";
 
     const meta = parseImageMeta(this.node.attrs.title);
@@ -120,6 +128,27 @@ class ImageNodeView implements NodeView {
       this.dom.style.textAlign = "";
       if (this.align === "left") this.dom.classList.add("align-left");
     }
+  }
+
+  /** 异步解析本地路径；generation 防止旧 Promise 覆盖较新的 src */
+  private renderSource(src: string) {
+    if (src === this.source) return;
+    this.source = src;
+    const generation = ++this.sourceGeneration;
+    this.img.removeAttribute("src");
+    if (!src) return;
+
+    void resolveImageSrc(src, this.documentPath)
+      .then((resolved) => {
+        if (this.destroyed || generation !== this.sourceGeneration) return;
+        this.img.src = resolved;
+      })
+      .catch((error) => {
+        if (this.destroyed || generation !== this.sourceGeneration) return;
+        console.error("图片路径解析失败:", src, error);
+        // 保留原始地址作为降级，远程 WebView 环境仍可能自行解析成功。
+        this.img.src = src;
+      });
   }
 
   update(node: Node): boolean {
@@ -216,12 +245,15 @@ class ImageNodeView implements NodeView {
   };
 
   destroy() {
+    this.destroyed = true;
+    this.sourceGeneration += 1;
     this.handle.removeEventListener("mousedown", this.onResizeStart);
     this.dom.removeEventListener("contextmenu", this.onContextMenu);
   }
 }
 
 /** 图片 NodeView 插件：相对路径转可加载 URL + 缩放 + 对齐 */
-export const imageView = $view(imageSchema.node, () => (node, view, getPos) =>
-  new ImageNodeView(node, view, getPos),
-);
+export const imageView = (documentPath: string) =>
+  $view(imageSchema.node, () => (node, view, getPos) =>
+    new ImageNodeView(node, view, getPos, documentPath),
+  );

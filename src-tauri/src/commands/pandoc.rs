@@ -24,7 +24,7 @@ pub fn pandoc_check() -> Result<bool, String> {
 /// 调用 pandoc 将 markdown 内容转为 docx
 /// - markdown：源内容
 /// - output_path：导出文件路径（用户选择）
-/// - resource_dir：可选，工作区根目录，用于解析图片相对路径
+/// - resource_dir：可选，当前 Markdown 文件目录，用于解析图片相对路径
 #[tauri::command]
 pub fn pandoc_export_docx(
     markdown: String,
@@ -47,7 +47,7 @@ pub fn pandoc_export_docx(
         .arg(&output_path);
 
     // 资源路径解析：pandoc 默认按 markdown 文件所在目录解析相对路径
-    // 这里把 resource_dir 设为工作区根目录，让图片相对路径能被 pandoc 找到
+    // 这里把 resource_dir 设为当前 Markdown 文件目录，让图片相对路径能被 pandoc 找到
     if let Some(dir) = resource_dir.as_ref() {
         if Path::new(dir).is_dir() {
             cmd.arg("--resource-path").arg(dir);

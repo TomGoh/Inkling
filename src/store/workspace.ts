@@ -114,7 +114,7 @@ interface WorkspaceState {
   /**
    * 工作区模式：
    * - "folder"：打开了文件夹，tree 有效
-   * - "file"：单文件模式，仅打开了散落的 md 文件，不构建文件树；rootPath 为当前文件父目录（仅用于图片相对路径解析）
+   * - "file"：单文件模式，仅打开了散落的 md 文件，不构建文件树；rootPath 为当前文件父目录
    * - null：未打开任何东西
    */
   workspaceMode: "folder" | "file" | null;
@@ -182,8 +182,8 @@ interface WorkspaceState {
   /** 打开文件：已打开则切换到对应 tab，否则读取内容新增 tab。不改变当前工作区模式 */
   openFile: (filePath: string) => Promise<void>;
   /**
-   * 以单文件模式打开一个 md：不构建文件树，但把 rootPath 设为该文件父目录
-   * （仅供图片相对路径解析），workspaceMode 置为 "file"。
+   * 以单文件模式打开一个 md：不构建文件树，但把 rootPath 设为该文件父目录，
+   * workspaceMode 置为 "file"。
    * 用于"打开文件"入口——支持散落在不同文件夹的多个 md 作为标签页。
    */
   openFileStandalone: (filePath: string) => Promise<void>;
@@ -334,7 +334,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   openFileStandalone: async (filePath) => {
     // 先用 openFile 完成 tab 读取/切换/recent 更新
     await get().openFile(filePath);
-    // 单文件模式：不构建文件树，但设 rootPath 为父目录以便图片相对路径解析。
+    // 单文件模式：不构建文件树，但保留父目录作为当前文件上下文。
     // 仅当当前不是 folder 模式时才设为 file 模式，避免覆盖已打开的文件夹工作区。
     const { workspaceMode } = get();
     if (workspaceMode === "folder") return;

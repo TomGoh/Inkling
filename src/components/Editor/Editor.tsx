@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Milkdown, MilkdownProvider, useEditor, useInstance } from "@milkdown/react";
 import {
   Editor,
@@ -56,12 +56,14 @@ import { slashMenuPlugin } from "./slash-menu";
 import { autoPairPlugin } from "./auto-pair";
 
 interface EditorProps {
+  /** 当前 Markdown 文件完整路径，用于解析相对图片路径 */
+  filePath: string;
   /** 受控的 Markdown 文本。外部传入新值时会覆盖编辑器内容 */
   value: string;
   /** 内容变更回调，输出当前 Markdown 源码 */
   onChange?: (markdown: string) => void;
   /** 编辑器实例就绪回调，外部可持有 getEditor 用于跳转等操作 */
-  onReady?: (getEditor: () => Editor | undefined) => void;
+  onReady?: (getEditor: (() => Editor | undefined) | null) => void;
 }
 
 /**
@@ -72,7 +74,7 @@ interface EditorProps {
  * 所以这里不要调用 .create()，也不要调用 .container()（该方法不存在）。
  * 挂载点通过 config 里 ctx.set(rootCtx, container) 注入。
  */
-function EditorInner({ value, onChange, onReady }: EditorProps) {
+function EditorInner({ filePath, value, onChange, onReady }: EditorProps) {
   // 记录最近一次同步进编辑器的 value，避免 onChange 回写的值又触发覆盖，造成循环
   const lastSyncedRef = useRef(value);
   // onChange 用 ref 持有，避免它变化导致编辑器重建
@@ -127,8 +129,8 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
                   },
                 }),
               }),
-              // 图片拖拽/粘贴上传：复制到 assets/ 并插入相对路径
-              imageUploadPlugin(),
+              // 图片拖拽/粘贴上传：复制到当前文档的 assets/ 并插入相对路径
+              imageUploadPlugin(filePath),
               // 链接跟随：Ctrl/Cmd+点击打开外部链接或跳转内部锚点
               linkClickPlugin(),
               // 大纲当前标题跟踪：光标变化时更新 store 中的高亮标题
@@ -170,7 +172,7 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
           // 代码块：CodeMirror 高亮 + 行号 + 语言切换
           .use(codeBlockView)
           // 图片：相对路径解析为可加载 URL（保持 markdown 源码为相对路径）
-          .use(imageView)
+          .use(imageView(filePath))
           // 数学公式：remark-math 解析 + KaTeX 渲染（行内 $...$ 和块级 $$...$$）
           .use(remarkMathPlugin)
           .use(mathInlineSchema)
@@ -199,7 +201,7 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
         return undefined;
       }
     },
-    // 依赖数组为空，编辑器只在挂载时创建一次
+    // 依赖数组为空，编辑器只在挂载时创建一次；filePath 变化由外层 key 触发重建
     [],
   );
 
@@ -221,10 +223,15 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
     setFallback(!editor);
   }, [loading, getEditor]);
 
-  // 编辑器就绪后通知外部，便于大纲面板等持有 getEditor
-  useEffect(() => {
-    if (!loading) onReady?.(getEditor);
-  }, [loading, getEditor, onReady]);
+  // 编辑器就绪后通知外部；重建/卸载时清空旧 getter，避免访问已销毁的上下文。
+  // 用 ref 持有回调，避免 App 内联回调变化导致反复清空和重新绑定。
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  useLayoutEffect(() => {
+    if (loading || !getEditor()) return;
+    onReadyRef.current?.(getEditor);
+    return () => onReadyRef.current?.(null);
+  }, [loading, getEditor]);
 
   // 公式自动编号 / 专注模式开关切换时，dispatch 空 tr 触发重算（appendTransaction + decorations）
   const getEditorRef = useRef(getEditor);
@@ -354,10 +361,20 @@ function EditorInner({ value, onChange, onReady }: EditorProps) {
  * 阶段二任务6：在 commonmark 基础上集成 GFM（表格 + 任务列表 + 删除线），
  * 启用列宽拖拽，并提供插入表格、行列增删、对齐、删除表格的工具栏。
  */
-export function MarkdownEditor({ value, onChange, onReady }: EditorProps) {
+export function MarkdownEditor({
+  filePath,
+  value,
+  onChange,
+  onReady,
+}: EditorProps) {
   return (
-    <MilkdownProvider>
-      <EditorInner value={value} onChange={onChange} onReady={onReady} />
+    <MilkdownProvider key={filePath}>
+      <EditorInner
+        filePath={filePath}
+        value={value}
+        onChange={onChange}
+        onReady={onReady}
+      />
     </MilkdownProvider>
   );
 }
