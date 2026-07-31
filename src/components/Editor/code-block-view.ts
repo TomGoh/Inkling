@@ -57,6 +57,7 @@ const baseTheme = EditorView.theme({
   "&": {
     fontSize: "0.85rem",
     backgroundColor: "transparent",
+    color: "var(--code-block-text, var(--text, #1f2328))",
   },
   "&.cm-editor": {
     backgroundColor: "transparent",
@@ -67,9 +68,9 @@ const baseTheme = EditorView.theme({
   },
   ".cm-gutters": {
     backgroundColor: "transparent",
-    color: "var(--text-muted, #6e7681)",
+    color: "var(--code-block-muted, var(--text-muted, #6e7681))",
     border: "none",
-    borderRight: "1px solid var(--border, #d0d7de)",
+    borderRight: "1px solid var(--code-block-gutter-border, var(--border, #d0d7de))",
   },
   ".cm-activeLineGutter": {
     backgroundColor: "rgba(175, 184, 193, 0.15)",
@@ -79,6 +80,10 @@ const baseTheme = EditorView.theme({
   },
   ".cm-content": {
     padding: "0.4rem 0",
+    caretColor: "var(--code-block-focus, #528bff)",
+  },
+  ".cm-cursor, .cm-dropCursor": {
+    borderLeftColor: "var(--code-block-focus, #528bff)",
   },
 });
 
@@ -135,6 +140,7 @@ class CodeBlockNodeView implements NodeView {
 
     this.dom = document.createElement("div");
     this.dom.className = "code-block";
+    this.dom.dataset.codeTheme = this.currentTheme;
 
     // 顶部工具栏：语言选择
     const toolbar = document.createElement("div");
@@ -178,6 +184,7 @@ class CodeBlockNodeView implements NodeView {
     this.unsub = useSettings.subscribe((s) => {
       if (s.codeBlockTheme === this.currentTheme) return;
       this.currentTheme = s.codeBlockTheme;
+      this.dom.dataset.codeTheme = s.codeBlockTheme;
       this.cm.dispatch({
         effects: this.themeConf.reconfigure(codeThemeExt(s.codeBlockTheme)),
       });
