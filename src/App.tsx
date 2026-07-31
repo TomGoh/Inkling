@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import type { Editor } from "@milkdown/kit/core";
 import { MarkdownEditor } from "./components/Editor/Editor";
 import { SearchPanel } from "./components/Editor/SearchPanel";
@@ -19,6 +19,10 @@ import { useAutoSave } from "./lib/useAutoSave";
 import { useFileWatcher } from "./lib/useFileWatcher";
 import { exportHTML, exportPDF, exportDocx, exportPNG, exportOutline, copyMarkdown, copyRichText } from "./lib/exporter";
 import { getNewWindowFilePath } from "./lib/newWindow";
+import {
+  EMPTY_EDITOR_OUTLINE,
+  type EditorOutlineSnapshot,
+} from "./lib/outline";
 import "./App.css";
 
 function SaveIndicator() {
@@ -54,6 +58,34 @@ function App() {
 
   // 持有编辑器实例获取函数，供大纲面板与导出使用
   const getEditorRef = useRef<(() => Editor | undefined) | null>(null);
+  const [mainEditorReady, setMainEditorReady] = useState(false);
+  const handleEditorReady = useCallback(
+    (getEditor: (() => Editor | undefined) | null) => {
+      getEditorRef.current = getEditor;
+      setMainEditorReady(getEditor !== null);
+    },
+    [],
+  );
+  const handleSplitEditorReady = useCallback(
+    (getEditor: (() => Editor | undefined) | null) => {
+      splitEditorRef.current = getEditor;
+    },
+    [],
+  );
+  // 主编辑器发布的大纲快照；记录文件以避免切换时短暂显示旧大纲。
+  const [outlineState, setOutlineState] = useState<{
+    file: string | null;
+    snapshot: EditorOutlineSnapshot;
+  }>({ file: null, snapshot: EMPTY_EDITOR_OUTLINE });
+  const handleOutlineChange = useCallback(
+    (snapshot: EditorOutlineSnapshot) => {
+      setOutlineState({
+        file: useWorkspace.getState().currentFile,
+        snapshot,
+      });
+    },
+    [],
+  );
 
   // 导出菜单展开状态
   const [exportOpen, setExportOpen] = useState(false);
@@ -148,6 +180,10 @@ function App() {
   }, [toggleSidebar, toggleOutline, toggleZenMode, setZenMode]);
 
   const getEditor = () => getEditorRef.current?.();
+  const outlineSnapshot =
+    mainEditorReady && outlineState.file === currentFile
+      ? outlineState.snapshot
+      : EMPTY_EDITOR_OUTLINE;
 
   // 禅模式：仅渲染编辑器，隐藏所有 UI（侧边栏/大纲/标签页/工具栏/状态栏）
   if (zenMode && currentFile) {
@@ -160,7 +196,8 @@ function App() {
                 filePath={currentFile}
                 value={currentContent}
                 onChange={setContent}
-                onReady={(getEditor) => (getEditorRef.current = getEditor)}
+                onReady={handleEditorReady}
+                onOutlineChange={handleOutlineChange}
               />
             </EditorErrorBoundary>
           </div>
@@ -378,7 +415,8 @@ function App() {
                     filePath={currentFile}
                     value={currentContent}
                     onChange={setContent}
-                    onReady={(getEditor) => (getEditorRef.current = getEditor)}
+                    onReady={handleEditorReady}
+                    onOutlineChange={handleOutlineChange}
                   />
                 </EditorErrorBoundary>
               </div>
@@ -411,7 +449,7 @@ function App() {
                         filePath={splitFile}
                         value={splitContent}
                         onChange={setSplitContent}
-                        onReady={(getEditor) => (splitEditorRef.current = getEditor)}
+                        onReady={handleSplitEditorReady}
                       />
                     </EditorErrorBoundary>
                   </div>
@@ -437,7 +475,10 @@ function App() {
         )}
       </div>
       {currentFile && outlineVisible && (
-        <OutlinePanel getEditor={getEditor} />
+        <OutlinePanel
+          getEditor={getEditor}
+          snapshot={outlineSnapshot}
+        />
       )}
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       {shortcutsOpen && (
