@@ -18,6 +18,8 @@ import { useShortcuts, matchBinding, type ShortcutId } from "./store/shortcuts";
 import { useAutoSave } from "./lib/useAutoSave";
 import { useFileWatcher } from "./lib/useFileWatcher";
 import { exportHTML, exportPDF, exportDocx, exportPNG, exportOutline, copyMarkdown, copyRichText } from "./lib/exporter";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getNewWindowFilePath } from "./lib/newWindow";
 import {
   EMPTY_EDITOR_OUTLINE,
@@ -123,13 +125,36 @@ function App() {
   // 启用外部文件修改监听（仅桌面端）
   useFileWatcher();
 
-  // 多窗口：若本窗口由「在新窗口打开」派生，启动时自动打开目标文件（单文件模式）
+  // 启动时打开目标文件，三种来源：
+  // 1. 多窗口派生：URL 查询参数 inklingFile（由「在新窗口打开」创建的窗口）
+  // 2. 文件关联双击（首次启动）：Rust 端从 argv 提取，前端就绪后 take_pending_file 拉取
+  // 3. 单实例转发（程序已运行时双击 .md）：Rust 端 emit open-file 事件，定向到主窗口
   useEffect(() => {
-    const target = getNewWindowFilePath();
-    if (!target) return;
-    const openFileStandalone = useWorkspace.getState().openFileStandalone;
-    void openFileStandalone(target);
-    // 仅启动时执行一次
+    if (!isTauri()) return;
+    const open = useWorkspace.getState().openFileStandalone;
+
+    // 派生窗口只处理自身的派生目标，不参与 pending / 单实例（避免与主窗口重复打开）
+    const winTarget = getNewWindowFilePath();
+    if (winTarget) {
+      void open(winTarget);
+      return;
+    }
+
+    // 主窗口：拉取首次启动的待打开文件
+    let cancelled = false;
+    invoke<string | null>("take_pending_file").then((p) => {
+      if (!cancelled && p) void open(p);
+    });
+
+    // 主窗口：监听单实例转发的双击打开事件
+    const unlisten = listen<string>("open-file", (e) => {
+      if (!cancelled) void open(e.payload);
+    });
+
+    return () => {
+      cancelled = true;
+      void unlisten.then((fn) => fn());
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

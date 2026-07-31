@@ -213,6 +213,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | — | 开源化 | ✅ | v1.0.0 | MIT 许可证、CONTRIBUTING.md 贡献指南、issue/PR 模板、README 徽章与贡献者章节 |
 | 9.1 | 中文句号字形修复 | ✅ | v1.0.0 | issue #9：`index.html` `lang="zh-CN"` + 全局字体栈增加简体中文字体（Noto Sans CJK SC / Microsoft YaHei / PingFang SC），修复 Linux 下 U+3002 回退到 CJK JP 居中字形 |
 | 3.2 | 本地图片相对路径 | ✅ | v1.0.0 | PR #8：`EditorProps` 增加 `filePath`，`imageUploadPlugin`/`imageView` 据此解析本地图片相对路径；切换文件由外层 `key` 触发编辑器重建刷新闭包 |
+| 3.3 | 文件关联双击打开 | ✅ | v1.0.1 | 双击 .md 文件启动程序自动打开该文件；Rust 端 `md_file_from_args` 从 argv 提取路径存 `PendingFile` state，前端 `take_pending_file` 拉取（避免事件早于监听器注册丢失）；`tauri-plugin-single-instance` 单实例转发，程序已运行时双击不开新实例，`emit_to("main")` 定向到主窗口 |
 
 ### 8.2 发布版本
 
@@ -228,6 +229,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 - **v0.8.2** 定位并修复白屏根因：`remark-frontmatter` 缺少 `"yaml"` options 导致 `editor.create()` 抛 `Missing type in matter {}`，错误被 Milkdown React 集成层 `.catch(console.error)` 静默吞掉；同步加固降级检测（loading=false 后验证 editor 实例）
 - **v0.8.3** 修复专注模式无效果：CSS 选择器层级写反（`.focus-mode .editor-scroll ...` 实际 DOM 是 `.editor-scroll > .md-editor-root.focus-mode > .ProseMirror`），改为 `.focus-mode .ProseMirror > *`
 - **v0.8.4** 拼写检查开关（偏好设置）、单文件模式（打开散落 md 不绑定文件夹，可继续打开新 md 作为标签页）
+- **v1.0.1** 修复文件关联：双击 .md 文件启动程序后自动打开该文件；新增单实例（程序已运行时双击不开新实例，转发文件路径到主窗口打开）
 - **v1.0.0** 🎉 首个正式版。品牌重命名 Inkling → InklingMD 并开源（MIT 许可证 + 贡献指南 + issue/PR 模板）；修复中文句号字形（issue #9）、合并 PR #8 本地图片相对路径；侧边栏打开按钮改为图标样式
 - **v0.9.0** 多面板分屏（标签页右键「在分屏打开」，双编辑器左右对照 + 交换）、拖拽块排序（⋮⋮ 手柄整块重排）、导出长图 PNG（html2canvas）、文档大纲导出、多窗口（文件/标签页右键「在新窗口打开」，Tauri WebviewWindow）；多光标/块选与内置图床经调研后 defer（见 9.3）
 

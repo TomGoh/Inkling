@@ -1,6 +1,6 @@
 [package]
 name = "inklingmd"
-version = "1.0.0"
+version = "1.0.1"
 description = "A WYSIWYG Markdown editor"
 authors = ["zhkp"]
 edition = "2021"
@@ -24,3 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri-plugin-dialog = "2.7.2"
 regex = "1"
+
+# 单实例插件：仅桌面端，移动端不引入
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"
