@@ -37,7 +37,7 @@ export async function openInNewWindow(filePath: string): Promise<boolean> {
   const url = `${base}?${NEW_WINDOW_FILE_KEY}=${encodeURIComponent(filePath)}`;
   // 窗口 label 必须唯一，用时间戳 + 随机后缀避免冲突
   const label = `inkling-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const title = filePath.split(/[\\/]/).pop() ?? "Inkling";
+  const title = filePath.split(/[\\/]/).pop() ?? "InklingMD";
   try {
     await new WebviewWindow(label, {
       url,

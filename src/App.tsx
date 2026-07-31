@@ -463,7 +463,7 @@ function App() {
           </>
         ) : (
           <div className="empty-state">
-            <h2>Inkling</h2>
+            <h2>InklingMD</h2>
             <p>从左侧侧边栏「打开」文件夹，或「打开文件」直接打开一个 .md 开始编辑</p>
             {!sidebarVisible && (
               <button

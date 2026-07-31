@@ -1,6 +1,6 @@
 ---
 name: Bug 报告
-about: 报告 Inkling 的缺陷或异常行为
+about: 报告 InklingMD 的缺陷或异常行为
 title: "[Bug] "
 labels: bug
 ---
@@ -21,7 +21,7 @@ labels: bug
 
 ## 环境
 - 操作系统：<!-- Windows / macOS / Linux 发行版 -->
-- Inkling 版本：<!-- 见 关于 或 package.json -->
+- InklingMD 版本：<!-- 见 关于 或 package.json -->
 - 是否桌面端（Tauri）：是 / 否（浏览器）
 
 ## 截图 / 日志

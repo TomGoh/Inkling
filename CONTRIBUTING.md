@@ -1,6 +1,6 @@
 # 贡献指南
 
-感谢你对 Inkling 的兴趣！无论是提 issue、修 bug、加功能还是改文档，都非常欢迎。
+感谢你对 InklingMD 的兴趣！无论是提 issue、修 bug、加功能还是改文档，都非常欢迎。
 
 ## 行为准则
 
@@ -10,9 +10,9 @@
 
 ### 报告问题 / 提建议
 
-1. 先在 [Issues](https://github.com/zhkp/Inkling/issues) 搜索是否已有人提过，避免重复。
+1. 先在 [Issues](https://github.com/zhkp/InklingMD/issues) 搜索是否已有人提过，避免重复。
 2. 没有的话新建 issue，选择对应模板（Bug 报告 / 功能建议），按模板填写：
-   - **Bug**：复现步骤、预期结果、实际结果、环境（OS / Inkling 版本）、截图或日志。
+   - **Bug**：复现步骤、预期结果、实际结果、环境（OS / InklingMD 版本）、截图或日志。
    - **功能建议**：想解决什么场景、期望的效果、是否有替代方案。
 
 ### 提交代码

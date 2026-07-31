@@ -53,7 +53,7 @@ const MOCK_FILE_CONTENT: Record<string, string> = {
   "/mock-workspace/notes/todo.md":
     "# Todo\n\n- [x] 任务1\n- [ ] 任务2\n- [ ] 任务3\n",
   "/mock-workspace/intro.md":
-    "# Inkling 简介\n\n一个所见即所得的 Markdown 编辑器。\n",
+    "# InklingMD 简介\n\n一个所见即所得的 Markdown 编辑器。\n",
 };
 
 /** 递归列出目录树 */
