@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v1.0
+> 文档版本：v1.1.3
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -217,9 +217,23 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.3 | 新建未命名草稿 | ✅ | v1.1.0 | `Ctrl+N` 新建未关联磁盘文件的草稿 tab（`OpenTab.isUntitled`，虚拟路径 `untitled-N`）；`Ctrl+S` 弹另存为对话框选保存位置，保存后转为普通文件 tab 并加入最近列表；未命名草稿不自动保存（`useAutoSave` 跳过） |
 | 3.8 | 插入工具栏 | ✅ | v1.1.0 | 工具栏从编辑器内部提升到标题栏下方固定非滚动行（修复 sticky 在 flex 滚动容器内失效导致下滑消失）；把斜杠菜单支持的块类型全部做成按钮（H1-3/列表/引用/代码块/分割线/表格/公式/Mermaid/提示框/目录/元数据），`block-commands.ts` 复用插入逻辑；表格内时显示行列增删/对齐上下文按钮 |
 | 3.2 | 斜杠菜单表格可填写 | ✅ | v1.1.0 | 修复：slash-menu 手动构造 table_cell 时塞了 `schema.text(" ")`，但 cell contentSpec 是 block 级，结构非法导致无法编辑；改为 `schema.nodes.paragraph.create()` 空段落 |
+| 3.2 | Mermaid 图表可编辑 | ✅ | v1.1.1 | `mermaid-view.ts` 加「编辑」按钮 + 双击入口，切 textarea 编辑源码，失焦/Ctrl+Enter 提交重新渲染；非编辑态 `stopEvent` 改为 `() => editing` 允许选中删除 |
+| 3.2 | 块级/行内公式可编辑 | ✅ | v1.1.1 | `math.ts` createMathView 加双击内联编辑 LaTeX，失焦提交；编辑态 `stopEvent` 拦截事件防抢焦点 |
+| 3.2 | 列表插入报错修复 | ✅ | v1.1.3 | 修复 `content does not fit in gap`：`bullet_list`/`ordered_list` 的 content 为 `list_item+`，wrap 时漏包 `list_item` 这一层导致 paragraph 直接进 list 违反 content 规范；斜杠菜单与工具栏均改为 `wrap(range, [list, list_item])` |
+| 3.2 | 表格列宽调整报错修复 | ✅ | v1.1.1 | 修复 `invalid content for node table_row`：GFM 把 table_row 拆成 `table_header_row`（content `(table_header)*`）与 `table_row`（content `(table_cell)*`），斜杠菜单误把 table_header 塞进 table_row；改为第一行用 `table_header_row`，其余行用 `table_row` |
+| 3.2 | 块插入位置修复 | ✅ | v1.1.1 | 修复分割线/表格/公式/callout/TOC 落在下一行：新增 `insertBlockAtCursor`/`insertBlockHere`，当前段落为空时直接替换，非空才插在当前块之后 |
+| 3.2 | 列表/引用 wrap 修复 | ✅ | v1.1.1 | 修复 `content does not fit in gap`：合并到单个 transaction，用 `tr.selection` 算 blockRange，避免 deleteRange 后的 stale selection 问题 |
+| 3.1 | Ctrl+A 全选全文 | ✅ | v1.1.1 | ProseMirror 默认 `Mod-a` 只选当前块文本；新增 `inkling-select-all` 插件拦截 Mod-a，用 `AllSelection` 选中整个文档 |
+| 3.1 | 点击空白处可编辑 | ✅ | v1.1.1 | 监听编辑器根 mousedown，`posAtCoords` 返回 null（点击落在内容节点之外）时在文档末尾追加空段落并定位光标，无需手动换行 |
+| 3.3 | 新建草稿自动聚焦 | ✅ | v1.1.1 | `Ctrl+N` 新建未命名草稿后编辑器重建完成时自动 `view.focus()`，无需手动点击 |
+| 3.8 | 块删除能力 | ✅ | v1.1.3 | 工具栏新增「删除块」按钮，`deleteCurrentBlock` 命令删除光标所在的整个顶层块（引用/代码块/Mermaid/提示框/元数据/列表/公式/TOC/分割线）；mermaid/frontmatter 的 `stopEvent` 优化为仅拦截编辑区内事件，非编辑态可点击选中后 Backspace 删除 |
+| — | 应用图标更新 | ✅ | v1.1.2 | 用 `tauri icon` 命令从用户提供的源图重新生成全平台图标（Windows ico/StoreLogo、macOS icns、iOS、Android 全套） |
 
 ### 8.2 发布版本
 
+- **v1.1.3** 修复无序/有序列表插入报错 `content does not fit in gap`（wrap 漏包 `list_item` 层）；工具栏新增「删除块」按钮统一删除引用/代码块/Mermaid/提示框/元数据等块；优化 mermaid/frontmatter 的 `stopEvent` 使非编辑态可选中删除
+- **v1.1.2** 更换应用图标（`tauri icon` 重新生成全平台图标）
+- **v1.1.1** 修复块插入位置（落在下一行）、列表/引用 wrap 报错、表格列宽调整报错（`invalid content for node table_row`）；Mermaid/公式支持双击编辑；Ctrl+A 全选；点击空白处可编辑；Ctrl+N 新建草稿自动聚焦
 - **v1.1.0** 新建文件（Ctrl+N 未命名草稿 + Ctrl+S 另存为对话框，保存后才自动保存）、工具栏重构（提升到标题栏下方固定，斜杠菜单支持的块类型全部做成按钮）、修复斜杠菜单插入的表格无法填写
 - **v0.1.0** 骨架与基础编辑（Milkdown 集成、文件树、保存、字数统计）
 - **v0.2.0** 图片渲染与拖拽/粘贴上传、表格工具栏、代码块语法高亮、链接跟随
