@@ -148,7 +148,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 ---
 
-## 8. 实现进度（截至 v0.9.0）
+## 8. 实现进度（截至 v1.0.0）
 
 > 本节用于对照 PRD 需求与实际落地情况，方便后续迭代决策。详细技术方案与任务拆解见 `技术方案与任务拆解.md`。
 
@@ -209,6 +209,10 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.3 | 多窗口 | ✅ | v0.9.0 | `newWindow.ts` 用 `WebviewWindow` 创建独立窗口，文件路径经 URL 查询参数传递，新窗口启动时自动 `openFileStandalone`；文件树/标签页右键「在新窗口打开」 |
 | 3.1 | 多光标/块选 | ❌ | — | 调研后不做：ProseMirror 作者确认 Sublime 式多光标「very hard」，需自定义 Selection 子类 + 重写输入处理，无现成实现；现有多范围选择仅表格 CellSelection（已支持）。详见 9.3 |
 | 3.7 | 内置图床 | ❌ | — | 调研后 defer：需后端存储（S3/OSS）或第三方云服务账号，与本地优先/绿色理念冲突且引入安全与依赖。现有 `image-upload.ts` 本地 assets 方案为推荐工作流，详见 9.3 |
+| — | 品牌重命名 | ✅ | v1.0.0 | Inkling → InklingMD（productName/窗口标题/README/Cargo 包名等用户可见处），规避与 Inkling Systems 公司重名；localStorage key 等内部标识符保留不动避免丢用户数据 |
+| — | 开源化 | ✅ | v1.0.0 | MIT 许可证、CONTRIBUTING.md 贡献指南、issue/PR 模板、README 徽章与贡献者章节 |
+| 9.1 | 中文句号字形修复 | ✅ | v1.0.0 | issue #9：`index.html` `lang="zh-CN"` + 全局字体栈增加简体中文字体（Noto Sans CJK SC / Microsoft YaHei / PingFang SC），修复 Linux 下 U+3002 回退到 CJK JP 居中字形 |
+| 3.2 | 本地图片相对路径 | ✅ | v1.0.0 | PR #8：`EditorProps` 增加 `filePath`，`imageUploadPlugin`/`imageView` 据此解析本地图片相对路径；切换文件由外层 `key` 触发编辑器重建刷新闭包 |
 
 ### 8.2 发布版本
 
@@ -224,6 +228,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 - **v0.8.2** 定位并修复白屏根因：`remark-frontmatter` 缺少 `"yaml"` options 导致 `editor.create()` 抛 `Missing type in matter {}`，错误被 Milkdown React 集成层 `.catch(console.error)` 静默吞掉；同步加固降级检测（loading=false 后验证 editor 实例）
 - **v0.8.3** 修复专注模式无效果：CSS 选择器层级写反（`.focus-mode .editor-scroll ...` 实际 DOM 是 `.editor-scroll > .md-editor-root.focus-mode > .ProseMirror`），改为 `.focus-mode .ProseMirror > *`
 - **v0.8.4** 拼写检查开关（偏好设置）、单文件模式（打开散落 md 不绑定文件夹，可继续打开新 md 作为标签页）
+- **v1.0.0** 🎉 首个正式版。品牌重命名 Inkling → InklingMD 并开源（MIT 许可证 + 贡献指南 + issue/PR 模板）；修复中文句号字形（issue #9）、合并 PR #8 本地图片相对路径；侧边栏打开按钮改为图标样式
 - **v0.9.0** 多面板分屏（标签页右键「在分屏打开」，双编辑器左右对照 + 交换）、拖拽块排序（⋮⋮ 手柄整块重排）、导出长图 PNG（html2canvas）、文档大纲导出、多窗口（文件/标签页右键「在新窗口打开」，Tauri WebviewWindow）；多光标/块选与内置图床经调研后 defer（见 9.3）
 
 ### 8.3 与初版技术方案建议的差异
