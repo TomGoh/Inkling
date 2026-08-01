@@ -1,0 +1,141 @@
+// TabsBar 组件测试
+// 验证：无 tab 不渲染、tab 显示文件名、未命名 tab 显示「未命名 N」、
+// 未保存显示圆点、点击切换、关闭按钮、中键关闭、未保存确认
+
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
+import { TabsBar } from "../../src/components/Tabs/TabsBar";
+import { useWorkspace, type OpenTab } from "../../src/store/workspace";
+
+function makeTab(overrides: Partial<OpenTab> = {}): OpenTab {
+  return {
+    path: "/test.md",
+    content: "",
+    cursorPos: null,
+    scrollTop: 0,
+    dirty: false,
+    isUntitled: false,
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  useWorkspace.setState({
+    openTabs: [],
+    activeTabPath: null,
+  });
+});
+
+describe("TabsBar", () => {
+  it("无 tab 时不渲染", () => {
+    const { container } = render(<TabsBar />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("显示文件名", () => {
+    useWorkspace.setState({
+      openTabs: [makeTab({ path: "/docs/readme.md" })],
+      activeTabPath: "/docs/readme.md",
+    });
+    render(<TabsBar />);
+    expect(screen.getByText("readme.md")).toBeInTheDocument();
+  });
+
+  it("Windows 路径正确取文件名", () => {
+    useWorkspace.setState({
+      openTabs: [makeTab({ path: "C:\\Users\\test\\doc.md" })],
+      activeTabPath: "C:\\Users\\test\\doc.md",
+    });
+    render(<TabsBar />);
+    expect(screen.getByText("doc.md")).toBeInTheDocument();
+  });
+
+  it("未命名草稿显示「未命名 N」", () => {
+    useWorkspace.setState({
+      openTabs: [makeTab({ path: "untitled-3", isUntitled: true })],
+      activeTabPath: "untitled-3",
+    });
+    render(<TabsBar />);
+    expect(screen.getByText("未命名 3")).toBeInTheDocument();
+  });
+
+  it("未保存的 tab 显示圆点", () => {
+    useWorkspace.setState({
+      openTabs: [makeTab({ path: "/test.md", dirty: true })],
+      activeTabPath: "/test.md",
+    });
+    render(<TabsBar />);
+    expect(screen.getByTitle("未保存")).toBeInTheDocument();
+  });
+
+  it("已保存的 tab 不显示圆点", () => {
+    useWorkspace.setState({
+      openTabs: [makeTab({ path: "/test.md", dirty: false })],
+      activeTabPath: "/test.md",
+    });
+    render(<TabsBar />);
+    expect(screen.queryByTitle("未保存")).not.toBeInTheDocument();
+  });
+
+  it("点击 tab 调用 switchTab", () => {
+    const switchTab = vi.fn();
+    useWorkspace.setState({
+      openTabs: [makeTab({ path: "/a.md" }), makeTab({ path: "/b.md" })],
+      activeTabPath: "/a.md",
+      switchTab,
+    });
+    render(<TabsBar />);
+    fireEvent.click(screen.getByText("b.md"));
+    expect(switchTab).toHaveBeenCalledWith("/b.md");
+  });
+
+  it("关闭已保存 tab 直接调用 closeTab", () => {
+    const closeTab = vi.fn();
+    useWorkspace.setState({
+      openTabs: [makeTab({ path: "/test.md", dirty: false })],
+      activeTabPath: "/test.md",
+      closeTab,
+    });
+    render(<TabsBar />);
+    fireEvent.click(screen.getByTitle("关闭"));
+    expect(closeTab).toHaveBeenCalledWith("/test.md");
+  });
+
+  it("关闭未保存 tab 弹确认，取消则不关闭", () => {
+    const closeTab = vi.fn();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    useWorkspace.setState({
+      openTabs: [makeTab({ path: "/test.md", dirty: true })],
+      activeTabPath: "/test.md",
+      closeTab,
+    });
+    render(<TabsBar />);
+    fireEvent.click(screen.getByTitle("关闭"));
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(closeTab).not.toHaveBeenCalled();
+  });
+
+  it("关闭未保存 tab 确认后关闭", () => {
+    const closeTab = vi.fn();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    useWorkspace.setState({
+      openTabs: [makeTab({ path: "/test.md", dirty: true })],
+      activeTabPath: "/test.md",
+      closeTab,
+    });
+    render(<TabsBar />);
+    fireEvent.click(screen.getByTitle("关闭"));
+    expect(closeTab).toHaveBeenCalledWith("/test.md");
+  });
+
+  it("当前激活 tab 有 tab-active 类", () => {
+    useWorkspace.setState({
+      openTabs: [makeTab({ path: "/a.md" }), makeTab({ path: "/b.md" })],
+      activeTabPath: "/b.md",
+    });
+    const { container } = render(<TabsBar />);
+    const activeTab = container.querySelector(".tab-active");
+    expect(activeTab).not.toBeNull();
+    expect(activeTab?.textContent).toContain("b.md");
+  });
+});
