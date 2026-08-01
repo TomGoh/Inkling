@@ -234,6 +234,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 ### 8.2 发布版本
 
+- **v1.2.0** 性能优化（插件回调加 `docChanged` 守卫消除每键全树遍历、cursor-saver 防抖落 store、TabsBar/useAutoSave 精准订阅、代码块 NodeView 视口懒挂载、查找面板输入防抖）；新增 Ctrl+R 替换快捷键（逐个/全部替换）；建立自动化测试体系（169 个用例：单元/store/组件/E2E 四层，GitHub Action 测试失败阻断构建）
 - **v1.1.5** 修复快捷键系统致命 bug（`matchBinding` 的 `MODIFIER_KEYS` 漏了 `"mod"`，导致 Ctrl+F/Ctrl+\/Ctrl+'/Ctrl+\/Ctrl+, 全部失效）；新增 Ctrl+K 插入链接、Ctrl+Alt+0 转普通段落
 - **v1.1.4** 修复点击文档右侧空白区会跳到文档最底部的问题：原逻辑在 `posAtCoords` 返回 null 时直接在文档末尾追加段落，现改为把 x 坐标夹到编辑器内容区内重查 `posAtCoords`，让光标落在点击 y 对应的行附近
 - **v1.1.3** 修复无序/有序列表插入报错 `content does not fit in gap`（wrap 漏包 `list_item` 层）；工具栏新增「删除块」按钮统一删除引用/代码块/Mermaid/提示框/元数据等块；优化 mermaid/frontmatter 的 `stopEvent` 使非编辑态可选中删除
@@ -306,6 +307,24 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 文档大纲导出 | 只导出标题层级，生成只含标题的 md 文件，当目录用 | ✅ |
 | 多窗口 | 文件右键"在新窗口打开"，Tauri 多窗口，多显示器场景 | ✅ |
 | ~~拼写检查~~ | ✅ v0.8.4 已实现：浏览器原生拼写检查（红波浪线 + 右键修正建议），偏好设置开关 | ✅ |
+
+### 9.3.1 v1.2.0（性能优化 + 自动化测试）— 已发布
+
+| 功能 | 说明 | 状态 |
+|---|---|---|
+| 插件回调守卫 | formula-numbering / block-drag / outline 等插件加 `docChanged` 守卫，消除纯光标移动时的全树遍历；formula-numbering 额外加 `hasMathDisplay` 短路，无公式节点直接返回 | ✅ |
+| cursor-saver 防抖 | 光标位置本地缓存 + 300ms 防抖落 store，避免每次光标移动触发 TabsBar / useAutoSave 全局重渲染 | ✅ |
+| 精准订阅 | TabsBar 改为订阅 `path\|dirty\|isUntitled` 字符串快照、useAutoSave 改为订阅「活跃 tab 是否未命名」布尔派生值，打字时 UI 不重渲染 | ✅ |
+| 代码块懒挂载 | CodeMirror 实例延迟到代码块进入视口（IntersectionObserver，200px 预加载）时才创建 | ✅ |
+| 查找面板防抖 | 查找词 120ms 防抖，连续输入只触发一次全文匹配 | ✅ |
+| Ctrl+R 替换快捷键 | 打开查找替换面板并自动展开替换框；支持逐个替换（`replaceCurrent`）和全部替换（`replaceAll`，从后往前避免位置偏移） | ✅ |
+| 自动化测试体系 | 169 个用例分四层：纯逻辑单测（stats/slugify/shortcuts/outline）、store 测试（ui/settings/shortcuts）、Tauri 纯函数（fs/newWindow）、组件测试（StatusBar/TabsBar/SearchPanel）、Playwright E2E（编辑器渲染/查找替换/快捷键全流程）；GitHub Action `test` job 阻断 `build` | ✅ |
+
+**性能定位（与主流编辑器对比）**：
+- 中小文档（千行内）：与 Typora 体感基本拉平，明显优于 MarkText（Muya + marked.js 全量 re-parse 架构）
+- 长文档（万行级）：仍不及 Typora（自研增量渲染 + 懒布局），但输入延迟增长曲线比 MarkText 平缓（增量 transaction vs 全量 re-parse）
+- 启动/内存：Tauri 外壳远优于 MarkText（Electron）
+- 仍存在的架构限制：ProseMirror 全量 DOM 渲染（无虚拟滚动）；Milkdown `markdownUpdated` 每键全文序列化 O(N)；Mermaid/KaTeX 无渲染缓存
 
 ### 9.4 调研后 defer 的功能
 

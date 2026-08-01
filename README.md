@@ -70,6 +70,13 @@
 - **偏好设置面板**：集中开关各项编辑器行为（`Ctrl/Cmd+,` 打开）
 - **错误边界**：编辑器渲染异常时显示降级 UI 而非白屏，内容不丢失
 
+### 性能优化
+- **插件回调守卫**：formula-numbering / block-drag / outline 等插件加 `docChanged` 守卫，消除纯光标移动时的全树遍历
+- **cursor-saver 防抖**：光标位置本地缓存 + 300ms 防抖落 store，避免每次移动触发 TabsBar / useAutoSave 全局重渲染
+- **精准订阅**：TabsBar / useAutoSave 改为订阅派生快照，打字时 UI 不重渲染
+- **代码块懒挂载**：CodeMirror 实例延迟到代码块进入视口（200px 预加载）时才创建，大量代码块文档首屏开销显著下降
+- **查找面板防抖**：查找词 120ms 防抖，连续输入只触发一次全文匹配
+
 ### 快捷键体系
 - 完整覆盖 Markdown 编辑常用快捷键（加粗、斜体、标题、列表、代码块等）
 - 应用级快捷键：切换侧边栏、切换大纲、查找替换、偏好设置、快捷键帮助
@@ -123,7 +130,8 @@ src-tauri/             # Rust 后端（Tauri 配置、文件系统命令、全�
 | `Ctrl/Cmd+Shift+B` | 引用块 |
 | `Tab / Shift+Tab` | 缩进 / 提升列表项 |
 | `Ctrl/Cmd+S` | 保存 |
-| `Ctrl/Cmd+F` | 查找替换（当前文件） |
+| `Ctrl/Cmd+F` | 查找（当前文件） |
+| `Ctrl/Cmd+R` | 替换（当前文件，自动展开替换框） |
 | `Ctrl/Cmd+Shift+F` | 全局搜索（工作区所有文件） |
 | `Ctrl/Cmd+\` | 切换侧边栏 |
 | `Ctrl/Cmd+'` | 切换大纲面板 |
@@ -151,12 +159,20 @@ pnpm build
 
 # 打包桌面应用
 pnpm tauri build
+
+# 运行单元 + 组件测试（Vitest）
+pnpm test
+
+# 运行 E2E 测试（Playwright，首次需先 pnpm e2e:install 装 chromium）
+pnpm e2e
 ```
 
 > 浏览器 `pnpm dev` 模式下会使用 mock 工作区，方便脱离 Tauri 环境调试 UI。
+> GitHub Action 每次 push/tag 会自动跑全部测试，测试失败阻断构建。
 
 ## 版本记录
 
+- **v1.2.0** 性能优化（插件回调加 `docChanged` 守卫消除每键全树遍历、cursor-saver 防抖落 store、TabsBar/useAutoSave 精准订阅、代码块 NodeView 视口懒挂载、查找面板输入防抖）；新增 Ctrl+R 替换快捷键（逐个/全部替换）；建立自动化测试体系（169 个用例：单元/store/组件/E2E 四层，GitHub Action 测试失败阻断构建）
 - **v1.1.5** 修复快捷键系统致命 bug（`matchBinding` 的 `MODIFIER_KEYS` 漏了 `"mod"`，导致 Ctrl+F/Ctrl+\/Ctrl+'/Ctrl+\/Ctrl+, 全部失效）；新增 Ctrl+K 插入链接、Ctrl+Alt+0 转普通段落（Typora 标准快捷键）
 - **v1.1.4** 修复点击文档右侧空白区会跳到文档最底部：原逻辑在 `posAtCoords` 返回 null 时直接在文档末尾追加段落，现改为把 x 坐标夹到编辑器内容区内重查 `posAtCoords`，让光标落在点击 y 对应的行附近
 - **v1.1.3** 修复无序/有序列表插入报错 `content does not fit in gap`（wrap 时漏包 `list_item` 层）；工具栏新增「删除块」按钮，可删除光标所在的整个块（引用/代码块/Mermaid/提示框/元数据/列表/公式/TOC/分割线）；优化 mermaid/frontmatter 的 `stopEvent`，非编辑态可点击选中后 Backspace 删除
