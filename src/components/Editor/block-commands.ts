@@ -180,6 +180,35 @@ export function insertMathBlock(view: EditorView): void {
   view.focus();
 }
 
+/**
+ * 插入行内公式 math_inline 节点。
+ * - 在当前光标处插入空 atom 行内节点
+ * - 插入后自动选中（NodeSelection）并触发双击进入编辑模式
+ * - 空值时 NodeView 显示占位提示
+ */
+export function insertInlineMath(view: EditorView): void {
+  const t = view.state.schema.nodes.math_inline;
+  if (!t) return;
+  const node = t.create();
+  const { from } = view.state.selection;
+  // 行内节点直接 insert 在光标处（不替换段落）
+  view.dispatch(view.state.tr.insert(from, node).scrollIntoView());
+  // 下一帧选中并触发编辑模式
+  requestAnimationFrame(() => {
+    try {
+      const sel = NodeSelection.create(view.state.doc, from);
+      view.dispatch(view.state.tr.setSelection(sel));
+      const dom = view.nodeDOM(from) as HTMLElement | null;
+      if (dom) {
+        dom.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      }
+    } catch {
+      // 位置无效时静默失败
+    }
+  });
+  view.focus();
+}
+
 export function turnIntoMermaid(view: EditorView): void {
   const t = view.state.schema.nodes.code_block;
   if (t) setBlockType(view, t, { language: "mermaid" });
@@ -211,11 +240,52 @@ export function insertFrontmatter(view: EditorView): void {
 }
 
 /**
+ * 从一个 DOM 元素向上查找，定位它所属的「顶层块节点」在文档中的位置与节点。
+ *
+ * 用于 deleteCurrentBlock 的 DOM 焦点回退路径：当 atom 节点内嵌的子编辑器
+ * （如 frontmatter 的 CodeMirror）获得焦点时，ProseMirror 的 selection
+ * 不一定是 NodeSelection（可能被 CodeMirror 的 focus/blur 周期冲掉），
+ * 此时直接读 document.activeElement 更可靠。
+ *
+ * 仅返回 atom 类型的顶层块，避免误删普通段落（普通段落的删除走 TextSelection 路径）。
+ */
+function atomNodeFromDom(
+  view: EditorView,
+  el: HTMLElement,
+): { pos: number; node: Node } | null {
+  // 向上走直到 view.dom 的直接子节点（即某个顶层块的 DOM）
+  let cur: HTMLElement | null = el;
+  while (cur && cur.parentElement !== view.dom) {
+    cur = cur.parentElement;
+  }
+  if (!cur) return null;
+  // 用同级兄弟计数得到该块在顶层的孩子索引
+  let idx = 0;
+  let sib: Element | null = cur;
+  while (sib && sib.previousElementSibling) {
+    idx++;
+    sib = sib.previousElementSibling;
+  }
+  const doc = view.state.doc;
+  if (idx >= doc.childCount) return null;
+  let pos = 0;
+  for (let i = 0; i < idx; i++) {
+    pos += doc.child(i).nodeSize;
+  }
+  const node = doc.child(idx);
+  // 只对 atom 节点走 DOM 路径删除，普通块仍走 selection 路径
+  if (!(node.type as unknown as { atom?: boolean }).atom) return null;
+  return { pos, node };
+}
+
+/**
  * 删除光标所在的顶层块节点（引用/代码块/Mermaid/提示框/元数据/列表/公式/TOC/分割线等）。
  *
  * 定位逻辑（按优先级）：
  * 1. NodeSelection：直接拿选中的节点和位置（atom 节点如 frontmatter/toc/hr/math 被点击选中时）
- * 2. TextSelection：用 $head.before(depth) 找顶层块（depth=1 的父节点）
+ * 2. DOM 焦点回退：CodeMirror 等子编辑器获得焦点时，selection 可能不是 NodeSelection，
+ *    读 document.activeElement 反查所属 atom 顶层块
+ * 3. TextSelection：用 $head.before(depth) 找顶层块（depth=1 的父节点）
  *
  * 删除后：
  * - 文档变空时补一个空段落
@@ -223,7 +293,7 @@ export function insertFrontmatter(view: EditorView): void {
  */
 export function deleteCurrentBlock(view: EditorView): void {
   const { state } = view;
-  let topPos: number;
+  let topPos = 0;
   let topNode: Node | null | undefined;
 
   if (state.selection instanceof NodeSelection) {
@@ -231,18 +301,31 @@ export function deleteCurrentBlock(view: EditorView): void {
     topPos = state.selection.from;
     topNode = state.doc.nodeAt(topPos);
   } else {
-    const { $head } = state.selection;
-    if ($head.depth === 0) {
-      // 光标在文档顶层（极少见），无法定位块
-      return;
+    // DOM 焦点回退：frontmatter 的 CodeMirror 获得焦点时，ProseMirror 的
+    // selection 可能仍是旧位置（被 cm.focus()/setNodeAttribute 事务冲掉），
+    // 此时按 activeElement 反查最准，否则会把旧 selection 指向的块误删
+    const active = document.activeElement as HTMLElement | null;
+    if (active && view.dom.contains(active)) {
+      const hit = atomNodeFromDom(view, active);
+      if (hit) {
+        topPos = hit.pos;
+        topNode = hit.node;
+      }
     }
-    // before(1) 返回当前所在顶层块的位置
-    try {
-      topPos = $head.before(1);
-    } catch {
-      return;
+    if (topNode == null) {
+      const { $head } = state.selection;
+      if ($head.depth === 0) {
+        // 光标在文档顶层（极少见），无法定位块
+        return;
+      }
+      // before(1) 返回当前所在顶层块的位置
+      try {
+        topPos = $head.before(1);
+      } catch {
+        return;
+      }
+      topNode = state.doc.nodeAt(topPos);
     }
-    topNode = state.doc.nodeAt(topPos);
   }
 
   if (!topNode) return;

@@ -21,6 +21,7 @@ import {
   turnIntoCodeBlock,
   insertHr,
   insertMathBlock,
+  insertInlineMath,
   turnIntoMermaid,
   insertCallout,
   insertToc,
@@ -170,6 +171,7 @@ export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
           )}
         </div>
         <button className="tt-btn" onClick={() => withView(insertMathBlock)} title="块级公式">∑ 公式</button>
+        <button className="tt-btn" onClick={() => withView(insertInlineMath)} title="行内公式">$ 行内</button>
         <button className="tt-btn" onClick={() => withView(turnIntoMermaid)} title="Mermaid 图表">☿ Mermaid</button>
       </div>
 
@@ -184,7 +186,17 @@ export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
       <span className="tt-sep" />
 
       <div className="tt-group">
-        <button className="tt-btn tt-danger" onClick={() => withView(deleteCurrentBlock)} title="删除光标所在的整个块（引用/代码块/图表/提示框/元数据等）">✕ 删除块</button>
+        <button
+          className="tt-btn tt-danger"
+          // 阻止按钮抢占焦点：frontmatter 的 CodeMirror 获得焦点时，
+          // deleteCurrentBlock 需要读 document.activeElement 反查所属 atom 块，
+          // 若按钮抢走焦点，activeElement 会变成按钮本身，导致反查失败、误删别处。
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => withView(deleteCurrentBlock)}
+          title="删除光标所在的整个块（引用/代码块/图表/提示框/元数据等）"
+        >
+          ✕ 删除块
+        </button>
       </div>
 
       {inTable && (

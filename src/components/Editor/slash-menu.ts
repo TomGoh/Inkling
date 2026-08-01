@@ -305,6 +305,36 @@ function buildCommands(view: EditorView): SlashCommand[] {
     });
   }
 
+  // 行内公式
+  if (schema.nodes.math_inline) {
+    cmds.push({
+      label: "行内公式",
+      keywords: "math formula 公式 inline 行内",
+      icon: "$",
+      run: (v, anchor) => {
+        const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
+        const node = schema.nodes.math_inline.create();
+        const pos = tr.selection.from;
+        tr.insert(pos, node);
+        v.dispatch(tr.scrollIntoView());
+        // 插入后自动选中并触发双击进入编辑模式
+        requestAnimationFrame(() => {
+          try {
+            const sel = NodeSelection.create(v.state.doc, pos);
+            v.dispatch(v.state.tr.setSelection(sel));
+            const dom = v.nodeDOM(pos) as HTMLElement | null;
+            if (dom) {
+              dom.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+            }
+          } catch {
+            // 位置无效时静默失败
+          }
+        });
+        v.focus();
+      },
+    });
+  }
+
   // Mermaid 图表
   if (schema.nodes.code_block) {
     cmds.push({

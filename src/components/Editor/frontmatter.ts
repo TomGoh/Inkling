@@ -7,6 +7,7 @@ import { $nodeSchema, $remark, $view } from "@milkdown/kit/utils";
 import type { NodeView, NodeViewConstructor } from "@milkdown/kit/prose/view";
 import type { Node } from "@milkdown/kit/prose/model";
 import type { EditorView as PMView } from "@milkdown/kit/prose/view";
+import { NodeSelection } from "@milkdown/kit/prose/state";
 import { EditorView, lineNumbers, highlightSpecialChars } from "@codemirror/view";
 import {
   defaultHighlightStyle,
@@ -141,6 +142,23 @@ function createFrontmatterView(): NodeViewConstructor {
     });
     cmHost.appendChild(cm.dom);
 
+    // 点击 frontmatter 任意区域（含 CodeMirror 内部）时，先设置 NodeSelection
+    // 选中整个 frontmatter 节点，再让 CodeMirror 接管编辑焦点。
+    // 否则「删除块」按钮拿到的 selection 仍是文档其他位置，会误删别的块。
+    const onMouseDown = (e: MouseEvent) => {
+      const pos = getPos();
+      if (pos == null) return;
+      // 仅左键触发选中，右键留给上下文菜单
+      if (e.button !== 0) return;
+      try {
+        const sel = NodeSelection.create(view.state.doc, pos);
+        view.dispatch(view.state.tr.setSelection(sel));
+      } catch {
+        // 位置无效时静默失败
+      }
+    };
+    dom.addEventListener("mousedown", onMouseDown, true);
+
     return {
       dom,
       ignoreMutation: () => true,
@@ -164,7 +182,10 @@ function createFrontmatterView(): NodeViewConstructor {
         updating = false;
         return true;
       },
-      destroy: () => cm.destroy(),
+      destroy: () => {
+        dom.removeEventListener("mousedown", onMouseDown, true);
+        cm.destroy();
+      },
     };
   };
 }
