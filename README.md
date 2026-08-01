@@ -61,6 +61,9 @@
 - 明暗模式切换
 - 支持加载自定义 CSS 覆盖样式（CSS 变量）
 - 代码块语法高亮主题独立可配置（One Dark / 浅色 / 无高亮）
+- **设计令牌系统**：全应用通过 CSS 变量统一管理配色 / 阴影 / 圆角 / 动效曲线，主题切换与调色只改一处
+- **统一 SVG 图标库**：线性风格（`stroke = currentColor`），随文字颜色继承，跨平台渲染一致
+- **现代化交互细节**：细半透明滚动条、`:focus-visible` 键盘聚焦环、菜单 / 模态弹入动效、ghost 风格顶栏按钮、活跃 tab 卡片样式 + 强调色指示条、活跃文件左侧指示条、iOS 风格 Toggle 开关、模态毛玻璃遮罩、渐变品牌标题
 
 ### 辅助写作
 - 状态栏字数 / 字符数 / 行数 / 预计阅读时长统计
@@ -177,6 +180,7 @@ pnpm e2e
 
 ## 版本记录
 
+- **v2.0.0** UI 视觉与交互体验全面优化：①建立设计令牌（design token）系统——全应用通过 CSS 变量统一管理品牌强调色（`--accent` 浅色 `#0969da` / 深色 `#2f81f7`，统一原先散落的近似值）、三级文字色阶、分层阴影（`--shadow-sm/md/lg` 替代生硬单层阴影）、圆角梯度（`--radius-sm/md/lg`）、动效曲线（`--ease` / `--duration`）、键盘聚焦环（`--ring`），主题切换只改一处；②统一 SVG 图标库（`icons.tsx`，线性 `stroke=currentColor` 随文字颜色继承，默认 16px / 24×24 viewBox，替代原先混用的 emoji / Unicode 符号，跨平台渲染一致）；③现代化滚动条（10px 细半透明滑块 + 透明轨道 + 内缩 `background-clip`，hover 加深，标签页栏收窄至 3px）；④`:focus-visible` 键盘聚焦环（Tab 键触发蓝环，鼠标点击不干扰）；⑤菜单 / 模态弹入动效（`menu-in` 上移缩放淡入 0.12s、`modal-in` 上浮缩放淡入 0.18s、`backdrop-in` 遮罩淡入、`fade-in` 空状态淡入）；⑥ghost 风格顶栏按钮（无边框、hover 灰底，VSCode / Typora 式）；⑦渐变品牌标题（`background-clip: text` 实现正文色到强调色 135° 渐变）；⑧活跃 tab 卡片样式（顶部 2px 强调色指示条 + 底部连通编辑区 + 关闭按钮 hover 显现）；⑨活跃文件左侧指示条（`box-shadow: inset 2px 0 0`）；⑩iOS 风格 Toggle 开关（`appearance:none` 自定义胶囊轨道 + 圆形滑块，`:checked` 强调色 + 右移过渡）；⑪模态毛玻璃遮罩（`backdrop-filter: blur(2px)`）；⑫文本选择色跟随强调色；⑬全应用过渡曲线统一引用令牌。纯样式重构，编辑器逻辑与功能不变。详见 `docs/v2.0.0 设计文档.md`
 - **v1.2.10** 修复全部替换 alert 报错：Tauri webview 自动拦截 `window.alert()` 映射为 `dialog.message` command、`window.confirm()` 映射为 `dialog.ask`，但 `capabilities/default.json` 只授权了 `dialog:allow-open`/`dialog:allow-save` 缺 `dialog:allow-message`/`dialog:allow-ask`，导致全部替换后的 `alert('已替换 N 处')` 报 `command plugin: dialog|message not allowed acl`；补齐两个 dialog 权限修复全项目 20 处 alert/confirm 调用（全部替换、删除确认、重命名失败提示等）；新增 10 个测试用例（search.ts replaceAll/replaceCurrent 6 个 + capabilities 配置防回归 4 个），全套 253 个测试通过
 - **v1.2.9** 三项回归修复：①表格列宽拖拽手柄不可见（`columnResizingPlugin` 装配正确但 `App.css` 把手柄 `opacity:0` 且无 `:hover` 显形规则导致永久不可见，补 hover 显形 + `table overflow` 改 `visible`）；②全部替换/保存报错 `message not allowed by acl`（Tauri v2 ACL 对自定义 command 强制校验，app command 不会自动生成权限标识符，新增 `permissions/app-commands.toml` 用 `[[permission]]` 块为 13 个 command 显式定义权限，`capabilities/default.json` 引用 `allow-write-text-file` 等修复自动保存链路及所有 fs 功能）；③代码块点击第一行光标跳到 9-11 行（`CodeBlockNodeView.setSelection` 未做 PM 绝对位置→CM 本地位置翻译，`forwardUpdate` 反馈闭环导致光标跳到 `getPos()+1` 对应位置，改为 `anchor - getPos() - 1` + 边界夹紧，`selectNode` 清空选区，`update` 的 `scrollIntoView` 改 `false`）；新增 6 个 code-block-view 测试用例，全套 243 个测试通过
 - **v1.2.8** 三项改进：①新增行内公式插入入口（`insertInlineMath` 命令在光标处插入 `math_inline` atom 节点并自动进入编辑态，工具栏 `$ 行内` 按钮 + 斜杠菜单 `/行内` 双入口，空值显示「公式」占位提示）；②彻底修复 frontmatter 删除块误删底部块（v1.2.7 的 mousedown 监听被 CodeMirror focus 事务冲掉仍失效，`deleteCurrentBlock` 增加 DOM 焦点回退路径——读 `document.activeElement` 反查所属 atom 顶层块，删除块按钮 `onMouseDown preventDefault` 防止抢走 CM 焦点）；③修复列表内点代码块/表格/标题按钮报错 `invalid content for node list_item`（list_item content 要求首子节点为 paragraph，新增 `exitListIfNeeded` 在列表后插入空段落移出光标，`setBlockType`/`insertTable` 调用前先退出列表）；新增 7 个测试用例，全套 237 个测试通过
