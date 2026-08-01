@@ -10,6 +10,8 @@
     "opener:default",
     "dialog:allow-open",
     "dialog:allow-save",
+    "dialog:allow-message",
+    "dialog:allow-ask",
     "allow-list-dir",
     "allow-read-text-file",
     "allow-write-text-file",

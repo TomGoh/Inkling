@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v1.2.9
+> 文档版本：v1.2.10
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -246,9 +246,11 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.6 表格 | 列宽拖拽手柄不可见修复 | ✅ | v1.2.9 | `columnResizingPlugin` 装配正确但 `App.css` 把 `.column-resize-handle` 设为 `opacity:0` 且无 `:hover` 显形规则导致手柄永久不可见；补 `th/td:hover .column-resize-handle { opacity:0.5 }` 和拖拽中 `opacity:0.8`；`table overflow:hidden` 改 `visible` 避免裁掉最右列手柄 |
 | 3.8 桌面端 | 全部替换/保存报错 `message not allowed by acl` 修复 | ✅ | v1.2.9 | Tauri v2 ACL 对自定义 command 强制校验，app command 不会自动生成权限标识符；新增 `permissions/app-commands.toml` 用 `[[permission]]` 块为 13 个 command 显式定义权限，`capabilities/default.json` 引用 `allow-write-text-file` 等，修复全部替换→自动保存→`write_text_file` 被拦截链路（同时修复打开文件/工作区/导出等所有 fs 功能） |
 | 3.2 代码块 | 点击第一行光标跳到 9-11 行修复 | ✅ | v1.2.9 | `CodeBlockNodeView.setSelection` 直接把 PM 绝对位置当 CM 本地位置传给 `cm.dispatch`，`forwardUpdate` 反馈闭环导致光标跳到 `getPos()+1` 对应的 CM 本地位置（约第 10 行）；改为 `localAnchor = anchor - getPos() - 1` 做位置翻译（与 `forwardUpdate` 的 `offset = getPos()+1` 互逆）+ 边界夹紧；`selectNode` 清空 CM 选区；`update` 的 `scrollIntoView` 改 `false` 避免外部更新乱滚动 |
+| 3.8 桌面端 | 全部替换 alert 报错 `dialog\|message not allowed acl` 修复 | ✅ | v1.2.10 | Tauri webview 自动拦截 `window.alert()` 映射为 `dialog.message`、`window.confirm()` 映射为 `dialog.ask`，但 capabilities 只授权了 `dialog:allow-open`/`dialog:allow-save` 缺 `dialog:allow-message`/`dialog:allow-ask`；补齐这两个权限，修复全项目 20 处 alert/confirm 调用的 ACL 拦截（全部替换、删除确认、重命名失败提示等） |
 
 ### 8.2 发布版本
 
+- **v1.2.10** 修复全部替换 alert 报错：Tauri webview 自动拦截 `window.alert()` 映射为 `dialog.message` command、`window.confirm()` 映射为 `dialog.ask`，但 `capabilities/default.json` 只授权了 `dialog:allow-open`/`dialog:allow-save` 缺 `dialog:allow-message`/`dialog:allow-ask`，导致全部替换后的 `alert('已替换 N 处')` 报 `command plugin: dialog|message not allowed acl`；补齐两个 dialog 权限修复全项目 20 处 alert/confirm 调用（全部替换、删除确认、重命名失败提示等）；新增 10 个测试用例（search.ts replaceAll/replaceCurrent 6 个 + capabilities 配置防回归 4 个），全套 253 个测试通过
 - **v1.2.9** 三项回归修复：①表格列宽拖拽手柄不可见（`columnResizingPlugin` 装配正确但 `App.css` 把手柄 `opacity:0` 且无 `:hover` 显形规则导致永久不可见，补 hover 显形 + `table overflow` 改 `visible`）；②全部替换/保存报错 `message not allowed by acl`（Tauri v2 ACL 对自定义 command 强制校验，`capabilities/default.json` 缺 13 个 app command 权限，补齐 `allow-write-text-file` 等修复自动保存链路及所有 fs 功能）；③代码块点击第一行光标跳到 9-11 行（`CodeBlockNodeView.setSelection` 未做 PM 绝对位置→CM 本地位置翻译，`forwardUpdate` 反馈闭环导致光标跳到 `getPos()+1` 对应位置，改为 `anchor - getPos() - 1` + 边界夹紧，`selectNode` 清空选区，`update` 的 `scrollIntoView` 改 `false`）；新增 6 个 code-block-view 测试用例，全套 243 个测试通过
 - **v1.2.8** 三项改进：①新增行内公式插入入口（`insertInlineMath` 命令在光标处插入 `math_inline` atom 节点并自动进入编辑态，工具栏 `$ 行内` 按钮 + 斜杠菜单 `/行内` 双入口，空值显示「公式」占位提示）；②彻底修复 frontmatter 删除块误删底部块（v1.2.7 的 mousedown 监听被 CodeMirror focus 事务冲掉仍失效，`deleteCurrentBlock` 增加 DOM 焦点回退路径——读 `document.activeElement` 反查所属 atom 顶层块，删除块按钮 `onMouseDown preventDefault` 防止抢走 CM 焦点）；③修复列表内点代码块/表格/标题按钮报错 `invalid content for node list_item`（list_item content 要求首子节点为 paragraph，新增 `exitListIfNeeded` 在列表后插入空段落移出光标，`setBlockType`/`insertTable` 调用前先退出列表，嵌套列表场景下新段落落到外层 list_item 的 block* 位置仍合法）；新增 7 个测试用例，全套 237 个测试通过
 - **v1.2.7** 修复工具栏 5 个边界 bug：①光标在元数据（frontmatter）上点「删除块」误删文档底部块（原 `$head.before(1)` 在 atom 节点 NodeSelection 上返回错误位置，改为优先识别 NodeSelection 直接拿选中节点）；②点击目录块（toc）再点「删除块」无反应（同上，toc 是 atom 节点）；③工具栏点两次删除线（hr）报错 `there is no position after the top-level node`（`insertBlockHere` 在文档最后一个块调用 `$from.after()` 越界，改用 try/catch + 夹值到文档末尾）；④点两次有序/无序列表报错 `invalid content for node list_item`（列表内重复 wrap 产生非法嵌套，改为检测 `range.parent` 已是 list_item 时跳过）；⑤代码块内点列表/引用报错 `content does not fit in gap`（code_block content 是 `text*` 不允许被 wrap，改为检测 code_block 和 atom 节点时跳过，并加 try/catch 兜底）；新增 14 个 block-commands 测试用例覆盖上述场景，全套 230 个测试通过
