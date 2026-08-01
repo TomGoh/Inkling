@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v1.2.4
+> 文档版本：v1.2.5
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -237,9 +237,11 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.2 图表 | Mermaid 下载与缩放 | ✅ | v1.2.3 | 「下载」按钮导出 SVG 文件（桌面端弹保存对话框）；图表上 `Ctrl/Cmd+滚轮` 缩放 SVG（0.5~3x），不触发文档缩放 |
 | 3.6 | Ctrl+滚轮缩放文档（性能修复） | ✅ | v1.2.4 | 修复万行 MD 文档滚轮失效：wheel 监听器改为仅在 Ctrl/Cmd 按下时挂载（passive:false），普通滚动时 window 上无任何 wheel 监听器走浏览器合成线程快速路径；逻辑抽到 `useCtrlWheelZoom` hook 便于测试 |
 | 3.2 表格 | 表格删列/删行按钮修复 | ✅ | v1.2.4 | 修复工具栏「删列/删行」按钮无效（原依赖 CellSelection 但未先选中列）；改用 `prosemirror-tables` 的 `deleteColumn`/`deleteRow` 直接基于光标位置删除，无需先选列 |
+| 3.2 图表 | Mermaid 图表拖动平移 | ✅ | v1.2.5 | 缩放大于 100% 时按住鼠标拖动平移图表查看各区域（无需调滚动条）；双击重置缩放与平移；重新渲染图表时重置平移；`destroy` 清理 window 监听器避免泄漏 |
 
 ### 8.2 发布版本
 
+- **v1.2.5** 新增 Mermaid 图表拖动平移：缩放大于 100% 时按住鼠标拖动图表查看各区域（放大后无需调横向/纵向滚动条），双击重置缩放与平移，重新渲染图表时重置平移，`destroy` 钩子清理 window 监听器避免泄漏；新增 11 个测试用例覆盖平移/缩放/双击重置/destroy 清理，全套 210 个测试通过
 - **v1.2.4** 修复万行 MD 文档滚轮失效（Ctrl+滚轮的 passive:false 监听器常驻导致主线程被阻塞，改为仅在 Ctrl/Cmd 按下时动态挂载/卸载，普通滚动走浏览器合成线程快速路径；逻辑抽到 `useCtrlWheelZoom` hook）；修复工具栏表格「删列/删行」按钮无效（原依赖 CellSelection 未先选中列，改用 `prosemirror-tables` 的 `deleteColumn`/`deleteRow` 基于光标位置直接删除）；新增 24 个测试用例覆盖上述修复（scroll-performance 15 个 + TableToolbar 9 个），全套 199 个测试通过
 - **v1.2.3** 新增 HTML 嵌入/行内标签渲染（白名单 + DOMParser + LRU 缓存保性能，过滤 XSS）；新增脚注支持（GFM `[^1]` 语法，点击跳转）；Mermaid 图表新增下载按钮（导出 SVG）和 Ctrl+滚轮缩放（0.5~3x）；补充 mock 示例文件
 - **v1.2.2** 新增 `Ctrl/Cmd+滚轮` 缩放文档（50%~300%，`Ctrl/Cmd+0` 重置 100%，状态栏显示百分比可点击重置，缩放级别持久化）；修复 GitHub Action 中 `actions/upload-artifact@v5` 仍声明 `node20` 导致的 Node.js 20 弃用警告（升级到 v7）

@@ -3,11 +3,12 @@
 // markdown 源码保持 ```mermaid 代码块，便于迁移和版本控制。
 // 由 code-block-view 在创建 CodeMirror 视图前判断 language 调用本模块渲染。
 //
-// 编辑入口：点击右上角「编辑」按钮或双击图表 → 切换到 textarea 编辑源码；
+// 编辑入口：点击右上角「编辑」按钮或双击图表（缩放为 100% 时）→ 切换到 textarea 编辑源码；
 // 失焦或 Ctrl/Cmd+Enter 提交并重新渲染，Esc 放弃修改。
 //
 // 下载：点击「下载」按钮导出 SVG 文件（桌面端弹保存对话框，浏览器端直接下载）。
 // 缩放：鼠标悬停图表时 Ctrl/Cmd+滚轮缩放 SVG（0.5~3x），不触发文档缩放。
+// 平移：缩放大于 100% 时，按住鼠标拖动平移图表查看各区域；双击重置缩放与平移。
 
 import type { NodeView } from "@milkdown/kit/prose/view";
 import type { Node } from "@milkdown/kit/prose/model";
@@ -118,14 +119,27 @@ export function createMermaidView(
   let lastSvg = ""; // 缓存最近一次成功渲染的 SVG 字符串，供下载使用
   let editing = false;
   let zoom = MERMAID_ZOOM_DEFAULT; // 当前缩放倍率
+  let panX = 0; // 平移 X（像素，缩放后坐标系）
+  let panY = 0; // 平移 Y
 
-  /** 应用缩放到 SVG 元素（transform 不触发布局重排，性能好） */
+  /** 应用缩放与平移到 SVG 元素（transform 不触发布局重排，性能好） */
   const applyZoom = () => {
     const svg = diagram.querySelector("svg");
     if (!svg) return;
     svg.style.transformOrigin = "center";
-    svg.style.transform = `scale(${zoom})`;
+    // translate 叠加在 scale 之上：先以中心缩放，再整体平移 panX/panY
+    svg.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    // zoomable：可缩放（Ctrl+滚轮）；pannable：可拖动（zoom > 1）
     diagram.classList.toggle("zoomable", true);
+    diagram.classList.toggle("pannable", zoom > MERMAID_ZOOM_DEFAULT);
+  };
+
+  /** 重置缩放与平移到默认值 */
+  const resetZoomPan = () => {
+    zoom = MERMAID_ZOOM_DEFAULT;
+    panX = 0;
+    panY = 0;
+    applyZoom();
   };
 
   const render = async (value: string) => {
@@ -142,7 +156,9 @@ export function createMermaidView(
       const { svg } = await mermaid.render(id, value);
       diagram.innerHTML = svg;
       lastSvg = svg;
-      // 渲染后恢复缩放
+      // 重新渲染后重置平移（图表尺寸变了，旧平移量无意义），保留缩放
+      panX = 0;
+      panY = 0;
       applyZoom();
     } catch (e) {
       // 渲染失败时显示错误信息，保留源码可见
@@ -224,10 +240,17 @@ export function createMermaidView(
     await downloadSvgFile(lastSvg);
   });
   container.addEventListener("dblclick", (e) => {
-    // 双击图表区域进入编辑
+    // 双击图表区域：
+    // - 已放大（zoom > 1）时重置缩放与平移到 100%
+    // - 未放大时进入编辑模式
     e.preventDefault();
     e.stopPropagation();
-    if (!editing) enterEdit();
+    if (editing) return;
+    if (zoom > MERMAID_ZOOM_DEFAULT) {
+      resetZoomPan();
+      return;
+    }
+    enterEdit();
   });
   editor.addEventListener("blur", () => exitEdit(true));
   editor.addEventListener("keydown", (e) => {
@@ -256,6 +279,45 @@ export function createMermaidView(
     applyZoom();
   }, { passive: false });
 
+  // 拖动平移：缩放大于 100% 时，按住鼠标拖动图表查看各区域。
+  // 仅在非编辑模式响应；mousedown 阻止冒泡防止 ProseMirror 抢焦点/选中文本。
+  // mousemove/mouseup 挂在 window 上，避免拖出图表区域后失效。
+  let dragging = false;
+  let dragStartX = 0;
+  let dragStartY = 0;
+  let panStartX = 0;
+  let panStartY = 0;
+
+  const onMouseMove = (e: MouseEvent) => {
+    if (!dragging) return;
+    panX = panStartX + (e.clientX - dragStartX);
+    panY = panStartY + (e.clientY - dragStartY);
+    applyZoom();
+  };
+  const onMouseUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    diagram.classList.remove("dragging");
+  };
+
+  diagram.addEventListener("mousedown", (e) => {
+    if (editing) return;
+    // 仅放大时可拖动（zoom = 1 时图表完整显示，拖动无意义）
+    if (zoom <= MERMAID_ZOOM_DEFAULT) return;
+    // 排除点击工具栏按钮等子元素
+    if ((e.target as HTMLElement).closest(".mermaid-toolbar")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragging = true;
+    dragStartX = e.clientX;
+    dragStartY = e.clientY;
+    panStartX = panX;
+    panStartY = panY;
+    diagram.classList.add("dragging");
+  });
+  window.addEventListener("mousemove", onMouseMove);
+  window.addEventListener("mouseup", onMouseUp);
+
   return {
     dom: container,
     update: (next: Node) => {
@@ -270,5 +332,10 @@ export function createMermaidView(
     // 非编辑模式不拦截，使节点可被选中后用 Backspace/Delete 删除
     stopEvent: () => editing,
     ignoreMutation: () => true,
+    destroy: () => {
+      // 清理 window 上的拖动监听器，避免内存泄漏
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    },
   };
 }

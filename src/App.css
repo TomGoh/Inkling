@@ -510,6 +510,15 @@ body,
 .editor-scroll .milkdown .mermaid-render.zoomable:active {
   cursor: zoom-out;
 }
+/* Mermaid 平移：放大后可拖动，裁剪超出部分避免出现双滚动条 */
+.editor-scroll .milkdown .mermaid-render.pannable {
+  cursor: grab;
+  overflow: hidden;
+}
+.editor-scroll .milkdown .mermaid-render.pannable.dragging {
+  cursor: grabbing;
+  user-select: none;
+}
 
 /* HTML 嵌入渲染：块级容器宽度自适应 */
 .editor-scroll .milkdown .html-inline.html-block {
