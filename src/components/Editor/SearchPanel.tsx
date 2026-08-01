@@ -13,6 +13,7 @@ import {
   scrollToCurrent,
   type SearchOpts,
 } from "./search";
+import { IconChevronDown, IconChevronRight, IconX } from "../icons";
 import "./SearchPanel.css";
 
 interface Props {
@@ -134,7 +135,7 @@ export function SearchPanel({ getEditor, onClose, showReplace, onShowReplaceChan
           title={showReplace ? "隐藏替换" : "显示替换"}
           onClick={() => onShowReplaceChange(!showReplace)}
         >
-          {showReplace ? "▾" : "▸"}
+          {showReplace ? <IconChevronDown size={13} /> : <IconChevronRight size={13} />}
         </button>
         <input
           ref={findRef}
@@ -168,7 +169,7 @@ export function SearchPanel({ getEditor, onClose, showReplace, onShowReplaceChan
           ↓
         </button>
         <button className="search-btn search-close-btn" title="关闭" onClick={onClose}>
-          ✕
+          <IconX size={13} />
         </button>
       </div>
       {showReplace && (

@@ -3,6 +3,7 @@
 // 包含：专注模式、打字机模式、公式自动编号、代码块语法高亮主题。
 
 import { useSettings, type CodeBlockTheme } from "../../store/settings";
+import { IconX } from "../icons";
 import "./SettingsPanel.css";
 
 const CODE_THEME_OPTIONS: { value: CodeBlockTheme; label: string }[] = [
@@ -32,7 +33,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         <div className="settings-header">
           <span className="settings-title">偏好设置</span>
           <button className="settings-close" onClick={onClose} title="关闭">
-            ✕
+            <IconX size={15} />
           </button>
         </div>
         <div className="settings-body">

@@ -28,6 +28,19 @@ import {
   EMPTY_EDITOR_OUTLINE,
   type EditorOutlineSnapshot,
 } from "./lib/outline";
+import {
+  IconMaximize,
+  IconPanelLeft,
+  IconSettings,
+  IconHelpCircle,
+  IconDownload,
+  IconChevronDown,
+  IconSun,
+  IconMoon,
+  IconPalette,
+  IconX,
+  IconArrowLeftRight,
+} from "./components/icons";
 import "./App.css";
 
 function SaveIndicator() {
@@ -345,25 +358,27 @@ function App() {
                   onClick={toggleZenMode}
                   title="禅模式 (F11)"
                 >
-                  ⛶
+                  <IconMaximize />
                 </button>
                 <button
                   className="topbar-btn"
                   onClick={toggleSidebar}
                   title="切换侧边栏 (Ctrl/Cmd+\\)"
                 >
-                  ▣
+                  <IconPanelLeft />
                 </button>
                 <div className="export-menu">
                   <button
-                    className="topbar-btn"
+                    className="topbar-btn topbar-btn-label"
                     onClick={() => {
                       setExportOpen((v) => !v);
                       setThemeOpen(false);
                     }}
                     title="导出"
                   >
-                    导出 ▾
+                    <IconDownload size={15} />
+                    导出
+                    <IconChevronDown size={13} />
                   </button>
                   {exportOpen && (
                     <>
@@ -448,14 +463,20 @@ function App() {
                 </div>
                 <div className="export-menu">
                   <button
-                    className="topbar-btn"
+                    className="topbar-btn topbar-btn-label"
                     onClick={() => {
                       setThemeOpen((v) => !v);
                       setExportOpen(false);
                     }}
                     title="主题"
                   >
-                    {themeMode === "dark" ? "🌙 深色" : "☀️ 浅色"} ▾
+                    {themeMode === "dark" ? (
+                      <IconMoon size={15} />
+                    ) : (
+                      <IconSun size={15} />
+                    )}
+                    {themeMode === "dark" ? "深色" : "浅色"}
+                    <IconChevronDown size={13} />
                   </button>
                   {themeOpen && (
                     <>
@@ -471,7 +492,8 @@ function App() {
                             setThemeOpen(false);
                           }}
                         >
-                          ☀️ 浅色
+                          <IconSun size={14} />
+                          浅色
                         </button>
                         <button
                           className={`export-item${themeMode === "dark" ? " export-item-active" : ""}`}
@@ -480,7 +502,8 @@ function App() {
                             setThemeOpen(false);
                           }}
                         >
-                          🌙 深色
+                          <IconMoon size={14} />
+                          深色
                         </button>
                         <div className="export-sep" />
                         <button
@@ -490,7 +513,8 @@ function App() {
                             void loadCustomCSS();
                           }}
                         >
-                          📄 加载自定义 CSS…
+                          <IconPalette size={14} />
+                          加载自定义 CSS…
                         </button>
                         {customCSSPath && (
                           <button
@@ -500,7 +524,8 @@ function App() {
                               setThemeOpen(false);
                             }}
                           >
-                            ✕ 清除自定义 CSS
+                            <IconX size={14} />
+                            清除自定义 CSS
                           </button>
                         )}
                       </div>
@@ -512,14 +537,14 @@ function App() {
                   onClick={() => setShortcutsOpen(true)}
                   title="快捷键 (Ctrl/Cmd+/)"
                 >
-                  ?
+                  <IconHelpCircle />
                 </button>
                 <button
                   className="topbar-btn"
                   onClick={() => setSettingsOpen(true)}
                   title="偏好设置 (Ctrl/Cmd+,)"
                 >
-                  ⚙
+                  <IconSettings />
                 </button>
               </div>
             </div>
@@ -558,14 +583,14 @@ function App() {
                         onClick={splitSwap}
                         title="左右交换"
                       >
-                        ⇄
+                        <IconArrowLeftRight />
                       </button>
                       <button
                         className="topbar-btn"
                         onClick={splitClose}
                         title="关闭分屏"
                       >
-                        ✕
+                        <IconX />
                       </button>
                     </div>
                   </div>
@@ -595,7 +620,8 @@ function App() {
                 onClick={toggleSidebar}
                 title="打开侧边栏 (Ctrl/Cmd+\)"
               >
-                ▣ 打开侧边栏
+                <IconPanelLeft size={16} />
+                打开侧边栏
               </button>
             )}
           </div>

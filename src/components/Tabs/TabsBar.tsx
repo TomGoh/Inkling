@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { useWorkspace, type OpenTab } from "../../store/workspace";
 import { TabContextMenu } from "./TabContextMenu";
+import { IconX } from "../icons";
 import "./TabsBar.css";
 
 /** 取文件名（去目录路径） */
@@ -117,7 +118,7 @@ export function TabsBar() {
                   handleClose(tab);
                 }}
               >
-                ✕
+                <IconX size={12} />
               </button>
             </div>
           );

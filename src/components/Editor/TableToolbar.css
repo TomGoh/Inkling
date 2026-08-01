@@ -6,7 +6,7 @@
   align-items: center;
   gap: 0.25rem;
   flex-wrap: wrap;
-  padding: 0.3rem 0.6rem;
+  padding: 0.3rem 0.7rem;
   background: var(--topbar-bg, #ffffff);
   border-bottom: 1px solid var(--border, #d0d7de);
   font-size: 0.8rem;
@@ -22,12 +22,12 @@
 .tt-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.2rem 0.45rem;
+  gap: 0.3rem;
+  padding: 0.22rem 0.5rem;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: var(--radius-md, 6px);
   background: transparent;
-  color: var(--text, #1f2328);
+  color: var(--text-muted, #6e7681);
   cursor: pointer;
   font-size: 0.78rem;
   line-height: 1.4;
@@ -35,43 +35,54 @@
 }
 
 .tt-btn:hover {
-  background: rgba(175, 184, 193, 0.2);
-  border-color: var(--border, #d0d7de);
+  background: var(--btn-hover-bg, rgba(175, 184, 193, 0.2));
+  color: var(--text, #1f2328);
 }
 
 .tt-btn:active {
-  background: rgba(175, 184, 193, 0.35);
+  background: var(--row-active-bg, rgba(9, 105, 218, 0.12));
 }
 
 .tt-btn.tt-danger:hover {
-  background: rgba(207, 34, 46, 0.12);
-  border-color: #cf222e;
-  color: #cf222e;
+  background: rgba(207, 34, 46, 0.1);
+  color: var(--danger, #cf222e);
 }
 
 .tt-icon {
-  font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1rem;
+  font-size: 0.9rem;
   line-height: 1;
+  color: var(--text-muted, #6e7681);
+}
+.tt-btn:hover .tt-icon {
+  color: var(--accent, #0969da);
+}
+.tt-btn.tt-danger:hover .tt-icon {
+  color: var(--danger, #cf222e);
 }
 
 .tt-sep {
   width: 1px;
-  height: 1.1rem;
+  height: 1rem;
   background: var(--border, #d0d7de);
-  margin: 0 0.2rem;
+  margin: 0 0.3rem;
 }
 
 /* 网格选择器 */
 .table-picker {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   left: 0;
   z-index: 20;
-  padding: 0.5rem;
-  background: var(--topbar-bg, #ffffff);
+  padding: 0.6rem;
+  background: var(--bg-elevated, #ffffff);
   border: 1px solid var(--border, #d0d7de);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius-lg, 10px);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.12));
+  animation: menu-in 0.12s var(--ease, ease);
 }
 
 .picker-grid {
@@ -89,27 +100,25 @@
   background: transparent;
   cursor: pointer;
   border-radius: 2px;
+  transition: none;
 }
 
 .picker-cell.active {
-  background: #0969da;
-  border-color: #0969da;
+  background: var(--accent, #0969da);
+  border-color: var(--accent, #0969da);
 }
 
 .picker-label {
-  margin-top: 0.4rem;
+  margin-top: 0.45rem;
   text-align: center;
   font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
   color: var(--text-muted, #6e7681);
 }
 
 /* 深色主题适配 */
 [data-theme="dark"] .tt-btn:hover {
   background: rgba(139, 148, 158, 0.2);
-  border-color: #30363d;
+  color: var(--text, #e6edf3);
 }
 
-[data-theme="dark"] .picker-cell.active {
-  background: #2f81f7;
-  border-color: #2f81f7;
-}

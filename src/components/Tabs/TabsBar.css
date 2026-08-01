@@ -1,6 +1,6 @@
 .tabs-bar {
   flex-shrink: 0;
-  background: var(--topbar-bg, #ffffff);
+  background: var(--sidebar-bg, #f6f8fa);
   border-bottom: 1px solid var(--border, #d0d7de);
   overflow-x: auto;
   overflow-y: hidden;
@@ -12,22 +12,27 @@
 .tabs-bar::-webkit-scrollbar-thumb {
   background: var(--text-muted, #6e7681);
   border-radius: 2px;
+  border: none;
 }
 
 .tabs-list {
   display: flex;
-  height: 32px;
+  height: 34px;
   align-items: stretch;
+  padding: 0 4px;
 }
 
 .tab {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 0 6px 0 10px;
+  gap: 6px;
+  padding: 0 8px 0 12px;
   min-width: 0;
   max-width: 180px;
-  border-right: 1px solid var(--border, #d0d7de);
+  margin-top: 4px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-md, 6px) var(--radius-md, 6px) 0 0;
   background: transparent;
   color: var(--text-muted, #6e7681);
   cursor: pointer;
@@ -35,28 +40,46 @@
   user-select: none;
   position: relative;
   flex-shrink: 0;
+  transition:
+    background-color 0.12s var(--ease, ease),
+    color 0.12s var(--ease, ease);
 }
 .tab:hover {
   background: var(--row-hover-bg, rgba(0, 0, 0, 0.04));
 }
+/* 活跃 tab：上浮卡片样式，与编辑区背景融为一体 */
 .tab-active {
   background: var(--editor-bg, #ffffff);
   color: var(--text, #1f2328);
+  border-color: var(--border, #d0d7de);
+  position: relative;
 }
-/* 活跃 tab 底部高亮条 */
+/* 活跃 tab 底部遮住 tabs-bar 的分隔线，形成"连通"效果 */
+.tab-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: var(--editor-bg, #ffffff);
+  z-index: 1;
+}
+/* 活跃 tab 顶部强调条 */
 .tab-active::after {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: 0;
   height: 2px;
-  background: #2f81f7;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent, #0969da);
 }
 
 /* 拖拽悬停时的视觉反馈：左侧蓝色竖线 */
 .tab-drag-over {
-  box-shadow: -2px 0 0 0 #2f81f7;
+  box-shadow: -2px 0 0 0 var(--accent, #0969da);
 }
 .tab.tab-drag-over {
   background: var(--row-hover-bg, rgba(0, 0, 0, 0.06));
@@ -68,13 +91,15 @@
   white-space: nowrap;
 }
 
+/* 未保存圆点：accent 色呼吸感 */
 .tab-dirty {
-  color: var(--text-muted, #6e7681);
+  color: var(--accent, #0969da);
   font-size: 0.6rem;
   flex-shrink: 0;
   line-height: 1;
 }
 
+/* 关闭按钮：默认隐藏，hover tab 时显现（现代编辑器惯例） */
 .tab-close {
   border: none;
   background: transparent;
@@ -82,15 +107,25 @@
   cursor: pointer;
   font-size: 0.7rem;
   padding: 2px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm, 4px);
   line-height: 1;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  opacity: 0;
+  transition:
+    opacity 0.12s var(--ease, ease),
+    background-color 0.12s var(--ease, ease),
+    color 0.12s var(--ease, ease);
 }
+.tab:hover .tab-close,
+.tab-active .tab-close {
+  opacity: 1;
+}
+/* 有未保存标记时不隐藏关闭按钮（防止误关未保存文件） */
 .tab-close:hover {
   background: var(--row-hover-bg, rgba(0, 0, 0, 0.1));
   color: var(--text, #1f2328);

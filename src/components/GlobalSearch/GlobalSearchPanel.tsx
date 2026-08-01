@@ -9,6 +9,7 @@ import { editorViewCtx } from "@milkdown/kit/core";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import { useWorkspace } from "../../store/workspace";
 import { searchInWorkspace, type SearchHit } from "../../lib/fs";
+import { IconFileText, IconX } from "../icons";
 import "./GlobalSearchPanel.css";
 
 interface GlobalSearchPanelProps {
@@ -223,7 +224,7 @@ export function GlobalSearchPanel({ getEditor, onClose }: GlobalSearchPanelProps
             </label>
           </div>
           <button className="gs-close" onClick={onClose} title="关闭 (Esc)">
-            ✕
+            <IconX size={15} />
           </button>
         </div>
         <div className="gs-status">
@@ -241,7 +242,9 @@ export function GlobalSearchPanel({ getEditor, onClose }: GlobalSearchPanelProps
           {grouped.map((group) => (
             <div key={group.path} className="gs-group">
               <div className="gs-group-header" title={group.path}>
-                <span className="gs-file-icon">📄</span>
+                <span className="gs-file-icon">
+                  <IconFileText size={14} />
+                </span>
                 <span className="gs-file-name">{relPath(group.path, rootPath)}</span>
                 <span className="gs-count">{group.hits.length}</span>
               </div>

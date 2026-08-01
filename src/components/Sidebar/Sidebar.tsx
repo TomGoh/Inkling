@@ -16,6 +16,15 @@ import {
   createDir,
   type FileNode,
 } from "../../lib/fs";
+import {
+  IconFolder,
+  IconFile,
+  IconFileText,
+  IconStarFilled,
+  IconChevronDown,
+  IconChevronRight,
+  IconX,
+} from "../icons";
 import "./Sidebar.css";
 
 /** 判断是否为 Markdown 文件 */
@@ -68,7 +77,9 @@ function RecentFiles() {
   return (
     <div className="recent-section">
       <button className="recent-header" onClick={() => setExpanded((v) => !v)}>
-        <span className="tree-icon">{expanded ? "▾" : "▸"}</span>
+        <span className="tree-icon">
+          {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+        </span>
         <span className="recent-title">最近打开</span>
       </button>
       {expanded && (
@@ -83,7 +94,9 @@ function RecentFiles() {
                 title={path}
                 onClick={() => openFile(path)}
               >
-                <span className="tree-icon">📝</span>
+                <span className="tree-icon">
+                  <IconFileText size={14} />
+                </span>
                 <span className="tree-name">{basename(path)}</span>
               </button>
             );
@@ -107,7 +120,9 @@ function Bookmarks() {
   return (
     <div className="recent-section">
       <button className="recent-header" onClick={() => setExpanded((v) => !v)}>
-        <span className="tree-icon">{expanded ? "▾" : "▸"}</span>
+        <span className="tree-icon">
+          {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+        </span>
         <span className="recent-title">书签</span>
       </button>
       {expanded && (
@@ -125,7 +140,9 @@ function Bookmarks() {
                   className="tree-row-main"
                   onClick={() => openFile(path)}
                 >
-                  <span className="tree-icon">⭐</span>
+                  <span className="tree-icon tree-icon-star">
+                    <IconStarFilled size={13} />
+                  </span>
                   <span className="tree-name">{basename(path)}</span>
                 </button>
                 <button
@@ -133,7 +150,7 @@ function Bookmarks() {
                   title="取消书签"
                   onClick={() => toggleBookmark(path)}
                 >
-                  ✕
+                  <IconX size={12} />
                 </button>
               </div>
             );
@@ -271,7 +288,9 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
             className="tree-row tree-row-rename"
             style={{ paddingLeft: `${depth * 12 + 8}px` }}
           >
-            <span className="tree-icon">▸</span>
+            <span className="tree-icon">
+              <IconChevronRight size={12} />
+            </span>
             <input
               ref={renameInputRef}
               className="rename-input"
@@ -292,7 +311,9 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
             onClick={handleToggle}
             onContextMenu={triggerMenu}
           >
-            <span className="tree-icon">{expanded ? "▾" : "▸"}</span>
+            <span className="tree-icon">
+              {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+            </span>
             <span className="tree-name">{node.name}</span>
           </button>
         )}
@@ -304,7 +325,11 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
                 style={{ paddingLeft: `${(depth + 1) * 12 + 24}px` }}
               >
                 <span className="tree-icon">
-                  {newItem.kind === "file" ? "📝" : "📁"}
+                  {newItem.kind === "file" ? (
+                    <IconFileText size={14} />
+                  ) : (
+                    <IconFolder size={14} />
+                  )}
                 </span>
                 <input
                   ref={newInputRef}
@@ -341,7 +366,9 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
         className="tree-row tree-row-rename"
         style={{ paddingLeft: `${depth * 12 + 24}px` }}
       >
-        <span className="tree-icon">{md ? "📝" : "📄"}</span>
+        <span className="tree-icon">
+          {md ? <IconFileText size={14} /> : <IconFile size={14} />}
+        </span>
         <input
           ref={renameInputRef}
           className="rename-input"
@@ -366,7 +393,9 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
       onClick={() => openFile(node.path)}
       onContextMenu={triggerMenu}
     >
-      <span className="tree-icon">{md ? "📝" : "📄"}</span>
+      <span className="tree-icon">
+        {md ? <IconFileText size={14} /> : <IconFile size={14} />}
+      </span>
       <span className="tree-name">{node.name}</span>
       {isOpen && !active && <span className="tree-open-dot" title="已打开" />}
     </button>
@@ -616,7 +645,7 @@ export function Sidebar() {
             title="打开文件夹"
             aria-label="打开文件夹"
           >
-            📁
+            <IconFolder size={16} />
           </button>
           <button
             className="sidebar-btn-icon"
@@ -624,7 +653,7 @@ export function Sidebar() {
             title="打开 Markdown 文件"
             aria-label="打开 Markdown 文件"
           >
-            📄
+            <IconFileText size={16} />
           </button>
         </div>
       </div>
@@ -645,7 +674,7 @@ export function Sidebar() {
         )}
         {!loading && !tree && recentFiles.length === 0 && bookmarks.length === 0 && (
           <div className="sidebar-empty">
-            点击 📁 打开文件夹，或 📄 打开单个 Markdown 文件
+            点击右上角按钮打开文件夹，或打开单个 Markdown 文件开始编辑
           </div>
         )}
       </div>

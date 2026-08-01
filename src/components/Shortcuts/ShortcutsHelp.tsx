@@ -9,6 +9,7 @@ import {
   formatBinding,
   type ShortcutId,
 } from "../../store/shortcuts";
+import { IconX } from "../icons";
 import "./ShortcutsHelp.css";
 
 interface ShortcutGroup {
@@ -124,7 +125,7 @@ export function ShortcutsHelp({ onClose, onCustomize }: ShortcutsHelpProps) {
         <div className="shortcuts-header">
           <span className="shortcuts-title">快捷键</span>
           <button className="shortcuts-close" onClick={onClose} title="关闭">
-            ✕
+            <IconX size={15} />
           </button>
         </div>
         <div className="shortcuts-body">

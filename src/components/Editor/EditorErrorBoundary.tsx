@@ -3,6 +3,7 @@
 // 避免整个 React 树卸载导致白屏。出错时显示降级 UI + 报错信息 + 重试按钮。
 
 import { Component, type ReactNode } from "react";
+import { IconAlertTriangle } from "../icons";
 
 interface ErrorBoundaryProps {
   /** 子节点 */
@@ -45,7 +46,9 @@ export class EditorErrorBoundary extends Component<
       const err = this.state.error;
       return (
         <div className="editor-error">
-          <div className="editor-error-icon">⚠️</div>
+          <div className="editor-error-icon">
+            <IconAlertTriangle size={28} />
+          </div>
           <h3 className="editor-error-title">该文件渲染失败</h3>
           <p className="editor-error-desc">
             {this.props.fileName

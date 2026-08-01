@@ -10,6 +10,7 @@ import {
   captureFromEvent,
   type ShortcutId,
 } from "../../store/shortcuts";
+import { IconX } from "../icons";
 import "./ShortcutsCustomize.css";
 
 export function ShortcutsCustomize({ onClose }: { onClose: () => void }) {
@@ -64,7 +65,7 @@ export function ShortcutsCustomize({ onClose }: { onClose: () => void }) {
         <div className="sc-header">
           <span className="sc-title">自定义快捷键</span>
           <button className="sc-close" onClick={onClose} title="关闭">
-            ✕
+            <IconX size={15} />
           </button>
         </div>
         <div className="sc-body">

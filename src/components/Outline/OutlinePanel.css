@@ -13,12 +13,15 @@
   align-items: center;
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border, #d0d7de);
+  min-height: 40px;
 }
 
 .outline-title {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text, #1f2328);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted, #6e7681);
 }
 
 .outline-tree {
@@ -31,28 +34,35 @@
   padding: 1rem 0.75rem;
   font-size: 0.8rem;
   color: var(--text-muted, #6e7681);
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .outline-item {
   display: block;
-  width: 100%;
+  width: calc(100% - 8px);
+  margin: 0 4px;
   border: none;
   background: transparent;
   color: var(--text, #1f2328);
   font-size: 0.82rem;
-  padding: 0.22rem 0.75rem 0.22rem 0.75rem;
+  padding: 0.24rem 0.6rem;
   text-align: left;
   cursor: pointer;
   font-family: inherit;
-  border-radius: 0;
+  border-radius: var(--radius-md, 6px);
   overflow: hidden;
+  transition:
+    background-color 0.1s var(--ease, ease),
+    color 0.1s var(--ease, ease);
 }
 .outline-item:hover {
   background: var(--outline-hover-bg, rgba(0, 0, 0, 0.04));
 }
+/* 当前标题：accent 淡底 + 左侧指示条，与文件树活跃态统一 */
 .outline-item-active {
-  background: var(--outline-active-bg, rgba(56, 139, 253, 0.15));
+  background: var(--outline-active-bg, rgba(9, 105, 218, 0.1));
+  box-shadow: inset 2px 0 0 var(--accent, #0969da);
+  color: var(--accent, #0969da);
   font-weight: 500;
 }
 
