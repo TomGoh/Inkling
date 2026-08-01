@@ -1,0 +1,77 @@
+# app 自定义 command 的 ACL 权限定义
+# Tauri v2 对所有 command（含 app 自定义 command）强制 ACL 校验，
+# 但 app command 的权限标识符不会自动生成，必须在此显式定义，
+# 再由 capabilities/default.json 引用。
+#
+# 定义格式：identifier 用 allow-<command-name>（command 函数名原样，下划线保留），
+# commands.allow 填 command 函数名（即 invoke_handler 注册的名字）。
+"$schema" = "schemas/schema.json"
+
+# 文件系统命令
+[[permission]]
+identifier = "allow-list-dir"
+description = "Allow list_dir command"
+commands.allow = ["list_dir"]
+
+[[permission]]
+identifier = "allow-read-text-file"
+description = "Allow read_text_file command"
+commands.allow = ["read_text_file"]
+
+[[permission]]
+identifier = "allow-write-text-file"
+description = "Allow write_text_file command"
+commands.allow = ["write_text_file"]
+
+[[permission]]
+identifier = "allow-write-binary-file"
+description = "Allow write_binary_file command"
+commands.allow = ["write_binary_file"]
+
+[[permission]]
+identifier = "allow-file-mtime"
+description = "Allow file_mtime command"
+commands.allow = ["file_mtime"]
+
+[[permission]]
+identifier = "allow-rename-path"
+description = "Allow rename_path command"
+commands.allow = ["rename_path"]
+
+[[permission]]
+identifier = "allow-delete-path"
+description = "Allow delete_path command"
+commands.allow = ["delete_path"]
+
+[[permission]]
+identifier = "allow-create-file"
+description = "Allow create_file command"
+commands.allow = ["create_file"]
+
+[[permission]]
+identifier = "allow-create-dir"
+description = "Allow create_dir command"
+commands.allow = ["create_dir"]
+
+# 全局搜索命令
+[[permission]]
+identifier = "allow-search-in-workspace"
+description = "Allow search_in_workspace command"
+commands.allow = ["search_in_workspace"]
+
+# Pandoc 导出命令
+[[permission]]
+identifier = "allow-pandoc-check"
+description = "Allow pandoc_check command"
+commands.allow = ["pandoc_check"]
+
+[[permission]]
+identifier = "allow-pandoc-export-docx"
+description = "Allow pandoc_export_docx command"
+commands.allow = ["pandoc_export_docx"]
+
+# 待打开文件命令
+[[permission]]
+identifier = "allow-take-pending-file"
+description = "Allow take_pending_file command"
+commands.allow = ["take_pending_file"]

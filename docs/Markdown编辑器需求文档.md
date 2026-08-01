@@ -244,7 +244,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.4 工具栏 | frontmatter 删除块误删彻底修复 | ✅ | v1.2.8 | v1.2.7 的 mousedown 监听被 CodeMirror focus 事务冲掉仍失效；`deleteCurrentBlock` 增加 DOM 焦点回退（`document.activeElement` 反查 atom 顶层块）；删除块按钮 `onMouseDown preventDefault` 防止抢走 CM 焦点 |
 | 3.2 列表 | 列表内点代码块/表格/标题报错修复 | ✅ | v1.2.8 | 修复 `invalid content for node list_item`：list_item content 要求首子节点为 paragraph；新增 `exitListIfNeeded` 在列表后插入空段落移出光标，`setBlockType`/`insertTable` 调用前先退出列表 |
 | 3.6 表格 | 列宽拖拽手柄不可见修复 | ✅ | v1.2.9 | `columnResizingPlugin` 装配正确但 `App.css` 把 `.column-resize-handle` 设为 `opacity:0` 且无 `:hover` 显形规则导致手柄永久不可见；补 `th/td:hover .column-resize-handle { opacity:0.5 }` 和拖拽中 `opacity:0.8`；`table overflow:hidden` 改 `visible` 避免裁掉最右列手柄 |
-| 3.8 桌面端 | 全部替换/保存报错 `message not allowed by acl` 修复 | ✅ | v1.2.9 | Tauri v2 ACL 对自定义 command 强制校验，`capabilities/default.json` 只授权了插件权限未授权 13 个 app command；补齐 `allow-list-dir`/`allow-read-text-file`/`allow-write-text-file` 等 13 条权限，修复全部替换→自动保存→`write_text_file` 被拦截链路（同时修复打开文件/工作区/导出等所有 fs 功能） |
+| 3.8 桌面端 | 全部替换/保存报错 `message not allowed by acl` 修复 | ✅ | v1.2.9 | Tauri v2 ACL 对自定义 command 强制校验，app command 不会自动生成权限标识符；新增 `permissions/app-commands.toml` 用 `[[permission]]` 块为 13 个 command 显式定义权限，`capabilities/default.json` 引用 `allow-write-text-file` 等，修复全部替换→自动保存→`write_text_file` 被拦截链路（同时修复打开文件/工作区/导出等所有 fs 功能） |
 | 3.2 代码块 | 点击第一行光标跳到 9-11 行修复 | ✅ | v1.2.9 | `CodeBlockNodeView.setSelection` 直接把 PM 绝对位置当 CM 本地位置传给 `cm.dispatch`，`forwardUpdate` 反馈闭环导致光标跳到 `getPos()+1` 对应的 CM 本地位置（约第 10 行）；改为 `localAnchor = anchor - getPos() - 1` 做位置翻译（与 `forwardUpdate` 的 `offset = getPos()+1` 互逆）+ 边界夹紧；`selectNode` 清空 CM 选区；`update` 的 `scrollIntoView` 改 `false` 避免外部更新乱滚动 |
 
 ### 8.2 发布版本
