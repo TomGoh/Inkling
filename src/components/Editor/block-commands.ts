@@ -9,33 +9,74 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import type { Node } from "@milkdown/kit/prose/model";
 import { TextSelection, NodeSelection } from "@milkdown/kit/prose/state";
 
+/** NodeSelection 选中 atom 节点（frontmatter/toc/hr/math）时返回 true */
+function isAtomSelected(view: EditorView): boolean {
+  const { selection } = view.state;
+  return (
+    selection instanceof NodeSelection &&
+    Boolean((selection.node.type as unknown as { atom?: boolean }).atom)
+  );
+}
+
 /** 包裹当前选区所在块为指定节点（引用：单层） */
 function wrapBlock(view: EditorView, nodeType: any): void {
+  // NodeSelection 选中 atom 节点（frontmatter/toc/hr/math）时不能 wrap（atom 无 content）
+  if (isAtomSelected(view)) {
+    view.focus();
+    return;
+  }
   const { $from, $to } = view.state.selection;
   const range = $from.blockRange($to);
   if (!range) return;
-  view.dispatch(view.state.tr.wrap(range, [{ type: nodeType }]).scrollIntoView());
+  // 代码块不能被 wrap 进 blockquote（content 不匹配）
+  if (range.parent.type.name === "code_block") {
+    view.focus();
+    return;
+  }
+  try {
+    view.dispatch(view.state.tr.wrap(range, [{ type: nodeType }]).scrollIntoView());
+  } catch {
+    // wrap 失败（content 不匹配等）时静默忽略，避免报错打断用户
+  }
   view.focus();
 }
 
 /** 包裹当前选区所在块为列表：需同时包 list_item 层（list content 为 list_item+） */
 function wrapListBlock(view: EditorView, listType: any): void {
-  const schema = view.state.schema;
-  const listItem = schema.nodes.list_item;
+  const listItem = view.state.schema.nodes.list_item;
   if (!listType || !listItem) return;
+  // NodeSelection 选中 atom 节点（frontmatter/toc/hr/math）时不能 wrap（atom 无 content）
+  if (isAtomSelected(view)) {
+    view.focus();
+    return;
+  }
   const { $from, $to } = view.state.selection;
   const range = $from.blockRange($to);
   if (!range) return;
-  view.dispatch(
-    view.state.tr.wrap(range, [{ type: listType }, { type: listItem }]).scrollIntoView(),
-  );
+  // 已在列表内时不重复 wrap（避免 invalid content for node list_item）
+  if (range.parent.type.name === "list_item") {
+    view.focus();
+    return;
+  }
+  // 代码块不能被 wrap 进 list_item（content 不匹配）
+  if (range.parent.type.name === "code_block") {
+    view.focus();
+    return;
+  }
+  try {
+    view.dispatch(
+      view.state.tr.wrap(range, [{ type: listType }, { type: listItem }]).scrollIntoView(),
+    );
+  } catch {
+    // wrap 失败（content 不匹配等）时静默忽略，避免报错打断用户
+  }
   view.focus();
 }
 
 /**
  * 在当前光标处插入一个块节点：
  * - 当前段落为空：直接替换该段落，避免多出空行
- * - 否则：插到当前块之后
+ * - 否则：插到当前块之后（若已是文档最后一个块，用 insert 而非 after 避免越界）
  */
 function insertBlockHere(view: EditorView, node: Node): void {
   const { $from } = view.state.selection;
@@ -44,7 +85,17 @@ function insertBlockHere(view: EditorView, node: Node): void {
     const start = $from.before($from.depth);
     view.dispatch(view.state.tr.replaceWith(start, start + parent.nodeSize, node).scrollIntoView());
   } else {
-    const pos = $from.after($from.depth);
+    // after() 在文档最后一个顶层块时会抛 "there is no position after the top-level node"
+    // 改用 tr.insert 附加到文档末尾（insert 对末尾位置安全）
+    const docSize = view.state.doc.content.size;
+    let pos: number;
+    try {
+      pos = $from.after($from.depth);
+    } catch {
+      pos = docSize;
+    }
+    // 若 after 返回的位置超出文档范围，夹到末尾
+    pos = Math.min(pos, docSize);
     view.dispatch(view.state.tr.insert(pos, node).scrollIntoView());
   }
   view.focus();
@@ -161,36 +212,59 @@ export function insertFrontmatter(view: EditorView): void {
 
 /**
  * 删除光标所在的顶层块节点（引用/代码块/Mermaid/提示框/元数据/列表/公式/TOC/分割线等）。
- * - 定位到 depth=0 的块节点，整体删除
- * - 删除后若文档变空，补一个空段落避免无法编辑
+ *
+ * 定位逻辑（按优先级）：
+ * 1. NodeSelection：直接拿选中的节点和位置（atom 节点如 frontmatter/toc/hr/math 被点击选中时）
+ * 2. TextSelection：用 $head.before(depth) 找顶层块（depth=1 的父节点）
+ *
+ * 删除后：
+ * - 文档变空时补一个空段落
  * - 光标移到被删块的前一块末尾（或新空段落）
  */
 export function deleteCurrentBlock(view: EditorView): void {
   const { state } = view;
-  const { $head } = state.selection;
-  if ($head.depth === 0) {
-    // 光标在文档顶层（极少见），直接在光标处删一个块
-    return;
+  let topPos: number;
+  let topNode: Node | null | undefined;
+
+  if (state.selection instanceof NodeSelection) {
+    // atom 节点被选中（frontmatter/toc/hr/math_display 等）
+    topPos = state.selection.from;
+    topNode = state.doc.nodeAt(topPos);
+  } else {
+    const { $head } = state.selection;
+    if ($head.depth === 0) {
+      // 光标在文档顶层（极少见），无法定位块
+      return;
+    }
+    // before(1) 返回当前所在顶层块的位置
+    try {
+      topPos = $head.before(1);
+    } catch {
+      return;
+    }
+    topNode = state.doc.nodeAt(topPos);
   }
-  // 找到顶层块节点（depth=1 的父节点）
-  const topPos = $head.before(1);
-  const topNode = state.doc.nodeAt(topPos);
+
   if (!topNode) return;
   const end = topPos + topNode.nodeSize;
   let tr = state.tr.delete(topPos, end);
-  // 文档变空时补一个空段落
+
+  // 文档变空时补一个空段落避免无法编辑
   if (tr.doc.content.size === 0 || tr.doc.childCount === 0) {
     const para = state.schema.nodes.paragraph.create();
     tr = tr.insert(0, para);
     tr = tr.setSelection(TextSelection.near(tr.doc.resolve(1)));
   } else {
     // 光标移到删除位置附近的前一个块末尾
-    const beforePos = Math.max(0, topPos - 1);
+    // topPos 是被删块的起始位置，topPos-1 是前一个块的末尾位置
+    // 但若 topPos=0（删第一个块），topPos-1=-1 无效，改用 0 找下一个有效位置
+    const target = Math.max(0, topPos - 1);
+    const safe = Math.max(0, Math.min(target, tr.doc.content.size));
     try {
-      const safe = Math.max(0, Math.min(beforePos, tr.doc.content.size));
-      tr = tr.setSelection(TextSelection.near(tr.doc.resolve(safe)));
+      // TextSelection.near 会找 safe 附近最近的有效文本位置（向后或向前）
+      tr = tr.setSelection(TextSelection.near(tr.doc.resolve(safe), -1));
     } catch {
-      // 忽略无效位置
+      // 忽略无效位置，光标留在文档开头
     }
   }
   view.dispatch(tr.scrollIntoView());
