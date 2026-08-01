@@ -205,6 +205,50 @@ function App() {
         setGlobalSearchOpen(true);
         return;
       }
+      // Ctrl/Cmd+K 插入链接（Typora 标准）：选中文本加 link mark，无选中则插入 [文本](url)
+      if (!e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        const editor = getEditorRef.current?.();
+        if (editor) {
+          editor.action((ctx) => {
+            const view = ctx.get(editorViewCtx);
+            const { state } = view;
+            const { from, to, empty } = state.selection;
+            const linkMark = state.schema.marks.link;
+            if (!linkMark) return;
+            const url = window.prompt("输入链接地址：", "https://");
+            if (!url) return;
+            if (empty) {
+              const text = window.prompt("输入链接文本（可留空）：", url) ?? url;
+              const node = state.schema.text(text || url, [linkMark.create({ href: url })]);
+              view.dispatch(state.tr.replaceSelectionWith(node));
+            } else {
+              view.dispatch(state.tr.addMark(from, to, linkMark.create({ href: url })));
+            }
+            view.focus();
+          });
+        }
+        return;
+      }
+      // Ctrl/Cmd+Alt+0 转普通段落（Typora 标准：清除块格式，标题/引用/列表等转回段落）
+      if (e.altKey && !e.shiftKey && e.key === "0") {
+        e.preventDefault();
+        const editor = getEditorRef.current?.();
+        if (editor) {
+          editor.action((ctx) => {
+            const view = ctx.get(editorViewCtx);
+            const { state } = view;
+            const para = state.schema.nodes.paragraph;
+            if (!para) return;
+            const { $from, $to } = state.selection;
+            const range = $from.blockRange($to);
+            if (!range) return;
+            view.dispatch(state.tr.setBlockType(range.start, range.end, para).scrollIntoView());
+            view.focus();
+          });
+        }
+        return;
+      }
       const store = useShortcuts.getState();
       const tryMatch = (id: ShortcutId) => matchBinding(store.getBinding(id), e);
       if (tryMatch("find")) {

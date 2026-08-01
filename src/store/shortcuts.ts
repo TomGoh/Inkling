@@ -101,7 +101,9 @@ export const useShortcuts = create<ShortcutsState>((set, get) => ({
   },
 }));
 
-const MODIFIER_KEYS = new Set(["control", "shift", "alt", "meta"]);
+// "mod" 是 Ctrl/Cmd 的占位标记，必须在 find 时被跳过，
+// 否则 parts.find 会把 "mod" 当作最终按键，导致 e.key === "mod" 永远 false
+const MODIFIER_KEYS = new Set(["control", "shift", "alt", "meta", "mod"]);
 
 /** 判断键盘事件是否匹配绑定字符串 */
 export function matchBinding(binding: string, e: KeyboardEvent): boolean {

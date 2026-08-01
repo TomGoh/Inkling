@@ -157,6 +157,7 @@ pnpm tauri build
 
 ## 版本记录
 
+- **v1.1.5** 修复快捷键系统致命 bug（`matchBinding` 的 `MODIFIER_KEYS` 漏了 `"mod"`，导致 Ctrl+F/Ctrl+\/Ctrl+'/Ctrl+\/Ctrl+, 全部失效）；新增 Ctrl+K 插入链接、Ctrl+Alt+0 转普通段落（Typora 标准快捷键）
 - **v1.1.4** 修复点击文档右侧空白区会跳到文档最底部：原逻辑在 `posAtCoords` 返回 null 时直接在文档末尾追加段落，现改为把 x 坐标夹到编辑器内容区内重查 `posAtCoords`，让光标落在点击 y 对应的行附近
 - **v1.1.3** 修复无序/有序列表插入报错 `content does not fit in gap`（wrap 时漏包 `list_item` 层）；工具栏新增「删除块」按钮，可删除光标所在的整个块（引用/代码块/Mermaid/提示框/元数据/列表/公式/TOC/分割线）；优化 mermaid/frontmatter 的 `stopEvent`，非编辑态可点击选中后 Backspace 删除
 - **v1.1.2** 更换应用图标（`tauri icon` 重新生成全平台图标：Windows ico/StoreLogo、macOS icns、iOS、Android 全套）
