@@ -27,6 +27,7 @@ import {
   insertToc,
   insertFrontmatter,
   deleteCurrentBlock,
+  exitListIfNeeded,
 } from "./block-commands";
 import "./TableToolbar.css";
 
@@ -78,7 +79,17 @@ export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
   };
 
   const insertTable = (row: number, col: number) => {
-    callCmd(insertTableCommand.key, { row, col });
+    const editor = getEditor();
+    if (!editor) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      // 在列表内时先退出：list_item 不允许 table 作为第一个子节点，
+      // 否则 insertTableCommand 会抛 "invalid content for node list_item"
+      exitListIfNeeded(view);
+      const commands = ctx.get(commandsCtx);
+      commands.call(insertTableCommand.key, { row, col });
+      view.focus();
+    });
     setPickerOpen(false);
   };
 

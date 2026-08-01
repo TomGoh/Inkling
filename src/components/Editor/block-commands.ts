@@ -101,8 +101,56 @@ function insertBlockHere(view: EditorView, node: Node): void {
   view.focus();
 }
 
+/**
+ * 若光标在列表（bullet_list/ordered_list）内，在列表之后插入一个空段落
+ * 并把光标移过去，使后续的块类型转换/插入不再受 list_item 的 content 约束。
+ *
+ * list_item 的 content 是 `paragraph block*`：第一个子节点必须是 paragraph。
+ * 直接把当前 paragraph 改成 code_block/heading，或把 table 插到 list_item 第一位，
+ * 都会触发 "invalid content for node list_item"。退出列表后操作才合法。
+ *
+ * 嵌套列表场景：after() 返回最内层 list 的末尾，新段落落到外层 list_item 下，
+ * 作为其第二个子节点（block*），仍然合法。
+ *
+ * 返回 true 表示已退出（view.state 已更新），调用方需重新读取选区。
+ */
+export function exitListIfNeeded(view: EditorView): boolean {
+  const { $head } = view.state.selection;
+  let listDepth = -1;
+  for (let d = $head.depth; d > 0; d--) {
+    const name = $head.node(d).type.name;
+    if (name === "bullet_list" || name === "ordered_list") {
+      listDepth = d;
+      break;
+    }
+  }
+  if (listDepth === -1) return false;
+
+  let listEnd: number;
+  try {
+    listEnd = $head.after(listDepth);
+  } catch {
+    // list 是文档最后一个顶层块时 after() 会抛错，夹到文档末尾
+    listEnd = view.state.doc.content.size;
+  }
+  listEnd = Math.min(Math.max(listEnd, 0), view.state.doc.content.size);
+
+  const para = view.state.schema.nodes.paragraph.create();
+  const tr = view.state.tr.insert(listEnd, para);
+  try {
+    // listEnd + 1 落在新段落内容起始位置
+    tr.setSelection(TextSelection.near(tr.doc.resolve(listEnd + 1)));
+  } catch {
+    // 忽略无效位置
+  }
+  view.dispatch(tr);
+  return true;
+}
+
 /** 转换当前块为指定类型（保留选区位置） */
 function setBlockType(view: EditorView, nodeType: any, attrs?: Record<string, unknown>): void {
+  // 在列表内时先退出：list_item 不允许 code_block/heading 等作为第一个子节点
+  exitListIfNeeded(view);
   const { $from } = view.state.selection;
   // $from.before() 在文档第一个顶层节点时会抛 "there is no position before the top-level node"，
   // 改用 $from.start() - 1 得到当前所在块节点的位置（语义等价但对首节点安全）
