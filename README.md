@@ -63,6 +63,7 @@
 
 ### 辅助写作
 - 状态栏字数 / 字符数 / 行数 / 预计阅读时长统计
+- **文档缩放**：`Ctrl/Cmd+滚轮` 等比放大/缩小整个文档（50%~300%），`Ctrl/Cmd+0` 重置 100%，状态栏显示当前百分比可点击重置，缩放级别跨会话持久化
 - **专注模式**：弱化非当前段落，聚焦当前内容
 - **打字机模式**：当前编辑行始终保持在视窗垂直居中
 - **禅模式**：`F11` 隐藏所有 UI（侧边栏/大纲/标签页/工具栏/状态栏），纯编辑，`Esc` 退出
@@ -137,6 +138,8 @@ src-tauri/             # Rust 后端（Tauri 配置、文件系统命令、全�
 | `Ctrl/Cmd+'` | 切换大纲面板 |
 | `Ctrl/Cmd+,` | 偏好设置 |
 | `Ctrl/Cmd+/` | 快捷键帮助 |
+| `Ctrl/Cmd+滚轮` | 放大 / 缩小文档（50% ~ 300%） |
+| `Ctrl/Cmd+0` | 重置缩放到 100% |
 | `F11` | 禅模式（隐藏所有 UI） |
 | `Esc` | 退出禅模式 |
 
@@ -172,6 +175,8 @@ pnpm e2e
 
 ## 版本记录
 
+- **v1.2.2** 新增 `Ctrl/Cmd+滚轮` 缩放文档（50%~300%，`Ctrl/Cmd+0` 重置 100%，状态栏显示百分比可点击重置，缩放级别持久化）；修复 GitHub Action 中 `actions/upload-artifact@v5` 仍声明 `node20` 导致的 Node.js 20 弃用警告（升级到 v7）
+- **v1.2.1** 修复 GitHub Action E2E 测试全部失败（断言假设一启动就有 mock 文件树，实际浏览器版需先点击「打开文件夹」加载 mock 工作区）；修复 Node.js 20 弃用警告（actions/checkout、pnpm/action-setup、actions/setup-node、actions/upload-artifact 从 v4 升级到 v5）
 - **v1.2.0** 性能优化（插件回调加 `docChanged` 守卫消除每键全树遍历、cursor-saver 防抖落 store、TabsBar/useAutoSave 精准订阅、代码块 NodeView 视口懒挂载、查找面板输入防抖）；新增 Ctrl+R 替换快捷键（逐个/全部替换）；建立自动化测试体系（169 个用例：单元/store/组件/E2E 四层，GitHub Action 测试失败阻断构建）
 - **v1.1.5** 修复快捷键系统致命 bug（`matchBinding` 的 `MODIFIER_KEYS` 漏了 `"mod"`，导致 Ctrl+F/Ctrl+\/Ctrl+'/Ctrl+\/Ctrl+, 全部失效）；新增 Ctrl+K 插入链接、Ctrl+Alt+0 转普通段落（Typora 标准快捷键）
 - **v1.1.4** 修复点击文档右侧空白区会跳到文档最底部：原逻辑在 `posAtCoords` 返回 null 时直接在文档末尾追加段落，现改为把 x 坐标夹到编辑器内容区内重查 `posAtCoords`，让光标落在点击 y 对应的行附近

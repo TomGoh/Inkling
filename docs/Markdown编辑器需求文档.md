@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v1.1.5
+> 文档版本：v1.2.2
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -231,9 +231,12 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.8 | 快捷键系统修复 | ✅ | v1.1.5 | 修复 `matchBinding` 的致命 bug：`MODIFIER_KEYS` 漏了 `"mod"`，导致 `parts.find` 把 `"mod"` 当作最终按键，`e.key === "mod"` 永远 false，所有走 shortcuts store 的快捷键（Ctrl+F/Ctrl+\/Ctrl+'/Ctrl+\/Ctrl+,）全部失效；加入 `"mod"` 后修复 |
 | 3.8 | Ctrl+K 插入链接 | ✅ | v1.1.5 | Typora 标准快捷键：选中文本按 Ctrl+K 弹输入框填 URL，给选中文本加 link mark；无选中则先填 URL 再填文本，插入 `[文本](url)` |
 | 3.8 | Ctrl+Alt+0 转普通段落 | ✅ | v1.1.5 | Typora 标准快捷键：清除当前块格式，标题/引用/代码块等转回普通段落 |
+| 3.6 | Ctrl+滚轮缩放文档 | ✅ | v1.2.2 | `Ctrl/Cmd+滚轮` 等比放大/缩小整个文档（50%~300%，步进 10%），`Ctrl/Cmd+0` 重置 100%；缩放级别持久化到 localStorage；状态栏右侧显示当前百分比，点击可重置 |
 
 ### 8.2 发布版本
 
+- **v1.2.2** 新增 `Ctrl/Cmd+滚轮` 缩放文档（50%~300%，`Ctrl/Cmd+0` 重置 100%，状态栏显示百分比可点击重置，缩放级别持久化）；修复 GitHub Action 中 `actions/upload-artifact@v5` 仍声明 `node20` 导致的 Node.js 20 弃用警告（升级到 v7）
+- **v1.2.1** 修复 GitHub Action E2E 测试全部失败（断言假设一启动就有 mock 文件树，实际浏览器版需先点击「打开文件夹」按钮加载 mock 工作区）；修复 Node.js 20 弃用警告（actions/checkout、pnpm/action-setup、actions/setup-node、actions/upload-artifact 从 v4 升级到 v5）
 - **v1.2.0** 性能优化（插件回调加 `docChanged` 守卫消除每键全树遍历、cursor-saver 防抖落 store、TabsBar/useAutoSave 精准订阅、代码块 NodeView 视口懒挂载、查找面板输入防抖）；新增 Ctrl+R 替换快捷键（逐个/全部替换）；建立自动化测试体系（169 个用例：单元/store/组件/E2E 四层，GitHub Action 测试失败阻断构建）
 - **v1.1.5** 修复快捷键系统致命 bug（`matchBinding` 的 `MODIFIER_KEYS` 漏了 `"mod"`，导致 Ctrl+F/Ctrl+\/Ctrl+'/Ctrl+\/Ctrl+, 全部失效）；新增 Ctrl+K 插入链接、Ctrl+Alt+0 转普通段落
 - **v1.1.4** 修复点击文档右侧空白区会跳到文档最底部的问题：原逻辑在 `posAtCoords` 返回 null 时直接在文档末尾追加段落，现改为把 x 坐标夹到编辑器内容区内重查 `posAtCoords`，让光标落在点击 y 对应的行附近
