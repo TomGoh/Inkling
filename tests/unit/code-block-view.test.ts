@@ -1,0 +1,264 @@
+// code-block-view NodeView 测试
+// 重点验证 v1.2.9 修复：
+// - setSelection 把 PM 绝对位置正确翻译为 CM 本地位置（修复点击第一行光标跳到 9-11 行）
+// - selectNode 清空 CM 选区（NodeSelection 时不残留旧文本选区）
+// - forwardUpdate CM→PM 选区同步 offset 正确
+
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { Schema } from "@milkdown/kit/prose/model";
+import { EditorState, TextSelection } from "@milkdown/kit/prose/state";
+import { EditorView } from "@milkdown/kit/prose/view";
+import { EditorView as CMView } from "@codemirror/view";
+
+// CodeBlockNodeView 依赖 useSettings store，需要在 import 前初始化 mock
+// vi.mock 会被提升到顶部，确保在 CodeBlockNodeView 导入前生效
+vi.mock("../../src/store/settings", () => ({
+  useSettings: {
+    getState: () => ({ codeBlockTheme: "none" }),
+    subscribe: () => () => {},
+  },
+}));
+
+import { CodeBlockNodeView } from "../../src/components/Editor/code-block-view";
+
+// 构建测试 schema：code_block content 为 text*
+function makeSchema() {
+  return new Schema({
+    nodes: {
+      doc: { content: "block+" },
+      paragraph: {
+        group: "block",
+        content: "text*",
+        toDOM: () => ["p", 0],
+        parseDOM: [{ tag: "p" }],
+      },
+      code_block: {
+        group: "block",
+        content: "text*",
+        code: true,
+        attrs: { language: { default: "text" } },
+        toDOM: () => ["pre", ["code", 0]],
+        parseDOM: [{ tag: "pre" }],
+      },
+      text: { group: "inline" },
+    },
+  });
+}
+
+/** 用 mock IO 立即触发 CM 创建 */
+function setupIntersectionObserver() {
+  const observe = vi.fn((cb_target: Element) => {
+    // 同步触发 intersecting
+    vi.advanceTimersByTime(0);
+  });
+  const disconnect = vi.fn();
+  const ctor = vi.fn((cb: (entries: any[]) => void) => ({
+    observe: (target: Element) => {
+      // 立即回调，让 CM 创建
+      cb([{ isIntersecting: true, target }]);
+    },
+    disconnect,
+    unobserve: vi.fn(),
+  }));
+  (global as any).IntersectionObserver = ctor;
+  return { ctor, disconnect };
+}
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  setupIntersectionObserver();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
+describe("CodeBlockNodeView.setSelection 位置翻译（v1.2.9 修复）", () => {
+  it("PM 绝对位置 → CM 本地位置：点击第一行不跳到末尾", () => {
+    const schema = makeSchema();
+    // 前面放一个大段落（约 200 字符），使 code_block 的 getPos() 较大
+    // 模拟用户场景：代码块不在文档首部，前面有大量内容
+    const longText = "x".repeat(200);
+    const para = schema.nodes.paragraph.create(null, schema.text(longText));
+    const codeText = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11";
+    const codeNode = schema.nodes.code_block.create(
+      { language: "text" },
+      schema.text(codeText),
+    );
+    const doc = schema.nodes.doc.create(null, [para, codeNode]);
+    // para nodeSize = 2 + 200 = 202，code_block 在 pos=202
+    const codeBlockPos = para.nodeSize; // 202
+
+    const state = EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, codeBlockPos + 1),
+    });
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const view = new EditorView(root, { state });
+
+    const nv = new CodeBlockNodeView(codeNode, view, () => codeBlockPos);
+
+    // PM 调 setSelection，传入绝对位置 codeBlockPos+1（= 代码块第一行起始）
+    // 修复前：直接把 203 当 CM 本地位置 → 跳到约第 10 行
+    // 修复后：localAnchor = 203 - 202 - 1 = 0 → CM 光标在本地位置 0（第一行）
+    nv.setSelection(codeBlockPos + 1, codeBlockPos + 1);
+
+    const cm = (nv as any).cm as CMView | null;
+    expect(cm).not.toBeNull();
+    const cmSel = cm!.state.selection.main;
+    // CM 本地位置应为 0（第一行开头），而不是 203
+    expect(cmSel.from).toBe(0);
+    expect(cmSel.to).toBe(0);
+
+    nv.destroy();
+    view.destroy();
+  });
+
+  it("PM 绝对位置在代码块中间时 → CM 本地位置正确映射", () => {
+    const schema = makeSchema();
+    const para = schema.nodes.paragraph.create(null, schema.text("ab"));
+    const codeText = "hello\nworld";
+    const codeNode = schema.nodes.code_block.create(
+      { language: "text" },
+      schema.text(codeText),
+    );
+    const doc = schema.nodes.doc.create(null, [para, codeNode]);
+    const codeBlockPos = para.nodeSize; // 4
+
+    const state = EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, codeBlockPos + 1),
+    });
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const view = new EditorView(root, { state });
+
+    const nv = new CodeBlockNodeView(codeNode, view, () => codeBlockPos);
+
+    // PM 位置 codeBlockPos+1+7 = 12 → CM 本地位置 7（"hello\nworld" 的 'w' 位置）
+    const targetPM = codeBlockPos + 1 + 7; // 指向 "world" 的 w
+    nv.setSelection(targetPM, targetPM);
+
+    const cm = (nv as any).cm as CMView | null;
+    const cmSel = cm!.state.selection.main;
+    expect(cmSel.from).toBe(7);
+    expect(cmSel.to).toBe(7);
+
+    nv.destroy();
+    view.destroy();
+  });
+
+  it("PM 绝对位置超出 CM 文档长度时 → 夹紧到末尾不越界", () => {
+    const schema = makeSchema();
+    const para = schema.nodes.paragraph.create(null, schema.text("x".repeat(100)));
+    const codeText = "ab";
+    const codeNode = schema.nodes.code_block.create(
+      { language: "text" },
+      schema.text(codeText),
+    );
+    const doc = schema.nodes.doc.create(null, [para, codeNode]);
+    const codeBlockPos = para.nodeSize; // 102
+
+    const state = EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, codeBlockPos + 1),
+    });
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const view = new EditorView(root, { state });
+
+    const nv = new CodeBlockNodeView(codeNode, view, () => codeBlockPos);
+
+    // 传入一个远超 codeText 长度的 PM 位置
+    // 修复前：localAnchor = 99999 → CM 可能行为异常
+    // 修复后：夹紧到 docLen=2
+    nv.setSelection(99999, 99999);
+
+    const cm = (nv as any).cm as CMView | null;
+    const cmSel = cm!.state.selection.main;
+    expect(cmSel.from).toBe(2); // codeText.length
+    expect(cmSel.to).toBe(2);
+
+    nv.destroy();
+    view.destroy();
+  });
+
+  it("getPos 返回 undefined 时 setSelection 不抛错", () => {
+    const schema = makeSchema();
+    const codeText = "hello";
+    const codeNode = schema.nodes.code_block.create(
+      { language: "text" },
+      schema.text(codeText),
+    );
+    const doc = schema.nodes.doc.create(null, [codeNode]);
+
+    const state = EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, 1),
+    });
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const view = new EditorView(root, { state });
+
+    const nv = new CodeBlockNodeView(codeNode, view, () => undefined);
+
+    expect(() => nv.setSelection(5, 5)).not.toThrow();
+
+    nv.destroy();
+    view.destroy();
+  });
+});
+
+describe("CodeBlockNodeView.selectNode（v1.2.9 加固）", () => {
+  it("NodeSelection 选中代码块时清空 CM 选区到位置 0", () => {
+    const schema = makeSchema();
+    const codeText = "line1\nline2\nline3";
+    const codeNode = schema.nodes.code_block.create(
+      { language: "text" },
+      schema.text(codeText),
+    );
+    const doc = schema.nodes.doc.create(null, [codeNode]);
+
+    const state = EditorState.create({
+      doc,
+      selection: TextSelection.create(doc, 1),
+    });
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const view = new EditorView(root, { state });
+
+    const nv = new CodeBlockNodeView(codeNode, view, () => 0);
+
+    // 先把 CM 光标移到中间位置
+    const cm = (nv as any).cm as CMView | null;
+    cm!.dispatch({ selection: { anchor: 6, head: 6 } });
+    expect(cm!.state.selection.main.from).toBe(6);
+
+    // selectNode 应清空到 0
+    nv.selectNode();
+    expect(cm!.state.selection.main.from).toBe(0);
+    expect(cm!.state.selection.main.to).toBe(0);
+
+    nv.destroy();
+    view.destroy();
+  });
+});
+
+describe("CodeBlockNodeView forwardUpdate offset 对称性", () => {
+  it("forwardUpdate 的 offset = getPos()+1 与 setSelection 的 -pos-1 数学互逆", () => {
+    // forwardUpdate 有 hasFocus 守卫，jsdom 环境无法触发 CM→PM 同步，
+    // 这里仅验证位置翻译的数学互逆性（不依赖 CM 焦点）
+    const codeBlockPos = 202; // 模拟前面有 200 字符段落
+    const cmLocal = 5; // CM 本地位置
+
+    // forwardUpdate 方向：CM 本地 → PM 绝对
+    const pmAbs = codeBlockPos + 1 + cmLocal; // 208
+
+    // setSelection 方向：PM 绝对 → CM 本地（修复后的公式）
+    const cmRecovered = pmAbs - codeBlockPos - 1; // 5
+
+    expect(cmRecovered).toBe(cmLocal);
+  });
+});

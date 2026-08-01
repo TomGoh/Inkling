@@ -121,7 +121,7 @@ function computeChange(oldVal: string, newVal: string) {
  * 性能：CodeMirror 实例延迟到代码块进入视口时才创建（IntersectionObserver），
  * 大量代码块文档下避免一次性初始化上百个编辑器实例。
  */
-class CodeBlockNodeView implements NodeView {
+export class CodeBlockNodeView implements NodeView {
   dom: HTMLElement;
   cm: EditorView | null = null;
   private node: Node;
@@ -336,7 +336,9 @@ class CodeBlockNodeView implements NodeView {
     const change = computeChange(this.cm.state.doc.toString(), node.textContent);
     if (change) {
       this.updating = true;
-      this.cm.dispatch({ changes: { from: change.from, to: change.to, insert: change.text }, scrollIntoView: true });
+      // scrollIntoView:false —— 外部受控更新（大纲跳转/全局替换）不应抢占视口滚动，
+      // 仅 CM 持有焦点时才滚动到选区
+      this.cm.dispatch({ changes: { from: change.from, to: change.to, insert: change.text }, scrollIntoView: false });
       this.updating = false;
     }
     return true;
@@ -344,15 +346,27 @@ class CodeBlockNodeView implements NodeView {
 
   setSelection(anchor: number, head: number) {
     if (!this.cm) return;
+    const pos = this.getPos();
+    if (pos == null) return;
+    // PM 传入的 anchor/head 是文档绝对位置，需减去 code_block 起始位置 +1
+    // （+1 是因为 code_block 节点本身占 1 个位置，文本内容从 pos+1 开始）
+    // 与 forwardUpdate 的 offset = getPos()+1 严格互逆
+    const docLen = this.cm.state.doc.length;
+    const localAnchor = Math.max(0, Math.min(anchor - pos - 1, docLen));
+    const localHead = Math.max(0, Math.min(head - pos - 1, docLen));
     this.cm.focus();
     this.updating = true;
-    this.cm.dispatch({ selection: { anchor, head } });
+    this.cm.dispatch({ selection: { anchor: localAnchor, head: localHead } });
     this.updating = false;
   }
 
   selectNode() {
     if (!this.cm) return;
     this.cm.focus();
+    // NodeSelection 选中整个代码块时，清空 CM 内残留的文本选区避免视觉不一致
+    this.updating = true;
+    this.cm.dispatch({ selection: { anchor: 0, head: 0 } });
+    this.updating = false;
   }
 
   deselectNode() {}

@@ -316,7 +316,8 @@ body,
   border-collapse: collapse;
   width: 100%;
   margin: 1rem 0;
-  overflow: hidden;
+  /* overflow: hidden 会裁掉最右列拖拽手柄外伸的 2px，改用 visible */
+  overflow: visible;
   table-layout: fixed;
 }
 .editor-scroll .milkdown th,
@@ -353,6 +354,15 @@ body,
 .editor-scroll .milkdown th .column-resize-handle,
 .editor-scroll .milkdown td .column-resize-handle {
   opacity: 0;
+}
+/* 悬停单元格时显示列宽拖拽手柄（手柄 pointer-events:none，靠 cell :hover 触发显形） */
+.editor-scroll .milkdown th:hover .column-resize-handle,
+.editor-scroll .milkdown td:hover .column-resize-handle {
+  opacity: 0.5;
+}
+/* 拖拽进行中（ProseMirror 加 resize-cursor 类）手柄更明显 */
+.editor-scroll .milkdown .ProseMirror.resize-cursor .column-resize-handle {
+  opacity: 0.8;
 }
 .editor-scroll .milkdown .ProseMirror-resize-cursor {
   cursor: col-resize;
