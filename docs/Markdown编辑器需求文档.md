@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v1.1.3
+> 文档版本：v1.1.4
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -224,13 +224,14 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.2 | 块插入位置修复 | ✅ | v1.1.1 | 修复分割线/表格/公式/callout/TOC 落在下一行：新增 `insertBlockAtCursor`/`insertBlockHere`，当前段落为空时直接替换，非空才插在当前块之后 |
 | 3.2 | 列表/引用 wrap 修复 | ✅ | v1.1.1 | 修复 `content does not fit in gap`：合并到单个 transaction，用 `tr.selection` 算 blockRange，避免 deleteRange 后的 stale selection 问题 |
 | 3.1 | Ctrl+A 全选全文 | ✅ | v1.1.1 | ProseMirror 默认 `Mod-a` 只选当前块文本；新增 `inkling-select-all` 插件拦截 Mod-a，用 `AllSelection` 选中整个文档 |
-| 3.1 | 点击空白处可编辑 | ✅ | v1.1.1 | 监听编辑器根 mousedown，`posAtCoords` 返回 null（点击落在内容节点之外）时在文档末尾追加空段落并定位光标，无需手动换行 |
+| 3.1 | 点击空白处可编辑 | ✅ | v1.1.1 | 监听编辑器根 mousedown，`posAtCoords` 返回 null（点击落在内容节点之外）时在文档末尾追加空段落并定位光标，无需手动换行。v1.1.4 修复：点击右侧 padding 区不再跳到文档最底部，改为把 x 夹到内容区内重查 `posAtCoords`，光标落在点击 y 对应的行附近；仅点击 y 超出所有内容时才追加末尾段落 |
 | 3.3 | 新建草稿自动聚焦 | ✅ | v1.1.1 | `Ctrl+N` 新建未命名草稿后编辑器重建完成时自动 `view.focus()`，无需手动点击 |
 | 3.8 | 块删除能力 | ✅ | v1.1.3 | 工具栏新增「删除块」按钮，`deleteCurrentBlock` 命令删除光标所在的整个顶层块（引用/代码块/Mermaid/提示框/元数据/列表/公式/TOC/分割线）；mermaid/frontmatter 的 `stopEvent` 优化为仅拦截编辑区内事件，非编辑态可点击选中后 Backspace 删除 |
 | — | 应用图标更新 | ✅ | v1.1.2 | 用 `tauri icon` 命令从用户提供的源图重新生成全平台图标（Windows ico/StoreLogo、macOS icns、iOS、Android 全套） |
 
 ### 8.2 发布版本
 
+- **v1.1.4** 修复点击文档右侧空白区会跳到文档最底部的问题：原逻辑在 `posAtCoords` 返回 null 时直接在文档末尾追加段落，现改为把 x 坐标夹到编辑器内容区内重查 `posAtCoords`，让光标落在点击 y 对应的行附近
 - **v1.1.3** 修复无序/有序列表插入报错 `content does not fit in gap`（wrap 漏包 `list_item` 层）；工具栏新增「删除块」按钮统一删除引用/代码块/Mermaid/提示框/元数据等块；优化 mermaid/frontmatter 的 `stopEvent` 使非编辑态可选中删除
 - **v1.1.2** 更换应用图标（`tauri icon` 重新生成全平台图标）
 - **v1.1.1** 修复块插入位置（落在下一行）、列表/引用 wrap 报错、表格列宽调整报错（`invalid content for node table_row`）；Mermaid/公式支持双击编辑；Ctrl+A 全选；点击空白处可编辑；Ctrl+N 新建草稿自动聚焦

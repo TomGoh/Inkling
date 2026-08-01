@@ -157,6 +157,7 @@ pnpm tauri build
 
 ## 版本记录
 
+- **v1.1.4** 修复点击文档右侧空白区会跳到文档最底部：原逻辑在 `posAtCoords` 返回 null 时直接在文档末尾追加段落，现改为把 x 坐标夹到编辑器内容区内重查 `posAtCoords`，让光标落在点击 y 对应的行附近
 - **v1.1.3** 修复无序/有序列表插入报错 `content does not fit in gap`（wrap 时漏包 `list_item` 层）；工具栏新增「删除块」按钮，可删除光标所在的整个块（引用/代码块/Mermaid/提示框/元数据/列表/公式/TOC/分割线）；优化 mermaid/frontmatter 的 `stopEvent`，非编辑态可点击选中后 Backspace 删除
 - **v1.1.2** 更换应用图标（`tauri icon` 重新生成全平台图标：Windows ico/StoreLogo、macOS icns、iOS、Android 全套）
 - **v1.1.1** 修复多个块插入问题：分割线/表格/公式/callout/TOC 落在下一行（空段落直接替换）、列表/引用 wrap 报错（合并到单个 transaction）、表格列宽调整报错 `invalid content for node table_row`（GFM 表头行需用 `table_header_row`）；Mermaid 图表与块级/行内公式支持双击编辑源码；Ctrl+A 全选全文；点击编辑器空白处自动追加段落并定位光标；Ctrl+N 新建草稿后自动聚焦编辑器
