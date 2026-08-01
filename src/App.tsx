@@ -114,6 +114,8 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 查找替换面板展开状态
   const [searchOpen, setSearchOpen] = useState(false);
+  // 查找面板是否显示替换框（受控，便于 Ctrl+R 直接展开替换）
+  const [searchShowReplace, setSearchShowReplace] = useState(false);
   // 快捷键帮助面板展开状态
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // 全局搜索面板展开状态
@@ -203,6 +205,13 @@ function App() {
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         setGlobalSearchOpen(true);
+        return;
+      }
+      // Ctrl/Cmd+R 打开替换面板（Typora 标准：展开替换框，可逐个或全部替换）
+      if (!e.shiftKey && !e.altKey && e.key.toLowerCase() === "r") {
+        e.preventDefault();
+        setSearchShowReplace(true);
+        setSearchOpen(true);
         return;
       }
       // Ctrl/Cmd+K 插入链接（Typora 标准）：选中文本加 link mark，无选中则插入 [文本](url)
@@ -503,6 +512,8 @@ function App() {
                   <SearchPanel
                     getEditor={getEditor}
                     onClose={() => setSearchOpen(false)}
+                    showReplace={searchShowReplace}
+                    onShowReplaceChange={setSearchShowReplace}
                   />
                 )}
                 <EditorErrorBoundary fileName={currentFile}>

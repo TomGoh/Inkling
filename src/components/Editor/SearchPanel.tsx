@@ -18,16 +18,18 @@ import "./SearchPanel.css";
 interface Props {
   getEditor: () => Editor | undefined;
   onClose: () => void;
+  /** 是否显示替换框（受控） */
+  showReplace: boolean;
+  onShowReplaceChange: (v: boolean) => void;
 }
 
-export function SearchPanel({ getEditor, onClose }: Props) {
+export function SearchPanel({ getEditor, onClose, showReplace, onShowReplaceChange }: Props) {
   const [find, setFind] = useState("");
   const [replace, setReplace] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [useRegex, setUseRegex] = useState(false);
   const [count, setCount] = useState(0);
   const [current, setCurrent] = useState(0);
-  const [showReplace, setShowReplace] = useState(false);
   const findRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -123,7 +125,7 @@ export function SearchPanel({ getEditor, onClose }: Props) {
         <button
           className="search-toggle-expand"
           title={showReplace ? "隐藏替换" : "显示替换"}
-          onClick={() => setShowReplace((v) => !v)}
+          onClick={() => onShowReplaceChange(!showReplace)}
         >
           {showReplace ? "▾" : "▸"}
         </button>
