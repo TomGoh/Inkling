@@ -36,20 +36,27 @@ export function SearchPanel({ getEditor, onClose, showReplace, onShowReplaceChan
     findRef.current?.focus();
   }, []);
 
-  // 查找词或选项变化时即时搜索
+  // 防抖后的查找词：连续输入时只在停顿后触发一次全文匹配
+  const [debouncedFind, setDebouncedFind] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedFind(find), 120);
+    return () => clearTimeout(t);
+  }, [find]);
+
+  // 查找词或选项变化时搜索（find 经防抖，选项立即生效）
   useEffect(() => {
     const editor = getEditor();
     if (!editor) return;
-    const opts: SearchOpts = { find, replace, caseSensitive, useRegex };
+    const opts: SearchOpts = { find: debouncedFind, replace, caseSensitive, useRegex };
     editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
-      view.dispatch(view.state.tr.setMeta(searchKey, find ? { type: "set", opts } : { type: "clear" }));
+      view.dispatch(view.state.tr.setMeta(searchKey, debouncedFind ? { type: "set", opts } : { type: "clear" }));
       const s = searchKey.getState(view.state);
       setCount(s?.matches.length ?? 0);
       setCurrent((s?.current ?? -1) + 1);
       if (s && s.current >= 0) scrollToCurrent(view);
     });
-  }, [find, caseSensitive, useRegex, replace, getEditor]);
+  }, [debouncedFind, caseSensitive, useRegex, replace, getEditor]);
 
   const readState = () => {
     const editor = getEditor();

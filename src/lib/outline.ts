@@ -137,17 +137,35 @@ export function findEditorHeadingPos(
   return headings[target.index]?.pos ?? null;
 }
 
-/** 查找选区之前最近的标题序号。 */
+/**
+ * 查找选区之前最近的标题序号。
+ * 用二分查找定位最后一个 pos <= selectionHead 的标题，O(log n)。
+ * 输入 headings 必须按 pos 升序（extractEditorOutline 自然保证）。
+ */
 export function findActiveHeadingIndex(
   headings: readonly EditorOutlineHeading[],
   selectionHead: number,
 ): number | null {
-  let activeIndex: number | null = null;
-  for (const heading of headings) {
-    if (heading.pos > selectionHead) break;
-    activeIndex = heading.index;
+  const n = headings.length;
+  if (n === 0) return null;
+  // 快速短路：选区已超过最后一个标题
+  if (selectionHead >= headings[n - 1].pos) return headings[n - 1].index;
+  // 选区在第一个标题之前
+  if (selectionHead < headings[0].pos) return null;
+  // 二分：找最大的 i 使 headings[i].pos <= selectionHead
+  let lo = 0;
+  let hi = n - 1;
+  let activeIndex = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (headings[mid].pos <= selectionHead) {
+      activeIndex = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
   }
-  return activeIndex;
+  return headings[activeIndex].index;
 }
 
 /**

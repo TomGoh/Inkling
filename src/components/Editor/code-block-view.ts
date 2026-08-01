@@ -117,10 +117,13 @@ function computeChange(oldVal: string, newVal: string) {
 /**
  * 代码块的 ProseMirror NodeView：内嵌 CodeMirror 6 编辑器，
  * 提供语法高亮、行号、语言切换，并把编辑同步回 ProseMirror 文档。
+ *
+ * 性能：CodeMirror 实例延迟到代码块进入视口时才创建（IntersectionObserver），
+ * 大量代码块文档下避免一次性初始化上百个编辑器实例。
  */
 class CodeBlockNodeView implements NodeView {
   dom: HTMLElement;
-  cm: EditorView;
+  cm: EditorView | null = null;
   private node: Node;
   private view: PMView;
   private getPos: () => number | undefined;
@@ -131,6 +134,9 @@ class CodeBlockNodeView implements NodeView {
   private languageName = "";
   private currentTheme: CodeBlockTheme;
   private unsub: () => void;
+  private io: IntersectionObserver | null = null;
+  private cmHost: HTMLElement;
+  private select: HTMLSelectElement;
 
   constructor(node: Node, view: PMView, getPos: () => number | undefined) {
     this.node = node;
@@ -145,25 +151,61 @@ class CodeBlockNodeView implements NodeView {
     // 顶部工具栏：语言选择
     const toolbar = document.createElement("div");
     toolbar.className = "code-block-toolbar";
-    const select = this.buildLangSelect(node.attrs.language ?? "");
-    select.addEventListener("change", () => {
+    this.select = this.buildLangSelect(node.attrs.language ?? "");
+    this.select.addEventListener("change", () => {
       const pos = getPos();
       if (pos == null) return;
-      view.dispatch(view.state.tr.setNodeAttribute(pos, "language", select.value));
+      view.dispatch(view.state.tr.setNodeAttribute(pos, "language", this.select.value));
     });
-    toolbar.appendChild(select);
+    toolbar.appendChild(this.select);
     this.dom.appendChild(toolbar);
 
     // CodeMirror 宿主
-    const cmHost = document.createElement("div");
-    cmHost.className = "code-block-cm";
-    this.dom.appendChild(cmHost);
+    this.cmHost = document.createElement("div");
+    this.cmHost.className = "code-block-cm";
+    this.dom.appendChild(this.cmHost);
 
+    // 视口懒挂载：先尝试同步创建（若已在视口或 IO 不可用），
+    // 否则注册 IntersectionObserver，进入视口时再创建。
+    if (typeof IntersectionObserver === "undefined") {
+      this.initCodeMirror();
+    } else {
+      this.io = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (e.isIntersecting && !this.cm) {
+              this.initCodeMirror();
+              this.io?.disconnect();
+              this.io = null;
+            }
+          }
+        },
+        { rootMargin: "200px" },
+      );
+      this.io.observe(this.dom);
+    }
+
+    // 监听代码块主题切换，实时重配 CodeMirror 主题（实例未创建时仅记录，创建时生效）
+    this.unsub = useSettings.subscribe((s) => {
+      if (s.codeBlockTheme === this.currentTheme) return;
+      this.currentTheme = s.codeBlockTheme;
+      this.dom.dataset.codeTheme = s.codeBlockTheme;
+      if (this.cm) {
+        this.cm.dispatch({
+          effects: this.themeConf.reconfigure(codeThemeExt(s.codeBlockTheme)),
+        });
+      }
+    });
+  }
+
+  /** 创建 CodeMirror 实例并同步当前节点内容/语言 */
+  private initCodeMirror() {
+    if (this.cm) return;
     this.cm = new EditorView({
-      doc: node.textContent,
+      doc: this.node.textContent,
       extensions: [
         this.themeConf.of(codeThemeExt(this.currentTheme)),
-        this.readOnlyConf.of(EditorState.readOnly.of(!view.editable)),
+        this.readOnlyConf.of(EditorState.readOnly.of(!this.view.editable)),
         lineNumbers(),
         drawSelection(),
         highlightSpecialChars(),
@@ -176,19 +218,8 @@ class CodeBlockNodeView implements NodeView {
         EditorView.updateListener.of((u) => this.forwardUpdate(u)),
       ],
     });
-    cmHost.appendChild(this.cm.dom);
-
-    this.updateLanguage(node.attrs.language ?? "");
-
-    // 监听代码块主题切换，实时重配 CodeMirror 主题
-    this.unsub = useSettings.subscribe((s) => {
-      if (s.codeBlockTheme === this.currentTheme) return;
-      this.currentTheme = s.codeBlockTheme;
-      this.dom.dataset.codeTheme = s.codeBlockTheme;
-      this.cm.dispatch({
-        effects: this.themeConf.reconfigure(codeThemeExt(s.codeBlockTheme)),
-      });
-    });
+    this.cmHost.appendChild(this.cm.dom);
+    this.updateLanguage(this.node.attrs.language ?? "");
   }
 
   /** 构建语言下拉框 */
@@ -231,6 +262,8 @@ class CodeBlockNodeView implements NodeView {
 
   /** 光标在代码块边界时，逃离到外部 ProseMirror 文档 */
   private maybeEscape(unit: "line" | "char", dir: number): boolean {
+    // keymap 仅在 CodeMirror 获焦时触发，此时实例必已创建；防御性判空
+    if (!this.cm) return false;
     const { state } = this.cm;
     const main = state.selection.main;
     if (!main.empty) return false;
@@ -253,7 +286,7 @@ class CodeBlockNodeView implements NodeView {
 
   /** CodeMirror 变更同步到 ProseMirror */
   private forwardUpdate = (update: ViewUpdate) => {
-    if (this.updating || !this.cm.hasFocus) return;
+    if (this.updating || !this.cm || !this.cm.hasFocus) return;
     let offset = (this.getPos() ?? 0) + 1;
     const { main } = update.state.selection;
     const selFrom = offset + main.from;
@@ -276,15 +309,20 @@ class CodeBlockNodeView implements NodeView {
     if (language === this.languageName) return;
     this.languageName = language;
     loadLanguage(language).then((support) => {
-      this.cm.dispatch({ effects: this.langConf.reconfigure(support ? [support] : []) });
+      // 实例可能尚未创建（视口外），languageName 已更新，创建时会用最新值
+      if (this.cm) {
+        this.cm.dispatch({ effects: this.langConf.reconfigure(support ? [support] : []) });
+      }
     }).catch(console.error);
   }
 
   /** ProseMirror 节点变更同步到 CodeMirror */
   update(node: Node): boolean {
     if (node.type !== this.node.type) return false;
-    if (this.updating) return true;
     this.node = node;
+    // CodeMirror 未创建（视口外）：仅更新 node 引用，待进入视口创建时从 node 取最新内容
+    if (!this.cm) return true;
+    if (this.updating) return true;
     // 同步语言
     const lang = node.attrs.language ?? "";
     if (lang !== this.languageName) this.updateLanguage(lang);
@@ -305,6 +343,7 @@ class CodeBlockNodeView implements NodeView {
   }
 
   setSelection(anchor: number, head: number) {
+    if (!this.cm) return;
     this.cm.focus();
     this.updating = true;
     this.cm.dispatch({ selection: { anchor, head } });
@@ -312,6 +351,7 @@ class CodeBlockNodeView implements NodeView {
   }
 
   selectNode() {
+    if (!this.cm) return;
     this.cm.focus();
   }
 
@@ -327,7 +367,10 @@ class CodeBlockNodeView implements NodeView {
 
   destroy() {
     this.unsub();
-    this.cm.destroy();
+    this.io?.disconnect();
+    this.io = null;
+    this.cm?.destroy();
+    this.cm = null;
   }
 }
 

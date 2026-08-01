@@ -28,7 +28,7 @@ import { imageView } from "./image-node-view";
 import { imageUploadPlugin } from "./image-upload";
 import { linkClickPlugin } from "./link-click";
 import { outlineTrackerPlugin } from "./outline-tracker";
-import { formulaNumberingPlugin } from "./formula-numbering";
+import { formulaNumberingPlugin, formulaNumberingKey } from "./formula-numbering";
 import { editorModesPlugin } from "./editor-modes";
 import { blockDragPlugin } from "./block-drag";
 import { searchPlugin } from "./search";
@@ -172,18 +172,44 @@ function EditorInner({
               searchPlugin(),
               // [TOC] 目录自动生成：根据文档标题实时生成目录
               tocPlugin(),
-              // 编辑位置记忆：选区/滚动变化时把位置存到当前 tab
+              // 编辑位置记忆：选区/滚动变化时缓存到本地，
+              // 防抖 300ms、失焦或销毁时再落 store，避免每次光标移动都
+              // 写 openTabs 触发 TabsBar 等订阅组件重渲染。
               new Plugin({
                 key: new PluginKey("inkling-cursor-saver"),
-                view: () => ({
-                  update: (view) => {
-                    const pos = view.state.selection.head;
-                    const scrollEl = (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM;
-                    const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
-                    saveCursorStateRef.current(pos, scrollTop);
-                  },
-                  destroy: () => {},
-                }),
+                view: (view) => {
+                  let lastPos = -1;
+                  let lastScroll = -1;
+                  let timer: ReturnType<typeof setTimeout> | null = null;
+                  const flush = () => {
+                    if (timer) {
+                      clearTimeout(timer);
+                      timer = null;
+                    }
+                    if (lastPos < 0) return;
+                    saveCursorStateRef.current(lastPos, lastScroll);
+                  };
+                  const schedule = (pos: number, scrollTop: number) => {
+                    lastPos = pos;
+                    lastScroll = scrollTop;
+                    if (timer) clearTimeout(timer);
+                    timer = setTimeout(flush, 300);
+                  };
+                  // 失焦立即落盘
+                  view.dom.addEventListener("blur", flush);
+                  return {
+                    update: (nextView) => {
+                      const pos = nextView.state.selection.head;
+                      const scrollEl = (nextView as EditorView & { scrollDOM?: HTMLElement }).scrollDOM;
+                      const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
+                      schedule(pos, scrollTop);
+                    },
+                    destroy: () => {
+                      flush();
+                      view.dom.removeEventListener("blur", flush);
+                    },
+                  };
+                },
               }),
               // 斜杠菜单：输入 `/` 弹出块类型选择菜单
               slashMenuPlugin(),
@@ -355,7 +381,8 @@ function EditorInner({
       if (!editor) return;
       editor.action((ctx) => {
         const view = ctx.get(editorViewCtx);
-        view.dispatch(view.state.tr);
+        // 发送 recalc meta 触发公式编号重算（空 tr 本身不 docChanged，需 meta 显式触发）
+        view.dispatch(view.state.tr.setMeta(formulaNumberingKey, { recalc: true }));
       });
     });
     return unsub;

@@ -24,11 +24,18 @@ function tabLabel(tab: OpenTab): string {
 }
 
 export function TabsBar() {
-  const openTabs = useWorkspace((s) => s.openTabs);
+  // 仅订阅 tab 的展示字段（path/dirty/isUntitled），避免 content 每次按键变化时重渲染。
+  // useWorkspace 默认用 Object.is 比较，这里返回 string 快照，内容变化时快照不变。
+  const tabsSig = useWorkspace((s) =>
+    s.openTabs.map((t) => `${t.path}|${t.dirty ? "1" : "0"}|${t.isUntitled ? "1" : "0"}`).join("\n"),
+  );
   const activeTabPath = useWorkspace((s) => s.activeTabPath);
   const switchTab = useWorkspace((s) => s.switchTab);
   const closeTab = useWorkspace((s) => s.closeTab);
   const reorderTabs = useWorkspace((s) => s.reorderTabs);
+  // tabsSig 仅作为重渲染触发器；实际渲染从 store 读取最新 openTabs
+  void tabsSig;
+  const openTabs = useWorkspace.getState().openTabs;
 
   // 右键菜单状态
   const [menu, setMenu] = useState<{ tab: OpenTab; x: number; y: number } | null>(null);

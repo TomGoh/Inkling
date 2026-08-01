@@ -9,10 +9,14 @@
 // - dragover：preventDefault 允许 drop，根据指针位置决定插入「之前」或「之后」，
 //   用一个 drop-indicator 装饰高亮目标位置
 // - drop：从源文档删除原块，在目标位置重新插入，单个 transaction 完成移动
+//
+// 性能：手柄装饰只在 doc 结构变化或 dropIndex 变化时重建并缓存到 state，
+// 避免每次 transaction（含纯选区移动）都遍历所有块并 createElement。
 
 import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import type { EditorView } from "@milkdown/kit/prose/view";
+import type { Node } from "@milkdown/kit/prose/model";
 
 export const blockDragKey = new PluginKey("inkling-block-drag");
 
@@ -26,6 +30,14 @@ function createHandle(pos: number): HTMLElement {
   handle.dataset.blockPos = String(pos);
   handle.textContent = "⋮⋮";
   return handle;
+}
+
+/** 创建 drop 指示器 DOM */
+function createDropIndicator(): HTMLElement {
+  const line = document.createElement("div");
+  line.className = "inkling-drop-indicator";
+  line.contentEditable = "false";
+  return line;
 }
 
 /** 找到 pos 所在的顶层块节点（doc 的直接子节点） */
@@ -43,63 +55,68 @@ function topLevelBlockAt(view: EditorView, pos: number) {
   return null;
 }
 
+/** 依据 doc 与 dropIndex 构建装饰集 */
+function buildDecos(doc: Node, dropIndex: number | null): DecorationSet {
+  const decos: Decoration[] = [];
+  let pos = 0;
+  const blockStarts: number[] = [];
+  doc.forEach((child) => {
+    blockStarts.push(pos);
+    // 手柄 widget 用 side=-1 确保在块内容前
+    decos.push(Decoration.widget(pos, () => createHandle(pos), { side: -1 }));
+    pos += child.nodeSize;
+  });
+  if (dropIndex != null && dropIndex >= 0 && dropIndex <= blockStarts.length) {
+    const indicatorPos =
+      dropIndex < blockStarts.length ? blockStarts[dropIndex] : doc.content.size;
+    decos.push(
+      Decoration.widget(indicatorPos, () => createDropIndicator(), { side: -1 }),
+    );
+  }
+  return DecorationSet.create(doc, decos);
+}
+
 interface BlockDragState {
   /** 当前拖拽中 drop 指示器的目标位置（块索引），null 表示无 */
   dropIndex: number | null;
+  /** 缓存的装饰集，仅在 doc 结构或 dropIndex 变化时重建 */
+  decos: DecorationSet;
+  /** 缓存对应的 doc 引用，用于判断是否可复用 */
+  doc: Node;
 }
 
 export const blockDragPlugin = () =>
   new Plugin({
     key: blockDragKey,
     state: {
-      init: (): BlockDragState => ({ dropIndex: null }),
-      apply: (tr, value): BlockDragState => {
-        // drop-indicator 装饰通过 meta 控制
+      init: (_config, state): BlockDragState => ({
+        dropIndex: null,
+        decos: buildDecos(state.doc, null),
+        doc: state.doc,
+      }),
+      apply: (tr, value, _oldState, newState): BlockDragState => {
         const meta = tr.getMeta(blockDragKey);
+        let nextDropIndex = value.dropIndex;
         if (meta && typeof meta.dropIndex === "number") {
-          return { dropIndex: meta.dropIndex };
+          nextDropIndex = meta.dropIndex;
+        } else if (meta && meta.clear) {
+          nextDropIndex = null;
         }
-        if (meta && meta.clear) return { dropIndex: null };
-        return value;
+        // 仅在 doc 变更或 dropIndex 变化时重建装饰；纯选区移动直接复用缓存
+        if (newState.doc === value.doc && nextDropIndex === value.dropIndex) {
+          return value;
+        }
+        return {
+          dropIndex: nextDropIndex,
+          decos: buildDecos(newState.doc, nextDropIndex),
+          doc: newState.doc,
+        };
       },
     },
     props: {
       decorations: (state) => {
-        const { dropIndex } = blockDragKey.getState(state) as BlockDragState;
-        const decos: Decoration[] = [];
-
-        // 每个顶层块起始位置插入手柄
-        let pos = 0;
-        const blockStarts: number[] = [];
-        state.doc.forEach((child) => {
-          blockStarts.push(pos);
-          // 手柄 widget 用 side=-1 确保在块内容前
-          decos.push(
-            Decoration.widget(pos, () => createHandle(pos), { side: -1 }),
-          );
-          pos += child.nodeSize;
-        });
-
-        // drop 指示器：在目标块索引前插入一条横线
-        if (dropIndex != null && dropIndex >= 0 && dropIndex <= blockStarts.length) {
-          const indicatorPos =
-            dropIndex < blockStarts.length
-              ? blockStarts[dropIndex]
-              : state.doc.content.size;
-          decos.push(
-            Decoration.widget(
-              indicatorPos,
-              () => {
-                const line = document.createElement("div");
-                line.className = "inkling-drop-indicator";
-                line.contentEditable = "false";
-                return line;
-              },
-              { side: -1 },
-            ),
-          );
-        }
-        return DecorationSet.create(state.doc, decos);
+        const s = blockDragKey.getState(state) as BlockDragState;
+        return s.decos;
       },
       // 手柄的拖拽事件在 handleDOMEvents 里统一处理
       handleDOMEvents: {

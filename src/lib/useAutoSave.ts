@@ -14,8 +14,11 @@ export function useAutoSave() {
   const dirty = useWorkspace((s) => s.dirty);
   const saving = useWorkspace((s) => s.saving);
   const currentFile = useWorkspace((s) => s.currentFile);
-  const activeTabPath = useWorkspace((s) => s.activeTabPath);
-  const openTabs = useWorkspace((s) => s.openTabs);
+  // 只订阅「活跃 tab 是否未命名」这一布尔派生值，避免 openTabs 因 content 变化时重订阅 effect
+  const activeTabIsUntitled = useWorkspace((s) => {
+    const tab = s.openTabs.find((t) => t.path === s.activeTabPath);
+    return tab?.isUntitled ?? false;
+  });
   const saveCurrent = useWorkspace((s) => s.saveCurrent);
 
   // 手动保存快捷键
@@ -34,12 +37,10 @@ export function useAutoSave() {
   // 自动保存：dirty 且非保存中且非未命名草稿时，防抖 2 秒触发
   useEffect(() => {
     if (!dirty || saving || !currentFile) return;
-    // 未命名草稿不自动保存（无磁盘文件，需手动 Ctrl+S 触发另存为对话框）
-    const activeTab = openTabs.find((t) => t.path === activeTabPath);
-    if (activeTab?.isUntitled) return;
+    if (activeTabIsUntitled) return;
     const timer = window.setTimeout(() => {
       void saveCurrent();
     }, AUTOSAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [dirty, saving, currentFile, activeTabPath, openTabs, saveCurrent]);
+  }, [dirty, saving, currentFile, activeTabIsUntitled, saveCurrent]);
 }
