@@ -572,6 +572,26 @@ body,
 .editor-scroll .milkdown .math-display .katex-display {
   margin: 0;
 }
+/* 空公式占位提示：插入后未输入内容时显示，避免节点不可见 */
+.editor-scroll .milkdown .math-display.math-empty,
+.editor-scroll .milkdown .math-inline.math-empty {
+  display: inline-block;
+  min-width: 80px;
+  min-height: 1.5em;
+  padding: 4px 10px;
+  border: 1px dashed var(--border, #d0d7de);
+  border-radius: 4px;
+  background: var(--bg-subtle, #f6f8fa);
+}
+.editor-scroll .milkdown .math-display.math-empty {
+  display: block;
+  text-align: center;
+}
+.editor-scroll .milkdown .math-placeholder {
+  color: var(--text-muted, #6e7681);
+  font-size: 0.85em;
+  font-style: italic;
+}
 
 /* YAML Front Matter 块 */
 .editor-scroll .milkdown .frontmatter-block {

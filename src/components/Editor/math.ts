@@ -124,6 +124,15 @@ function createMathView(displayMode: boolean): NodeViewConstructor {
 
     const render = (value: string, number: number | null) => {
       dom.setAttribute("data-value", value);
+      // 空公式：显示占位提示，避免 KaTeX 渲染空字符串导致节点不可见
+      if (!value) {
+        dom.classList.add("math-empty");
+        dom.innerHTML = displayMode
+          ? '<span class="math-placeholder">双击编辑公式</span>'
+          : '<span class="math-placeholder">公式</span>';
+        return;
+      }
+      dom.classList.remove("math-empty");
       // display 公式启用自动编号时追加 \tag{n}（用户手写 \tag 时不覆盖）
       let expr = value;
       if (displayMode && number != null && !/\\tag\b/.test(value)) {

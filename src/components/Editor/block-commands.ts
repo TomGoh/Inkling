@@ -7,7 +7,7 @@
 
 import type { EditorView } from "@milkdown/kit/prose/view";
 import type { Node } from "@milkdown/kit/prose/model";
-import { TextSelection } from "@milkdown/kit/prose/state";
+import { TextSelection, NodeSelection } from "@milkdown/kit/prose/state";
 
 /** 包裹当前选区所在块为指定节点（引用：单层） */
 function wrapBlock(view: EditorView, nodeType: any): void {
@@ -92,7 +92,41 @@ export function insertHr(view: EditorView): void {
 
 export function insertMathBlock(view: EditorView): void {
   const t = view.state.schema.nodes.math_display;
-  if (t) insertBlockHere(view, t.create());
+  if (!t) return;
+  // math_display 是 atom 节点，插入空值后 KaTeX 渲染空字符串无可见内容，
+  // 用户看不到也不知道要双击编辑。这里插入后自动选中并触发编辑模式。
+  const node = t.create();
+  const { $from } = view.state.selection;
+  const parent = $from.parent;
+  let nodePos: number;
+  if (parent.type.name === "paragraph" && parent.content.size === 0) {
+    const start = $from.before($from.depth);
+    view.dispatch(
+      view.state.tr
+        .replaceWith(start, start + parent.nodeSize, node)
+        .scrollIntoView(),
+    );
+    nodePos = start;
+  } else {
+    const pos = $from.after($from.depth);
+    view.dispatch(view.state.tr.insert(pos, node).scrollIntoView());
+    nodePos = pos;
+  }
+  // 选中新插入的 atom 节点（NodeSelection），下一帧触发双击进入编辑模式
+  // 下一帧是为了等 NodeView 完成 DOM 挂载
+  requestAnimationFrame(() => {
+    try {
+      const sel = NodeSelection.create(view.state.doc, nodePos);
+      view.dispatch(view.state.tr.setSelection(sel));
+      const dom = view.nodeDOM(nodePos) as HTMLElement | null;
+      if (dom) {
+        dom.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      }
+    } catch {
+      // 位置无效时静默失败，不影响插入
+    }
+  });
+  view.focus();
 }
 
 export function turnIntoMermaid(view: EditorView): void {

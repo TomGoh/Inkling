@@ -5,7 +5,7 @@
 // 浮层用纯 DOM 渲染，避免 React portal 跨层依赖。
 // 状态从文档/选区直接推导（active/query/anchorPos），selectedIndex 单独维护。
 
-import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
+import { Plugin, PluginKey, NodeSelection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 
 /** 插件状态 */
@@ -272,8 +272,34 @@ function buildCommands(view: EditorView): SlashCommand[] {
       icon: "∑",
       run: (v, anchor) => {
         const tr = v.state.tr.deleteRange(anchor, v.state.selection.from);
-        insertBlockAtCursor(tr, schema.nodes.math_display.create());
+        const node = schema.nodes.math_display.create();
+        let nodePos: number;
+        // 复制 insertBlockAtCursor 的位置计算逻辑，记录插入位置以便后续选中
+        const $from = tr.selection.$from;
+        const parent = $from.parent;
+        if (parent.type.name === "paragraph" && parent.content.size === 0) {
+          const start = $from.before($from.depth);
+          tr.replaceWith(start, start + parent.nodeSize, node);
+          nodePos = start;
+        } else {
+          const pos = $from.after($from.depth);
+          tr.insert(pos, node);
+          nodePos = pos;
+        }
         v.dispatch(tr.scrollIntoView());
+        // 插入后自动选中并触发双击进入编辑模式（atom 节点空值无可视区域）
+        requestAnimationFrame(() => {
+          try {
+            const sel = NodeSelection.create(v.state.doc, nodePos);
+            v.dispatch(v.state.tr.setSelection(sel));
+            const dom = v.nodeDOM(nodePos) as HTMLElement | null;
+            if (dom) {
+              dom.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+            }
+          } catch {
+            // 位置无效时静默失败
+          }
+        });
         v.focus();
       },
     });
