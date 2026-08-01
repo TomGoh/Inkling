@@ -13,7 +13,7 @@
 - 有序/无序/任务列表，多级嵌套（Tab/Shift+Tab 缩进）
 - GFM 表格，附表格工具栏（增删行列、对齐、快速插入）
 - 围栏代码块 + 语法高亮（CodeMirror，覆盖主流语言，可切换主题）
-- KaTeX 数学公式（行内 `$...$` 与块级 `$$...$$`，支持 mhchem 化学方程式、自动编号）
+- KaTeX 数学公式（行内 `$...$` 与块级 `$$...$$`，支持 mhchem 化学方程式、自动编号；工具栏 `$ 行内` / `∑ 公式` 按钮与斜杠菜单 `/行内` / `/公式` 可直接插入空公式节点并自动进入 LaTeX 编辑态，双击已有公式可重新编辑）
 - Mermaid 图表（流程图、时序图、甘特图等），支持「下载」按钮导出 SVG、`Ctrl/Cmd+滚轮`缩放图表（0.5~3x），放大后可按住鼠标拖动平移查看各区域，双击重置缩放与平移
 - **HTML 嵌入**：白名单渲染 `<span style="color:red">`、`<kbd>`、`<mark>`、`<details>`、`<blockquote>` 等 HTML 标签，过滤 script/on*/javascript: 等危险内容
 - **YAML Front Matter**：文档首部 `---` 围栏块，内嵌 CodeMirror 编辑 YAML
@@ -177,6 +177,7 @@ pnpm e2e
 
 ## 版本记录
 
+- **v1.2.8** 三项改进：①新增行内公式插入入口（`insertInlineMath` 命令在光标处插入 `math_inline` atom 节点并自动进入编辑态，工具栏 `$ 行内` 按钮 + 斜杠菜单 `/行内` 双入口，空值显示「公式」占位提示）；②彻底修复 frontmatter 删除块误删底部块（v1.2.7 的 mousedown 监听被 CodeMirror focus 事务冲掉仍失效，`deleteCurrentBlock` 增加 DOM 焦点回退路径——读 `document.activeElement` 反查所属 atom 顶层块，删除块按钮 `onMouseDown preventDefault` 防止抢走 CM 焦点）；③修复列表内点代码块/表格/标题按钮报错 `invalid content for node list_item`（list_item content 要求首子节点为 paragraph，新增 `exitListIfNeeded` 在列表后插入空段落移出光标，`setBlockType`/`insertTable` 调用前先退出列表）；新增 7 个测试用例，全套 237 个测试通过
 - **v1.2.7** 修复工具栏 5 个边界 bug：①光标在元数据（frontmatter）上点「删除块」误删文档底部块（改为优先识别 NodeSelection）；②点击目录块（toc）再点「删除块」无反应（同上）；③点两次删除线报错 `there is no position after the top-level node`（insertBlockHere 末尾块越界，改用 try/catch + 夹值）；④点两次列表报错 `invalid content for node list_item`（列表内重复 wrap，改为检测跳过）；⑤代码块内点列表/引用报错 `content does not fit in gap`（code_block/atom 节点不允许 wrap，改为检测跳过 + try/catch 兜底）；新增 14 个测试用例，全套 230 个测试通过
 - **v1.2.6** 修复块级公式插入「不能用」：斜杠菜单 `/公式` 和工具栏「∑ 公式」插入空 `math_display` atom 节点后，KaTeX 渲染空字符串无可视内容，用户以为没插入；改为插入后自动 `NodeSelection` 选中节点并通过 `dblclick` 事件触发 NodeView 编辑模式（直接弹出 textarea 输入），空值时显示虚线占位框「双击编辑公式」；新增 6 个 block-commands 测试用例，全套 216 个测试通过
 - **v1.2.5** 新增 Mermaid 图表拖动平移：缩放大于 100% 时按住鼠标拖动图表查看各区域（放大后无需调横向/纵向滚动条），双击重置缩放与平移，重新渲染图表时重置平移，`destroy` 钩子清理 window 监听器避免泄漏；新增 11 个测试用例覆盖平移/缩放/双击重置/destroy 清理，全套 210 个测试通过

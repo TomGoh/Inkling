@@ -13,25 +13,51 @@ import { EditorState, NodeSelection, TextSelection } from "@milkdown/kit/prose/s
 import { EditorView } from "@milkdown/kit/prose/view";
 import {
   insertMathBlock,
+  insertInlineMath,
   insertHr,
   deleteCurrentBlock,
   wrapBulletList,
   wrapOrderedList,
   wrapBlockquote,
+  turnIntoCodeBlock,
+  turnIntoHeading,
+  exitListIfNeeded,
 } from "../../src/components/Editor/block-commands";
 
 // 构建完整 schema：覆盖所有被测命令涉及的节点类型
 function makeSchema() {
   return new Schema({
     nodes: {
-      doc: { content: "(paragraph | math_display | hr | blockquote | bullet_list | ordered_list | code_block | frontmatter | toc)*" },
+      doc: { content: "(paragraph | heading | math_display | math_inline_seq | hr | blockquote | bullet_list | ordered_list | code_block | frontmatter | toc)*" },
       paragraph: {
         group: "block",
-        content: "text*",
+        content: "(text | math_inline)*",
         toDOM: () => ["p", 0],
         parseDOM: [{ tag: "p" }],
       },
       text: { group: "inline" },
+      math_inline: {
+        group: "inline",
+        inline: true,
+        atom: true,
+        attrs: { value: { default: "" } },
+        toDOM: () => ["span", 0],
+        parseDOM: [{ tag: "span" }],
+      },
+      // 仅用于让 doc.content 接受 math_inline 顶层块（实际不会出现，占位）
+      math_inline_seq: {
+        group: "block",
+        content: "math_inline",
+        toDOM: () => ["div", 0],
+        parseDOM: [{ tag: "div.seq" }],
+      },
+      heading: {
+        group: "block",
+        content: "text*",
+        attrs: { level: { default: 1 } },
+        toDOM: () => ["h1", 0],
+        parseDOM: [{ tag: "h1" }],
+      },
       math_display: {
         group: "block",
         atom: true,
@@ -370,6 +396,102 @@ describe("wrapListBlock / wrapBlockquote 边界修复", () => {
     document.body.appendChild(root);
     const view = new EditorView(root, { state });
     expect(() => wrapBulletList(view)).not.toThrow();
+    view.destroy();
+  });
+});
+
+// v1.2.8 新增：行内公式插入、列表内退出后转换块类型
+describe("insertInlineMath（v1.2.8）", () => {
+  it("在段落光标处插入 math_inline 节点", () => {
+    const schema = makeSchema();
+    const para = schema.nodes.paragraph.create(null, [schema.text("ab")]);
+    // doc: paragraph(0) > text "ab"(1..3)，光标在 pos=2（a 与 b 之间）
+    const { view } = makeView(schema, [para], { from: 2 });
+    insertInlineMath(view);
+    // 段落内应含 text + math_inline
+    const paraNode = view.state.doc.firstChild!;
+    const types: string[] = [];
+    paraNode.content.forEach((c: any) => types.push(c.type.name));
+    expect(types).toContain("math_inline");
+    view.destroy();
+  });
+
+  it("插入后调度 NodeSelection 选中行内公式（requestAnimationFrame）", () => {
+    const schema = makeSchema();
+    const para = schema.nodes.paragraph.create(null, [schema.text("ab")]);
+    const { view } = makeView(schema, [para], { from: 2 });
+    insertInlineMath(view);
+    vi.runAllTimers();
+    expect(view.state.selection instanceof NodeSelection).toBe(true);
+    view.destroy();
+  });
+
+  it("schema 无 math_inline 时静默返回不抛错", () => {
+    const schema = new Schema({
+      nodes: {
+        doc: { content: "paragraph*" },
+        paragraph: {
+          group: "block",
+          content: "text*",
+          toDOM: () => ["p", 0],
+          parseDOM: [{ tag: "p" }],
+        },
+        text: { group: "inline" },
+      },
+    });
+    const para = schema.nodes.paragraph.create(null, [schema.text("x")]);
+    const { view } = makeView(schema, [para], { from: 1 });
+    expect(() => insertInlineMath(view)).not.toThrow();
+    view.destroy();
+  });
+});
+
+describe("exitListIfNeeded / 列表内转换块类型（v1.2.8）", () => {
+  it("在列表内调用 exitListIfNeeded 后追加空段落并移出光标", () => {
+    const schema = makeSchema();
+    const para = schema.nodes.paragraph.create(null, [schema.text("item")]);
+    const li = schema.nodes.list_item.create(null, [para]);
+    const ul = schema.nodes.bullet_list.create(null, [li]);
+    const { view } = makeView(schema, [ul], { from: 3 });
+    const exited = exitListIfNeeded(view);
+    expect(exited).toBe(true);
+    // doc 应变成 bullet_list + paragraph
+    expect(view.state.doc.childCount).toBe(2);
+    expect(view.state.doc.child(0).type.name).toBe("bullet_list");
+    expect(view.state.doc.child(1).type.name).toBe("paragraph");
+    view.destroy();
+  });
+
+  it("不在列表内时 exitListIfNeeded 返回 false", () => {
+    const schema = makeSchema();
+    const para = schema.nodes.paragraph.create(null, [schema.text("hello")]);
+    const { view } = makeView(schema, [para], { from: 1 });
+    expect(exitListIfNeeded(view)).toBe(false);
+    view.destroy();
+  });
+
+  it("列表内点代码块按钮不报错（v1.2.8 修复 invalid content for node list_item）", () => {
+    const schema = makeSchema();
+    const para = schema.nodes.paragraph.create(null, [schema.text("item")]);
+    const li = schema.nodes.list_item.create(null, [para]);
+    const ul = schema.nodes.bullet_list.create(null, [li]);
+    const { view } = makeView(schema, [ul], { from: 3 });
+    expect(() => turnIntoCodeBlock(view)).not.toThrow();
+    // 转换发生在退出列表后的新段落上，list 保留，后接 code_block
+    expect(view.state.doc.child(0).type.name).toBe("bullet_list");
+    expect(view.state.doc.child(1).type.name).toBe("code_block");
+    view.destroy();
+  });
+
+  it("列表内点标题按钮不报错", () => {
+    const schema = makeSchema();
+    const para = schema.nodes.paragraph.create(null, [schema.text("item")]);
+    const li = schema.nodes.list_item.create(null, [para]);
+    const ol = schema.nodes.ordered_list.create(null, [li]);
+    const { view } = makeView(schema, [ol], { from: 3 });
+    expect(() => turnIntoHeading(view, 2)).not.toThrow();
+    expect(view.state.doc.child(0).type.name).toBe("ordered_list");
+    expect(view.state.doc.child(1).type.name).toBe("heading");
     view.destroy();
   });
 });

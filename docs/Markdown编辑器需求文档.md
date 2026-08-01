@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v1.2.7
+> 文档版本：v1.2.8
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -240,9 +240,13 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.2 图表 | Mermaid 图表拖动平移 | ✅ | v1.2.5 | 缩放大于 100% 时按住鼠标拖动平移图表查看各区域（无需调滚动条）；双击重置缩放与平移；重新渲染图表时重置平移；`destroy` 清理 window 监听器避免泄漏 |
 | 3.3 公式 | 块级公式插入修复 | ✅ | v1.2.6 | 修复斜杠菜单和工具栏插入块级公式「不能用」：插入空 atom 节点后 KaTeX 渲染空字符串无可见内容；改为插入后自动选中节点并触发双击进入编辑模式，且空值显示虚线占位框「双击编辑公式」 |
 | 3.4 工具栏 | 删除块/列表/引用多项边界 bug 修复 | ✅ | v1.2.7 | 修复5个 bug：①光标在元数据上点删除块误删底部块（NodeSelection 未识别）；②点击目录块再点删除块无反应（同上）；③工具栏点两次删除线报错 "there is no position after the top-level node"（insertBlockHere 在文档末尾块 $from.after 越界）；④点两次列表报错 "invalid content for node list_item"（列表内重复 wrap）；⑤代码块内点列表/引用报错 "content does not fit in gap"（code_block content 不允许 wrap） |
+| 3.2 数学公式 | 行内公式插入入口 | ✅ | v1.2.8 | `insertInlineMath` 命令在光标处插入 `math_inline` atom 节点并自动进入编辑态；工具栏 `$ 行内` 按钮 + 斜杠菜单 `/行内` 双入口；空值显示「公式」占位提示 |
+| 3.4 工具栏 | frontmatter 删除块误删彻底修复 | ✅ | v1.2.8 | v1.2.7 的 mousedown 监听被 CodeMirror focus 事务冲掉仍失效；`deleteCurrentBlock` 增加 DOM 焦点回退（`document.activeElement` 反查 atom 顶层块）；删除块按钮 `onMouseDown preventDefault` 防止抢走 CM 焦点 |
+| 3.2 列表 | 列表内点代码块/表格/标题报错修复 | ✅ | v1.2.8 | 修复 `invalid content for node list_item`：list_item content 要求首子节点为 paragraph；新增 `exitListIfNeeded` 在列表后插入空段落移出光标，`setBlockType`/`insertTable` 调用前先退出列表 |
 
 ### 8.2 发布版本
 
+- **v1.2.8** 三项改进：①新增行内公式插入入口（`insertInlineMath` 命令在光标处插入 `math_inline` atom 节点并自动进入编辑态，工具栏 `$ 行内` 按钮 + 斜杠菜单 `/行内` 双入口，空值显示「公式」占位提示）；②彻底修复 frontmatter 删除块误删底部块（v1.2.7 的 mousedown 监听被 CodeMirror focus 事务冲掉仍失效，`deleteCurrentBlock` 增加 DOM 焦点回退路径——读 `document.activeElement` 反查所属 atom 顶层块，删除块按钮 `onMouseDown preventDefault` 防止抢走 CM 焦点）；③修复列表内点代码块/表格/标题按钮报错 `invalid content for node list_item`（list_item content 要求首子节点为 paragraph，新增 `exitListIfNeeded` 在列表后插入空段落移出光标，`setBlockType`/`insertTable` 调用前先退出列表，嵌套列表场景下新段落落到外层 list_item 的 block* 位置仍合法）；新增 7 个测试用例，全套 237 个测试通过
 - **v1.2.7** 修复工具栏 5 个边界 bug：①光标在元数据（frontmatter）上点「删除块」误删文档底部块（原 `$head.before(1)` 在 atom 节点 NodeSelection 上返回错误位置，改为优先识别 NodeSelection 直接拿选中节点）；②点击目录块（toc）再点「删除块」无反应（同上，toc 是 atom 节点）；③工具栏点两次删除线（hr）报错 `there is no position after the top-level node`（`insertBlockHere` 在文档最后一个块调用 `$from.after()` 越界，改用 try/catch + 夹值到文档末尾）；④点两次有序/无序列表报错 `invalid content for node list_item`（列表内重复 wrap 产生非法嵌套，改为检测 `range.parent` 已是 list_item 时跳过）；⑤代码块内点列表/引用报错 `content does not fit in gap`（code_block content 是 `text*` 不允许被 wrap，改为检测 code_block 和 atom 节点时跳过，并加 try/catch 兜底）；新增 14 个 block-commands 测试用例覆盖上述场景，全套 230 个测试通过
 - **v1.2.6** 修复块级公式插入「不能用」：斜杠菜单 `/公式` 和工具栏「∑ 公式」插入空 `math_display` atom 节点后，KaTeX 渲染空字符串无可视内容，用户以为没插入；改为插入后自动 `NodeSelection` 选中节点并通过 `dblclick` 事件触发 NodeView 编辑模式（直接弹出 textarea 输入），空值时显示虚线占位框「双击编辑公式」；新增 6 个 block-commands 测试用例，全套 216 个测试通过
 - **v1.2.5** 新增 Mermaid 图表拖动平移：缩放大于 100% 时按住鼠标拖动图表查看各区域（放大后无需调横向/纵向滚动条），双击重置缩放与平移，重新渲染图表时重置平移，`destroy` 钩子清理 window 监听器避免泄漏；新增 11 个测试用例覆盖平移/缩放/双击重置/destroy 清理，全套 210 个测试通过
