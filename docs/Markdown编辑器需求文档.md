@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v1.2.2
+> 文档版本：v1.2.3
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -232,9 +232,13 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.8 | Ctrl+K 插入链接 | ✅ | v1.1.5 | Typora 标准快捷键：选中文本按 Ctrl+K 弹输入框填 URL，给选中文本加 link mark；无选中则先填 URL 再填文本，插入 `[文本](url)` |
 | 3.8 | Ctrl+Alt+0 转普通段落 | ✅ | v1.1.5 | Typora 标准快捷键：清除当前块格式，标题/引用/代码块等转回普通段落 |
 | 3.6 | Ctrl+滚轮缩放文档 | ✅ | v1.2.2 | `Ctrl/Cmd+滚轮` 等比放大/缩小整个文档（50%~300%，步进 10%），`Ctrl/Cmd+0` 重置 100%；缩放级别持久化到 localStorage；状态栏右侧显示当前百分比，点击可重置 |
+| 3.2 其他 | HTML 嵌入/行内标签渲染 | ✅ | v1.2.3 | 白名单渲染 `<span>/<kbd>/<mark>/<details>/<blockquote>` 等标签；DOMParser 解析 + LRU 缓存保性能；过滤 script/on*/javascript: 等危险内容 |
+| 3.2 其他 | 脚注（footnote） | ✅ | v1.2.3 | GFM 脚注语法 `[^1]` 引用 + `[^1]: 定义`；点击引用跳转定义，点击返回链接跳回首个引用 |
+| 3.2 图表 | Mermaid 下载与缩放 | ✅ | v1.2.3 | 「下载」按钮导出 SVG 文件（桌面端弹保存对话框）；图表上 `Ctrl/Cmd+滚轮` 缩放 SVG（0.5~3x），不触发文档缩放 |
 
 ### 8.2 发布版本
 
+- **v1.2.3** 新增 HTML 嵌入/行内标签渲染（白名单 + DOMParser + LRU 缓存保性能，过滤 XSS）；新增脚注支持（GFM `[^1]` 语法，点击跳转）；Mermaid 图表新增下载按钮（导出 SVG）和 Ctrl+滚轮缩放（0.5~3x）；补充 mock 示例文件
 - **v1.2.2** 新增 `Ctrl/Cmd+滚轮` 缩放文档（50%~300%，`Ctrl/Cmd+0` 重置 100%，状态栏显示百分比可点击重置，缩放级别持久化）；修复 GitHub Action 中 `actions/upload-artifact@v5` 仍声明 `node20` 导致的 Node.js 20 弃用警告（升级到 v7）
 - **v1.2.1** 修复 GitHub Action E2E 测试全部失败（断言假设一启动就有 mock 文件树，实际浏览器版需先点击「打开文件夹」按钮加载 mock 工作区）；修复 Node.js 20 弃用警告（actions/checkout、pnpm/action-setup、actions/setup-node、actions/upload-artifact 从 v4 升级到 v5）
 - **v1.2.0** 性能优化（插件回调加 `docChanged` 守卫消除每键全树遍历、cursor-saver 防抖落 store、TabsBar/useAutoSave 精准订阅、代码块 NodeView 视口懒挂载、查找面板输入防抖）；新增 Ctrl+R 替换快捷键（逐个/全部替换）；建立自动化测试体系（169 个用例：单元/store/组件/E2E 四层，GitHub Action 测试失败阻断构建）

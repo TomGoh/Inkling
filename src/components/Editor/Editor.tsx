@@ -48,6 +48,7 @@ import {
   frontmatterView,
 } from "./frontmatter";
 import { footnoteRefView, footnoteDefinitionView } from "./footnotes";
+import { htmlView } from "./html-view";
 import { tocPlugin, tocSchema, tocView, remarkTocPlugin } from "./toc";
 import {
   calloutSchema,
@@ -259,6 +260,8 @@ function EditorInner({
           // 脚注：GFM 预设已注册 schema，这里仅覆盖 NodeView 提供跳转交互
           .use(footnoteRefView)
           .use(footnoteDefinitionView)
+          // HTML 嵌入：覆盖 commonmark htmlSchema 的 NodeView，白名单渲染真实 HTML 标签
+          .use(htmlView)
           // [TOC] 目录块节点
           .use(remarkTocPlugin)
           .use(tocSchema)

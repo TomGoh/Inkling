@@ -145,9 +145,13 @@ function App() {
 
   // Ctrl/Cmd + 滚轮缩放文档：拦截浏览器原生页面缩放，改用应用内 zoom
   // passive:false 才能 preventDefault；capture 阶段拦截确保不被其他处理消耗
+  // 例外：鼠标在 Mermaid 图表上时由图表自身处理缩放，不触发文档缩放
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
+      // Mermaid 图表内部由其 NodeView 的 wheel 监听接管缩放
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("[data-mermaid]")) return;
       e.preventDefault();
       // 向上滚（deltaY < 0）放大，向下滚缩小
       useSettings.getState().adjustEditorZoom(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);

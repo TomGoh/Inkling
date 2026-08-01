@@ -36,6 +36,18 @@ const MOCK_TREE: FileNode = {
           is_dir: false,
           children: [],
         },
+        {
+          name: "html-demo.md",
+          path: "/mock-workspace/notes/html-demo.md",
+          is_dir: false,
+          children: [],
+        },
+        {
+          name: "footnote-demo.md",
+          path: "/mock-workspace/notes/footnote-demo.md",
+          is_dir: false,
+          children: [],
+        },
       ],
     },
     {
@@ -54,6 +66,10 @@ const MOCK_FILE_CONTENT: Record<string, string> = {
     "# Todo\n\n- [x] 任务1\n- [ ] 任务2\n- [ ] 任务3\n",
   "/mock-workspace/intro.md":
     "# InklingMD 简介\n\n一个所见即所得的 Markdown 编辑器。\n",
+  "/mock-workspace/notes/html-demo.md":
+    "# HTML 嵌入示例\n\n行内标签：<kbd>Ctrl</kbd> + <kbd>S</kbd> 保存，<span style=\"color:red\">红色文字</span>，<mark>高亮</mark>。\n\n块级嵌入：\n\n<details><summary>点击展开</summary>这里是折叠内容。</details>\n\n<blockquote style=\"border-left:3px solid #0969da\">自定义引用样式</blockquote>\n",
+  "/mock-workspace/notes/footnote-demo.md":
+    "# 脚注示例\n\nMarkdown 是一种轻量级标记语言[^1]，由 John Gruber 创建[^gruber]。\n\n它通过简单的纯文本语法实现富文本排版[^2]。\n\n[^1]: 轻量级指解析快、易读写。\n\n[^2]: 富文本排版包括标题、列表、表格、公式等。\n\n[^gruber]: John Gruber，Daring Fireball 博客作者，2004 年发布 Markdown。\n",
 };
 
 /** 递归列出目录树 */

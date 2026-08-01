@@ -14,7 +14,8 @@
 - GFM 表格，附表格工具栏（增删行列、对齐、快速插入）
 - 围栏代码块 + 语法高亮（CodeMirror，覆盖主流语言，可切换主题）
 - KaTeX 数学公式（行内 `$...$` 与块级 `$$...$$`，支持 mhchem 化学方程式、自动编号）
-- Mermaid 图表（流程图、时序图、甘特图等）
+- Mermaid 图表（流程图、时序图、甘特图等），支持「下载」按钮导出 SVG、`Ctrl/Cmd+滚轮`缩放图表（0.5~3x）
+- **HTML 嵌入**：白名单渲染 `<span style="color:red">`、`<kbd>`、`<mark>`、`<details>`、`<blockquote>` 等 HTML 标签，过滤 script/on*/javascript: 等危险内容
 - **YAML Front Matter**：文档首部 `---` 围栏块，内嵌 CodeMirror 编辑 YAML
 - **脚注**：标准 GFM 脚注语法 `[^1]` 与 `[^1]: 内容`，点击互相跳转
 - **`[TOC]` 目录**：在文档任意位置写 `[TOC]`，自动根据标题生成目录树，点击跳转
@@ -175,6 +176,7 @@ pnpm e2e
 
 ## 版本记录
 
+- **v1.2.3** 新增 HTML 嵌入/行内标签渲染（白名单 + DOMParser + LRU 缓存保性能，过滤 XSS）；新增脚注支持（GFM `[^1]` 语法，点击跳转）；Mermaid 图表新增下载按钮（导出 SVG）和 Ctrl+滚轮缩放（0.5~3x）；补充 mock 示例文件
 - **v1.2.2** 新增 `Ctrl/Cmd+滚轮` 缩放文档（50%~300%，`Ctrl/Cmd+0` 重置 100%，状态栏显示百分比可点击重置，缩放级别持久化）；修复 GitHub Action 中 `actions/upload-artifact@v5` 仍声明 `node20` 导致的 Node.js 20 弃用警告（升级到 v7）
 - **v1.2.1** 修复 GitHub Action E2E 测试全部失败（断言假设一启动就有 mock 文件树，实际浏览器版需先点击「打开文件夹」加载 mock 工作区）；修复 Node.js 20 弃用警告（actions/checkout、pnpm/action-setup、actions/setup-node、actions/upload-artifact 从 v4 升级到 v5）
 - **v1.2.0** 性能优化（插件回调加 `docChanged` 守卫消除每键全树遍历、cursor-saver 防抖落 store、TabsBar/useAutoSave 精准订阅、代码块 NodeView 视口懒挂载、查找面板输入防抖）；新增 Ctrl+R 替换快捷键（逐个/全部替换）；建立自动化测试体系（169 个用例：单元/store/组件/E2E 四层，GitHub Action 测试失败阻断构建）

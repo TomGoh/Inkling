@@ -473,6 +473,84 @@ body,
   word-break: break-all;
 }
 
+/* Mermaid 工具栏按钮（编辑/下载）：右上角悬浮，hover 显现 */
+.editor-scroll .milkdown .mermaid-block {
+  position: relative;
+}
+.editor-scroll .milkdown .mermaid-toolbar {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.editor-scroll .milkdown .mermaid-block:hover .mermaid-toolbar {
+  opacity: 1;
+}
+.editor-scroll .milkdown .mermaid-toolbar button {
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 4px;
+  background: var(--bg, #fff);
+  color: var(--text-muted, #6e7681);
+  cursor: pointer;
+  line-height: 1.4;
+}
+.editor-scroll .milkdown .mermaid-toolbar button:hover {
+  background: var(--row-hover-bg, #f0f0f0);
+  color: var(--text, #1f2328);
+}
+/* Mermaid 缩放光标提示：Ctrl+滚轮可缩放 */
+.editor-scroll .milkdown .mermaid-render.zoomable {
+  cursor: zoom-in;
+}
+.editor-scroll .milkdown .mermaid-render.zoomable:active {
+  cursor: zoom-out;
+}
+
+/* HTML 嵌入渲染：块级容器宽度自适应 */
+.editor-scroll .milkdown .html-inline.html-block {
+  width: 100%;
+}
+.editor-scroll .milkdown .html-inline kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.85em;
+  line-height: 1;
+  color: var(--text, #1f2328);
+  background: var(--bg-subtle, #f6f8fa);
+  border: 1px solid var(--border, #d0d7de);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+}
+.editor-scroll .milkdown .html-inline mark {
+  background: #fff8c5;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+.editor-scroll .milkdown .html-inline details {
+  margin: 0.5em 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 6px;
+  background: var(--bg-subtle, #f6f8fa);
+}
+.editor-scroll .milkdown .html-inline summary {
+  cursor: pointer;
+  font-weight: 600;
+  user-select: none;
+}
+.editor-scroll .milkdown .html-inline blockquote {
+  margin: 0.5em 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--border, #d0d7de);
+  color: var(--text-muted, #6e7681);
+}
+
 /* KaTeX 数学公式 */
 .editor-scroll .milkdown .math-inline .katex {
   font-size: 1.05em;
