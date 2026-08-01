@@ -12,6 +12,7 @@ import {
   setAlignCommand,
   selectTableCommand,
 } from "@milkdown/kit/preset/gfm";
+import { deleteColumn, deleteRow } from "@milkdown/kit/prose/tables";
 import {
   turnIntoHeading,
   wrapBulletList,
@@ -92,6 +93,30 @@ export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
     });
   };
 
+  // 删除当前列：直接用 prosemirror-tables 的 deleteColumn
+  // 无需先选中列（CellSelection），基于光标所在列位置删除
+  const deleteCol = () => {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      deleteColumn(view.state, view.dispatch.bind(view));
+      view.focus();
+    });
+  };
+
+  // 删除当前行：直接用 prosemirror-tables 的 deleteRow
+  // 无需先选中行（CellSelection），基于光标所在行位置删除
+  const deleteRow_ = () => {
+    const editor = getEditor();
+    if (!editor) return;
+    editor.action((ctx) => {
+      const view = ctx.get(editorViewCtx);
+      deleteRow(view.state, view.dispatch.bind(view));
+      view.focus();
+    });
+  };
+
   const setAlign = (a: Align) => callCmd(setAlignCommand.key, a);
 
   return (
@@ -169,7 +194,7 @@ export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
           <div className="tt-group">
             <button className="tt-btn" onClick={() => callCmd(addRowBeforeCommand.key)} title="在上方插入行">↕ 上行</button>
             <button className="tt-btn" onClick={() => callCmd(addRowAfterCommand.key)} title="在下方插入行">↕ 下行</button>
-            <button className="tt-btn" onClick={() => callCmd(deleteSelectedCellsCommand.key)} title="删除当前行（先选中行）">✕ 删行</button>
+            <button className="tt-btn" onClick={deleteRow_} title="删除当前行">✕ 删行</button>
           </div>
 
           <span className="tt-sep" />
@@ -177,7 +202,7 @@ export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
           <div className="tt-group">
             <button className="tt-btn" onClick={() => callCmd(addColBeforeCommand.key)} title="在左侧插入列">↔ 左列</button>
             <button className="tt-btn" onClick={() => callCmd(addColAfterCommand.key)} title="在右侧插入列">↔ 右列</button>
-            <button className="tt-btn" onClick={() => callCmd(deleteSelectedCellsCommand.key)} title="删除当前列（先选中列）">✕ 删列</button>
+            <button className="tt-btn" onClick={deleteCol} title="删除当前列">✕ 删列</button>
           </div>
 
           <span className="tt-sep" />

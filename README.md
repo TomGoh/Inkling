@@ -78,6 +78,7 @@
 - **精准订阅**：TabsBar / useAutoSave 改为订阅派生快照，打字时 UI 不重渲染
 - **代码块懒挂载**：CodeMirror 实例延迟到代码块进入视口（200px 预加载）时才创建，大量代码块文档首屏开销显著下降
 - **查找面板防抖**：查找词 120ms 防抖，连续输入只触发一次全文匹配
+- **滚轮监听器按需挂载**：`Ctrl/Cmd+滚轮` 缩放的 `passive:false` 监听器仅在 Ctrl/Cmd 按下时挂载，普通滚动时 window 上无任何 wheel 监听器走浏览器合成线程快速路径，修复万行文档滚轮失效问题（`useCtrlWheelZoom` hook）
 
 ### 快捷键体系
 - 完整覆盖 Markdown 编辑常用快捷键（加粗、斜体、标题、列表、代码块等）
@@ -176,6 +177,7 @@ pnpm e2e
 
 ## 版本记录
 
+- **v1.2.4** 修复万行 MD 文档滚轮失效（Ctrl+滚轮的 `passive:false` 监听器常驻导致主线程被阻塞，改为仅在 Ctrl/Cmd 按下时动态挂载/卸载，普通滚动走浏览器合成线程快速路径；逻辑抽到 `useCtrlWheelZoom` hook）；修复工具栏表格「删列/删行」按钮无效（原依赖 CellSelection 未先选中列，改用 `prosemirror-tables` 的 `deleteColumn`/`deleteRow` 基于光标位置直接删除）；新增 24 个测试用例覆盖上述修复（scroll-performance 15 个 + TableToolbar 9 个），全套 199 个测试通过
 - **v1.2.3** 新增 HTML 嵌入/行内标签渲染（白名单 + DOMParser + LRU 缓存保性能，过滤 XSS）；新增脚注支持（GFM `[^1]` 语法，点击跳转）；Mermaid 图表新增下载按钮（导出 SVG）和 Ctrl+滚轮缩放（0.5~3x）；补充 mock 示例文件
 - **v1.2.2** 新增 `Ctrl/Cmd+滚轮` 缩放文档（50%~300%，`Ctrl/Cmd+0` 重置 100%，状态栏显示百分比可点击重置，缩放级别持久化）；修复 GitHub Action 中 `actions/upload-artifact@v5` 仍声明 `node20` 导致的 Node.js 20 弃用警告（升级到 v7）
 - **v1.2.1** 修复 GitHub Action E2E 测试全部失败（断言假设一启动就有 mock 文件树，实际浏览器版需先点击「打开文件夹」加载 mock 工作区）；修复 Node.js 20 弃用警告（actions/checkout、pnpm/action-setup、actions/setup-node、actions/upload-artifact 从 v4 升级到 v5）

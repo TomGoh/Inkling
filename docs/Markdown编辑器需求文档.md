@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v1.2.3
+> 文档版本：v1.2.4
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -235,9 +235,12 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.2 其他 | HTML 嵌入/行内标签渲染 | ✅ | v1.2.3 | 白名单渲染 `<span>/<kbd>/<mark>/<details>/<blockquote>` 等标签；DOMParser 解析 + LRU 缓存保性能；过滤 script/on*/javascript: 等危险内容 |
 | 3.2 其他 | 脚注（footnote） | ✅ | v1.2.3 | GFM 脚注语法 `[^1]` 引用 + `[^1]: 定义`；点击引用跳转定义，点击返回链接跳回首个引用 |
 | 3.2 图表 | Mermaid 下载与缩放 | ✅ | v1.2.3 | 「下载」按钮导出 SVG 文件（桌面端弹保存对话框）；图表上 `Ctrl/Cmd+滚轮` 缩放 SVG（0.5~3x），不触发文档缩放 |
+| 3.6 | Ctrl+滚轮缩放文档（性能修复） | ✅ | v1.2.4 | 修复万行 MD 文档滚轮失效：wheel 监听器改为仅在 Ctrl/Cmd 按下时挂载（passive:false），普通滚动时 window 上无任何 wheel 监听器走浏览器合成线程快速路径；逻辑抽到 `useCtrlWheelZoom` hook 便于测试 |
+| 3.2 表格 | 表格删列/删行按钮修复 | ✅ | v1.2.4 | 修复工具栏「删列/删行」按钮无效（原依赖 CellSelection 但未先选中列）；改用 `prosemirror-tables` 的 `deleteColumn`/`deleteRow` 直接基于光标位置删除，无需先选列 |
 
 ### 8.2 发布版本
 
+- **v1.2.4** 修复万行 MD 文档滚轮失效（Ctrl+滚轮的 passive:false 监听器常驻导致主线程被阻塞，改为仅在 Ctrl/Cmd 按下时动态挂载/卸载，普通滚动走浏览器合成线程快速路径；逻辑抽到 `useCtrlWheelZoom` hook）；修复工具栏表格「删列/删行」按钮无效（原依赖 CellSelection 未先选中列，改用 `prosemirror-tables` 的 `deleteColumn`/`deleteRow` 基于光标位置直接删除）；新增 24 个测试用例覆盖上述修复（scroll-performance 15 个 + TableToolbar 9 个），全套 199 个测试通过
 - **v1.2.3** 新增 HTML 嵌入/行内标签渲染（白名单 + DOMParser + LRU 缓存保性能，过滤 XSS）；新增脚注支持（GFM `[^1]` 语法，点击跳转）；Mermaid 图表新增下载按钮（导出 SVG）和 Ctrl+滚轮缩放（0.5~3x）；补充 mock 示例文件
 - **v1.2.2** 新增 `Ctrl/Cmd+滚轮` 缩放文档（50%~300%，`Ctrl/Cmd+0` 重置 100%，状态栏显示百分比可点击重置，缩放级别持久化）；修复 GitHub Action 中 `actions/upload-artifact@v5` 仍声明 `node20` 导致的 Node.js 20 弃用警告（升级到 v7）
 - **v1.2.1** 修复 GitHub Action E2E 测试全部失败（断言假设一启动就有 mock 文件树，实际浏览器版需先点击「打开文件夹」按钮加载 mock 工作区）；修复 Node.js 20 弃用警告（actions/checkout、pnpm/action-setup、actions/setup-node、actions/upload-artifact 从 v4 升级到 v5）

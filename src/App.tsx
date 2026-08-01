@@ -15,10 +15,11 @@ import { ShortcutsCustomize } from "./components/Shortcuts/ShortcutsCustomize";
 import { useWorkspace } from "./store/workspace";
 import { useTheme } from "./store/theme";
 import { useUI } from "./store/ui";
-import { useSettings, ZOOM_STEP } from "./store/settings";
+import { useSettings } from "./store/settings";
 import { useShortcuts, matchBinding, type ShortcutId } from "./store/shortcuts";
 import { useAutoSave } from "./lib/useAutoSave";
 import { useFileWatcher } from "./lib/useFileWatcher";
+import { useCtrlWheelZoom } from "./lib/useCtrlWheelZoom";
 import { exportHTML, exportPDF, exportDocx, exportPNG, exportOutline, copyMarkdown, copyRichText } from "./lib/exporter";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -144,21 +145,11 @@ function App() {
   const editorZoom = useSettings((s) => s.editorZoom);
 
   // Ctrl/Cmd + 滚轮缩放文档：拦截浏览器原生页面缩放，改用应用内 zoom
-  // passive:false 才能 preventDefault；capture 阶段拦截确保不被其他处理消耗
-  // 例外：鼠标在 Mermaid 图表上时由图表自身处理缩放，不触发文档缩放
-  useEffect(() => {
-    const onWheel = (e: WheelEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      // Mermaid 图表内部由其 NodeView 的 wheel 监听接管缩放
-      const target = e.target as HTMLElement | null;
-      if (target?.closest("[data-mermaid]")) return;
-      e.preventDefault();
-      // 向上滚（deltaY < 0）放大，向下滚缩小
-      useSettings.getState().adjustEditorZoom(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
-    };
-    window.addEventListener("wheel", onWheel, { passive: false, capture: true });
-    return () => window.removeEventListener("wheel", onWheel, { capture: true } as EventListenerOptions);
-  }, []);
+  // 性能关键：仅在 Ctrl/Cmd 按下时才挂载 passive:false 监听器，
+  // 普通滚动时无任何 wheel 监听器，让浏览器走合成线程快速滚动路径。
+  // 万行文档下若 passive:false 常驻，主线程被布局/绘制占用时滚轮会严重卡顿。
+  // 逻辑抽到 useCtrlWheelZoom hook 便于单元测试覆盖。
+  useCtrlWheelZoom();
 
   // 启用 Ctrl/Cmd+S 手动保存 + 防抖 2 秒自动保存
   useAutoSave();
