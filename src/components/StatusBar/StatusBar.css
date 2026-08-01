@@ -17,3 +17,28 @@
 .status-sep {
   opacity: 0.5;
 }
+
+/* 弹性间隔：把右侧缩放按钮推到状态栏最右 */
+.status-spacer {
+  flex: 1;
+}
+
+/* 缩放按钮：默认无边框融入状态栏，hover 高亮 */
+.status-zoom {
+  padding: 0 0.35rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+  font: inherit;
+  line-height: 1.4;
+}
+.status-zoom:hover {
+  background: var(--row-hover-bg, rgba(0, 0, 0, 0.04));
+}
+/* 非 100% 时高亮提示用户当前处于缩放态 */
+.status-zoom-active {
+  color: var(--text, #1f2328);
+  font-weight: 600;
+}

@@ -15,6 +15,7 @@ import { ShortcutsCustomize } from "./components/Shortcuts/ShortcutsCustomize";
 import { useWorkspace } from "./store/workspace";
 import { useTheme } from "./store/theme";
 import { useUI } from "./store/ui";
+import { useSettings, ZOOM_STEP } from "./store/settings";
 import { useShortcuts, matchBinding, type ShortcutId } from "./store/shortcuts";
 import { useAutoSave } from "./lib/useAutoSave";
 import { useFileWatcher } from "./lib/useFileWatcher";
@@ -139,6 +140,22 @@ function App() {
   const toggleZenMode = useUI((s) => s.toggleZenMode);
   const setZenMode = useUI((s) => s.setZenMode);
 
+  // 编辑器缩放倍率（Ctrl/Cmd + 滚轮调整，Ctrl/Cmd+0 重置）
+  const editorZoom = useSettings((s) => s.editorZoom);
+
+  // Ctrl/Cmd + 滚轮缩放文档：拦截浏览器原生页面缩放，改用应用内 zoom
+  // passive:false 才能 preventDefault；capture 阶段拦截确保不被其他处理消耗
+  useEffect(() => {
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      // 向上滚（deltaY < 0）放大，向下滚缩小
+      useSettings.getState().adjustEditorZoom(e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP);
+    };
+    window.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    return () => window.removeEventListener("wheel", onWheel, { capture: true } as EventListenerOptions);
+  }, []);
+
   // 启用 Ctrl/Cmd+S 手动保存 + 防抖 2 秒自动保存
   useAutoSave();
   // 启用外部文件修改监听（仅桌面端）
@@ -258,6 +275,12 @@ function App() {
         }
         return;
       }
+      // Ctrl/Cmd+0 重置编辑器缩放到 100%（浏览器/Typora 标准）
+      if (!e.shiftKey && !e.altKey && e.key === "0") {
+        e.preventDefault();
+        useSettings.getState().resetEditorZoom();
+        return;
+      }
       const store = useShortcuts.getState();
       const tryMatch = (id: ShortcutId) => matchBinding(store.getBinding(id), e);
       if (tryMatch("find")) {
@@ -292,7 +315,7 @@ function App() {
     return (
       <main className="app-shell zen-mode">
         <div className="editor-wrap">
-          <div className="editor-scroll">
+          <div className="editor-scroll" style={{ zoom: editorZoom }}>
             <EditorErrorBoundary fileName={currentFile}>
               <MarkdownEditor
                 key={currentFile}
@@ -507,7 +530,7 @@ function App() {
             </div>
             <TableToolbar getEditor={getEditor} inTable={mainInTable} />
             <div className={`editor-body${splitFile ? " editor-body-split" : ""}`}>
-              <div className="editor-scroll">
+              <div className="editor-scroll" style={{ zoom: editorZoom }}>
                 {searchOpen && (
                   <SearchPanel
                     getEditor={getEditor}
@@ -551,7 +574,7 @@ function App() {
                       </button>
                     </div>
                   </div>
-                  <div className="editor-scroll editor-scroll-split-pane">
+                  <div className="editor-scroll editor-scroll-split-pane" style={{ zoom: editorZoom }}>
                     <EditorErrorBoundary fileName={splitFile}>
                       <MarkdownEditor
                         key={splitFile}

@@ -1,10 +1,11 @@
 // StatusBar 组件测试
-// 验证：无文件时不渲染、有文件时显示字数/字符/行数/阅读时长
+// 验证：无文件时不渲染、有文件时显示字数/字符/行数/阅读时长/缩放比例
 
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { StatusBar } from "../../src/components/StatusBar/StatusBar";
 import { useWorkspace } from "../../src/store/workspace";
+import { useSettings } from "../../src/store/settings";
 
 beforeEach(() => {
   // 重置 store 状态
@@ -12,6 +13,7 @@ beforeEach(() => {
     currentFile: null,
     currentContent: "",
   });
+  useSettings.getState().resetEditorZoom();
 });
 
 describe("StatusBar", () => {
@@ -59,5 +61,24 @@ describe("StatusBar", () => {
     useWorkspace.setState({ currentContent: "foo bar baz" });
     rerender(<StatusBar />);
     expect(screen.getByText(/字数 3/)).toBeInTheDocument();
+  });
+
+  it("默认显示 100% 缩放，调整后显示新比例", () => {
+    useWorkspace.setState({ currentFile: "/test.md", currentContent: "" });
+    render(<StatusBar />);
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    act(() => {
+      useSettings.getState().adjustEditorZoom(0.3); // 100% -> 130%
+    });
+    expect(screen.getByText("130%")).toBeInTheDocument();
+  });
+
+  it("点击缩放按钮重置为 100%", () => {
+    useWorkspace.setState({ currentFile: "/test.md", currentContent: "" });
+    useSettings.getState().setEditorZoom(1.5);
+    render(<StatusBar />);
+    const btn = screen.getByText("150%");
+    fireEvent.click(btn);
+    expect(useSettings.getState().editorZoom).toBe(1);
   });
 });

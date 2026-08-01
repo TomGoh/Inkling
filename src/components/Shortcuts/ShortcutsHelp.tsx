@@ -76,6 +76,8 @@ const STATIC_GROUPS: ShortcutGroup[] = [
     items: [
       { keys: `F11`, desc: "禅模式（隐藏所有 UI，纯编辑）" },
       { keys: `Esc`, desc: "退出禅模式" },
+      { keys: `${MOD}+滚轮`, desc: "放大 / 缩小文档（50% ~ 300%）" },
+      { keys: `${MOD}+0`, desc: "重置缩放到 100%" },
     ],
   },
 ];

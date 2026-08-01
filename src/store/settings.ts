@@ -8,6 +8,12 @@ import { create } from "zustand";
 /** 代码块语法高亮主题 */
 export type CodeBlockTheme = "oneDark" | "light" | "none";
 
+/** 编辑器缩放范围与步进 */
+export const ZOOM_MIN = 0.5;
+export const ZOOM_MAX = 3;
+export const ZOOM_STEP = 0.1;
+export const ZOOM_DEFAULT = 1;
+
 export interface SettingsState {
   /** 公式自动编号（display 公式按文档顺序编号 (1)(2)...） */
   formulaAutoNumber: boolean;
@@ -21,6 +27,8 @@ export interface SettingsState {
   autoPair: boolean;
   /** 拼写检查：浏览器原生拼写检查（红波浪线） */
   spellcheck: boolean;
+  /** 编辑器缩放倍率（0.5-3.0，1 表示 100%） */
+  editorZoom: number;
   /** 切换公式自动编号 */
   setFormulaAutoNumber: (v: boolean) => void;
   /** 设置代码块主题 */
@@ -33,6 +41,12 @@ export interface SettingsState {
   setAutoPair: (v: boolean) => void;
   /** 切换拼写检查 */
   setSpellcheck: (v: boolean) => void;
+  /** 增量调整缩放（正数放大，负数缩小），自动夹到 [ZOOM_MIN, ZOOM_MAX] */
+  adjustEditorZoom: (delta: number) => void;
+  /** 直接设置缩放倍率 */
+  setEditorZoom: (v: number) => void;
+  /** 重置缩放到 100% */
+  resetEditorZoom: () => void;
   /** 重置全部为默认值 */
   reset: () => void;
 }
@@ -46,6 +60,7 @@ interface PersistedSettings {
   typewriterMode: boolean;
   autoPair: boolean;
   spellcheck: boolean;
+  editorZoom: number;
 }
 
 const DEFAULTS: PersistedSettings = {
@@ -55,6 +70,7 @@ const DEFAULTS: PersistedSettings = {
   typewriterMode: false,
   autoPair: true,
   spellcheck: false,
+  editorZoom: ZOOM_DEFAULT,
 };
 
 function loadPersisted(): PersistedSettings {
@@ -76,6 +92,12 @@ function persist(s: PersistedSettings): void {
   }
 }
 
+/** 将任意倍率夹到合法范围，并保留一位小数避免浮点累积误差 */
+function clampZoom(v: number): number {
+  const rounded = Math.round(v * 10) / 10;
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, rounded));
+}
+
 const initial = loadPersisted();
 
 export const useSettings = create<SettingsState>((set, get) => ({
@@ -85,6 +107,7 @@ export const useSettings = create<SettingsState>((set, get) => ({
   typewriterMode: initial.typewriterMode,
   autoPair: initial.autoPair,
   spellcheck: initial.spellcheck,
+  editorZoom: clampZoom(initial.editorZoom),
 
   setFormulaAutoNumber: (v) => {
     set({ formulaAutoNumber: v });
@@ -110,6 +133,20 @@ export const useSettings = create<SettingsState>((set, get) => ({
     set({ spellcheck: v });
     persist(snapshot(get()));
   },
+  adjustEditorZoom: (delta) => {
+    const next = clampZoom(get().editorZoom + delta);
+    set({ editorZoom: next });
+    persist(snapshot(get()));
+  },
+  setEditorZoom: (v) => {
+    const next = clampZoom(v);
+    set({ editorZoom: next });
+    persist(snapshot(get()));
+  },
+  resetEditorZoom: () => {
+    set({ editorZoom: ZOOM_DEFAULT });
+    persist(snapshot(get()));
+  },
   reset: () => {
     set({ ...DEFAULTS });
     persist(DEFAULTS);
@@ -124,5 +161,6 @@ function snapshot(s: SettingsState): PersistedSettings {
     typewriterMode: s.typewriterMode,
     autoPair: s.autoPair,
     spellcheck: s.spellcheck,
+    editorZoom: s.editorZoom,
   };
 }

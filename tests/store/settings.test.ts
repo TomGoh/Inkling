@@ -119,4 +119,38 @@ describe("useSettings store", () => {
     expect(persisted.spellcheck).toBe(true);
     expect(persisted.autoPair).toBe(true); // 未改仍默认
   });
+
+  it("editorZoom 默认 1，adjustEditorZoom 增量调整并持久化", async () => {
+    const useSettings = await loadSettings();
+    expect(useSettings.getState().editorZoom).toBe(1);
+    useSettings.getState().adjustEditorZoom(0.2);
+    expect(useSettings.getState().editorZoom).toBe(1.2);
+    const persisted = JSON.parse(localStorage.getItem("inkling-settings")!);
+    expect(persisted.editorZoom).toBe(1.2);
+  });
+
+  it("editorZoom 夹到 [0.5, 3] 范围并修正一位小数", async () => {
+    const useSettings = await loadSettings();
+    useSettings.getState().adjustEditorZoom(10); // 远超上限
+    expect(useSettings.getState().editorZoom).toBe(3);
+    useSettings.getState().resetEditorZoom();
+    useSettings.getState().adjustEditorZoom(-10); // 远低于下限
+    expect(useSettings.getState().editorZoom).toBe(0.5);
+  });
+
+  it("resetEditorZoom 恢复到 1", async () => {
+    const useSettings = await loadSettings();
+    useSettings.getState().setEditorZoom(2.5);
+    useSettings.getState().resetEditorZoom();
+    expect(useSettings.getState().editorZoom).toBe(1);
+  });
+
+  it("从 localStorage 恢复 editorZoom（含非法值回退默认）", async () => {
+    localStorage.setItem(
+      "inkling-settings",
+      JSON.stringify({ editorZoom: 1.8 }),
+    );
+    const useSettings = await loadSettings();
+    expect(useSettings.getState().editorZoom).toBe(1.8);
+  });
 });
