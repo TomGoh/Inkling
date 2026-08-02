@@ -604,8 +604,11 @@ export function slashMenuPlugin(): Plugin {
         }
         if (key === "Escape") {
           event.preventDefault();
-          hidePopup();
-          view.dispatch(view.state.tr.scrollIntoView());
+          // 删除触发的 "/" 与已输入过滤词：否则 dispatch 后 deriveState 会因
+          // "/" 仍在文档中而立刻重新激活菜单，导致弹层关了又弹回来
+          const { from } = view.state.selection;
+          const $head = view.state.selection.$head;
+          view.dispatch(view.state.tr.deleteRange($head.start(), from));
           return true;
         }
         return false;

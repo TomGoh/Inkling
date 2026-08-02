@@ -66,7 +66,9 @@ export function autoPairPlugin(): Plugin {
         // 无选区：插入 左+右，光标置于中间
         const tr = view.state.tr;
         tr.insertText(text + right, from);
-        tr.setSelection(TextSelection.near(view.state.doc.resolve(from + 1), -1));
+        // 必须用 tr.doc（插入后的文档）resolve，否则 selection 指向旧文档会抛
+        // "Selection passed to setSelection must point at the current document"
+        tr.setSelection(TextSelection.near(tr.doc.resolve(from + 1), -1));
         view.dispatch(tr.scrollIntoView());
         return true;
       },
