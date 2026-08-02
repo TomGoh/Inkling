@@ -616,6 +616,21 @@ button svg,
   justify-content: center;
   min-height: 40px;
 }
+/* v2.0.1 修复：mermaid 多行节点文字底部被边框裁切。
+   根因——:root line-height:1.6 / 正文 1.7 被继承进 mermaid 节点标签，
+   使实际渲染的多行文字高度 > mermaid 内部测量高度（默认 ~1.2），
+   rect 偏矮、最后一行溢出底边被边框遮挡；单行节点不受行高倍增影响故正常。
+   修复——同时作用于 mermaid 测量阶段（临时 .mermaid 容器）与最终渲染阶段
+   （.mermaid-render 内 SVG），锁定 line-height:1.25 与字体，使测量 == 渲染。 */
+.editor-scroll .milkdown .mermaid .nodeLabel,
+.editor-scroll .milkdown .mermaid .edgeLabel,
+.editor-scroll .milkdown .mermaid-render .nodeLabel,
+.editor-scroll .milkdown .mermaid-render .edgeLabel {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  font-size: 14px;
+  line-height: 1.25;
+}
 .editor-scroll .milkdown .mermaid-render:empty[data-placeholder]::before {
   content: attr(data-placeholder);
   color: var(--text-muted, #6e7681);

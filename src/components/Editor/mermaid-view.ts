@@ -19,14 +19,32 @@ import { writeBinaryFile } from "../../lib/fs";
 import mermaid from "mermaid";
 
 // 初始化一次 Mermaid 运行时
+//
+// 关键配置说明（v2.0.1 防多行节点文字底部裁切）：
+// - flowchart.htmlLabels: true —— 保留 <br/> 多行换行能力
+// - flowchart.padding: 20 —— 节点内边距加大（默认 15），给多行文字留呼吸空间
+// - flowchart.useMaxWidth: false —— 不按容器宽度缩放回流，避免宽度变化触发高度重算偏差
+// - themeVariables.fontSize —— 锁定字号，避免继承编辑器大字号导致测量与渲染不一致
+// 配合 App.css 中对 .mermaid .nodeLabel 的 line-height 锁定（1.25），
+// 使 mermaid 测量阶段与最终渲染阶段的文字高度一致，rect 不再偏矮、文字不再溢出底边。
+export const MERMAID_CONFIG = {
+  startOnLoad: false,
+  theme: "default",
+  securityLevel: "strict",
+  flowchart: {
+    htmlLabels: true,
+    padding: 20,
+    useMaxWidth: false,
+  },
+  themeVariables: {
+    fontSize: "14px",
+  },
+} as const;
+
 let initialized = false;
 function ensureInit() {
   if (initialized) return;
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: "default",
-    securityLevel: "strict",
-  });
+  mermaid.initialize(MERMAID_CONFIG);
   initialized = true;
 }
 
