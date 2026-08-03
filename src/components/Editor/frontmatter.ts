@@ -107,6 +107,7 @@ function createFrontmatterView(): NodeViewConstructor {
     const dom = document.createElement("div");
     dom.className = "frontmatter-block";
     dom.setAttribute("data-frontmatter", "");
+    dom.setAttribute("data-value", (node.attrs.value as string) ?? "");
 
     const label = document.createElement("div");
     label.className = "frontmatter-label";
@@ -174,6 +175,7 @@ function createFrontmatterView(): NodeViewConstructor {
       update: (next: Node) => {
         if (next.type.name !== "frontmatter") return false;
         const newVal = (next.attrs.value as string) ?? "";
+        dom.setAttribute("data-value", newVal);
         if (newVal === cm.state.doc.toString()) return true;
         updating = true;
         cm.dispatch({

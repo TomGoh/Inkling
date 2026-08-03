@@ -48,6 +48,42 @@ const MOCK_TREE: FileNode = {
           is_dir: false,
           children: [],
         },
+        {
+          name: "outline-demo.md",
+          path: "/mock-workspace/notes/outline-demo.md",
+          is_dir: false,
+          children: [],
+        },
+        {
+          name: "frontmatter-demo.md",
+          path: "/mock-workspace/notes/frontmatter-demo.md",
+          is_dir: false,
+          children: [],
+        },
+        {
+          name: "math-demo.md",
+          path: "/mock-workspace/notes/math-demo.md",
+          is_dir: false,
+          children: [],
+        },
+        {
+          name: "callout-demo.md",
+          path: "/mock-workspace/notes/callout-demo.md",
+          is_dir: false,
+          children: [],
+        },
+        {
+          name: "toc-demo.md",
+          path: "/mock-workspace/notes/toc-demo.md",
+          is_dir: false,
+          children: [],
+        },
+        {
+          name: "link-demo.md",
+          path: "/mock-workspace/notes/link-demo.md",
+          is_dir: false,
+          children: [],
+        },
       ],
     },
     {
@@ -70,7 +106,56 @@ const MOCK_FILE_CONTENT: Record<string, string> = {
     "# HTML 嵌入示例\n\n行内标签：<kbd>Ctrl</kbd> + <kbd>S</kbd> 保存，<span style=\"color:red\">红色文字</span>，<mark>高亮</mark>。\n\n块级嵌入：\n\n<details><summary>点击展开</summary>这里是折叠内容。</details>\n\n<blockquote style=\"border-left:3px solid #0969da\">自定义引用样式</blockquote>\n",
   "/mock-workspace/notes/footnote-demo.md":
     "# 脚注示例\n\nMarkdown 是一种轻量级标记语言[^1]，由 John Gruber 创建[^gruber]。\n\n它通过简单的纯文本语法实现富文本排版[^2]。\n\n[^1]: 轻量级指解析快、易读写。\n\n[^2]: 富文本排版包括标题、列表、表格、公式等。\n\n[^gruber]: John Gruber，Daring Fireball 博客作者，2004 年发布 Markdown。\n",
+  "/mock-workspace/notes/outline-demo.md":
+    "# 一级标题\n\n正文段落。\n\n## 二级标题\n\n二级正文。\n\n### 三级标题\n\n三级正文。\n",
+  "/mock-workspace/notes/frontmatter-demo.md":
+    "---\ntitle: 测试文档\ntags: [e2e, frontmatter]\n---\n\n# Front Matter 示例\n\n正文内容。\n",
+  "/mock-workspace/notes/math-demo.md":
+    "# 数学公式示例\n\n行内公式：$E = mc^2$。\n\n块级公式：\n\n$$\n\\int_0^1 x^2 \\, dx = \\frac{1}{3}\n$$\n",
+  "/mock-workspace/notes/callout-demo.md":
+    "# Callout 示例\n\n> [!NOTE]\n> 这是一个提示框\n\n> [!WARNING]\n> 这是一个警告\n\n> [!TIP]\n> 这是一个技巧\n",
+  "/mock-workspace/notes/toc-demo.md":
+    "# TOC 示例\n\n[TOC]\n\n## 二级标题 A\n\n内容 A。\n\n## 二级标题 B\n\n内容 B。\n",
+  "/mock-workspace/notes/link-demo.md":
+    "# 链接示例\n\n外部链接：[Example](https://example.com)\n\n锚点链接：[跳转标题](#锚点目标)\n\n## 锚点目标\n\n目标段落内容。\n",
 };
+
+// ---- mock 树变更辅助（浏览器端模拟真实 fs 写入对目录树的影响）----
+// 递归查找路径对应的节点（返回引用，可就地修改）
+function findNode(root: FileNode, path: string): FileNode | null {
+  if (root.path === path) return root;
+  for (const child of root.children) {
+    const found = findNode(child, path);
+    if (found) return found;
+  }
+  return null;
+}
+
+// 查找路径所属的父节点及其在 children 中的索引
+function findParent(
+  root: FileNode,
+  path: string,
+): { parent: FileNode; index: number } | null {
+  for (const child of root.children) {
+    if (child.path === path) return { parent: root, index: root.children.indexOf(child) };
+    const found = findParent(child, path);
+    if (found) return found;
+  }
+  return null;
+}
+
+// 递归更新节点及其子项的 path 前缀（重命名/移动后路径变化）
+function rebasePath(node: FileNode, oldPrefix: string, newPrefix: string): void {
+  node.path = newPrefix + node.path.slice(oldPrefix.length);
+  for (const child of node.children) rebasePath(child, oldPrefix, newPrefix);
+}
+
+/** 从路径拆出父路径与文件名（POSIX 风格，与 joinPath/dirname 配套） */
+function splitPath(p: string): { dir: string; base: string } {
+  const idx = p.lastIndexOf("/");
+  if (idx < 0) return { dir: "", base: p };
+  return { dir: p.slice(0, idx), base: p.slice(idx + 1) };
+}
 
 /** 递归列出目录树 */
 export async function listDir(
@@ -122,10 +207,17 @@ export async function renamePath(from: string, to: string): Promise<void> {
   if (isTauri()) {
     return invoke<void>("rename_path", { from, to });
   }
-  // 浏览器 mock：更新内存中的内容键
+  // 浏览器 mock：更新内容键
   if (MOCK_FILE_CONTENT[from] !== undefined) {
     MOCK_FILE_CONTENT[to] = MOCK_FILE_CONTENT[from];
     delete MOCK_FILE_CONTENT[from];
+  }
+  // 同步 mock 目录树：就地改 name/path 并重算子项 path 前缀
+  const node = findNode(MOCK_TREE, from);
+  if (node) {
+    const { base } = splitPath(to);
+    node.name = base;
+    rebasePath(node, from, to);
   }
 }
 
@@ -137,6 +229,11 @@ export async function deletePath(path: string): Promise<void> {
   for (const k of Object.keys(MOCK_FILE_CONTENT)) {
     if (k === path || k.startsWith(path + "/")) delete MOCK_FILE_CONTENT[k];
   }
+  // 同步 mock 目录树：从父节点 children 中移除
+  const found = findParent(MOCK_TREE, path);
+  if (found) {
+    found.parent.children.splice(found.index, 1);
+  }
 }
 
 /** 创建空文件 */
@@ -145,6 +242,12 @@ export async function createFile(filePath: string): Promise<void> {
     return invoke<void>("create_file", { filePath });
   }
   MOCK_FILE_CONTENT[filePath] = "";
+  // 同步 mock 目录树：在父目录下新增文件节点
+  const { dir, base } = splitPath(filePath);
+  const parent = dir ? findNode(MOCK_TREE, dir) : null;
+  if (parent && !parent.children.some((c) => c.path === filePath)) {
+    parent.children.push({ name: base, path: filePath, is_dir: false, children: [] });
+  }
 }
 
 /** 创建目录 */
@@ -152,7 +255,12 @@ export async function createDir(dirPath: string): Promise<void> {
   if (isTauri()) {
     return invoke<void>("create_dir", { dirPath });
   }
-  // 浏览器 mock 无操作
+  // 浏览器 mock：在父目录下新增目录节点
+  const { dir, base } = splitPath(dirPath);
+  const parent = dir ? findNode(MOCK_TREE, dir) : null;
+  if (parent && !parent.children.some((c) => c.path === dirPath)) {
+    parent.children.push({ name: base, path: dirPath, is_dir: true, children: [] });
+  }
 }
 
 /** 全局搜索命中项 */

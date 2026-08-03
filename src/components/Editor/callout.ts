@@ -102,8 +102,16 @@ export const calloutSchema = $nodeSchema("callout", () => ({
 
 /**
  * remark 插件：识别 blockquote 首行的 [!TYPE] 标记，转为 callout 节点。
- * 仅当 blockquote 的第一个子节点（段落）文本完全匹配 [!TYPE] 时转换，
- * 否则保持原 blockquote 不变。
+ * 支持两种写法：
+ *   1. [!TYPE] 独占首段（序列化往返格式）：
+ *        > [!NOTE]
+ *        >
+ *        > 内容
+ *   2. [!TYPE] 后紧跟内容（Obsidian 常见写法）：
+ *        > [!NOTE]
+ *        > 内容
+ * 首段以 [!TYPE] 开头即识别；[!TYPE] 之后的文本作为 callout 内容保留。
+ * 无法识别的类型或无 [!TYPE] 标记的 blockquote 保持原样。
  */
 function remarkCalloutTransformer() {
   return (tree: { children?: unknown[] }) => {
@@ -118,16 +126,25 @@ function remarkCalloutTransformer() {
       if (!first || first.type !== "paragraph" || !Array.isArray(first.children)) {
         return child;
       }
+      // 重建首段文本：text 取 value，softbreak/break 视作换行
       const text = first.children
-        .map((cc) => (cc?.type === "text" ? cc.value ?? "" : ""))
-        .join("")
-        .trim();
-      const m = /^\[!(\w+)\]$/.exec(text);
+        .map((cc) => {
+          if (cc?.type === "text") return cc.value ?? "";
+          if (cc?.type === "break" || cc?.type === "softbreak") return "\n";
+          return "";
+        })
+        .join("");
+      // 首段以 [!TYPE] 开头即匹配（兼容独占段与后跟内容两种写法）
+      const m = /^\[!(\w+)\]/.exec(text);
       if (!m) return child;
       const t = parseCalloutType(m[1]);
       if (!t) return child;
-      // 去掉首段（[!TYPE] 标记段），保留其余子节点
+      // [!TYPE] 之后的剩余文本（去首尾空白）作为 callout 首段内容
+      const after = text.slice(m[0].length).trim();
       const rest = c.children.slice(1);
+      if (after) {
+        rest.unshift({ type: "paragraph", children: [{ type: "text", value: after }] });
+      }
       return {
         type: "callout",
         calloutType: t,
