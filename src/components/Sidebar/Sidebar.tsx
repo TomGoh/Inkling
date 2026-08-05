@@ -24,6 +24,7 @@ import {
   IconStarFilled,
   IconChevronDown,
   IconChevronRight,
+  IconAlertTriangle,
   IconX,
 } from "../icons";
 import "./Sidebar.css";
@@ -81,11 +82,36 @@ type FileTreeRow =
   | { kind: "loading"; path: string; depth: number }
   | { kind: "error"; path: string; message: string; depth: number };
 
+/** 文件读取状态：局部提示加载或错误，不替换整棵文件树 */
+function FileOpenStatus({ opening, error }: { opening: boolean; error?: string }) {
+  if (opening) {
+    return (
+      <span className="tree-file-status tree-file-opening" aria-label="正在打开">
+        <span className="tree-file-spinner" aria-hidden="true" />
+      </span>
+    );
+  }
+  if (error) {
+    return (
+      <span
+        className="tree-file-status tree-file-error"
+        aria-label="打开失败，点击重试"
+        title={error}
+      >
+        <IconAlertTriangle size={12} />
+      </span>
+    );
+  }
+  return null;
+}
+
 /** 最近打开文件区块 */
 function RecentFiles() {
   const recentFiles = useWorkspace((s) => s.recentFiles);
   const currentFile = useWorkspace((s) => s.currentFile);
   const openFile = useWorkspace((s) => s.openFile);
+  const openingFiles = useWorkspace((s) => s.openingFiles);
+  const fileOpenErrors = useWorkspace((s) => s.fileOpenErrors);
   const [expanded, setExpanded] = useState(true);
 
   if (recentFiles.length === 0) return null;
@@ -102,18 +128,22 @@ function RecentFiles() {
         <div className="recent-list">
           {recentFiles.map((path) => {
             const active = currentFile === path;
+            const opening = openingFiles.has(path);
+            const error = fileOpenErrors.get(path);
             return (
               <button
                 key={path}
                 className={`tree-row tree-row-file${active ? " tree-row-active" : ""}`}
                 style={{ paddingLeft: "24px" }}
-                title={path}
-                onClick={() => openFile(path)}
+                title={error ?? path}
+                aria-busy={opening || undefined}
+                onClick={() => void openFile(path).catch(() => {})}
               >
                 <span className="tree-icon">
                   <IconFileText size={14} />
                 </span>
                 <span className="tree-name">{basename(path)}</span>
+                <FileOpenStatus opening={opening} error={error} />
               </button>
             );
           })}
@@ -128,6 +158,8 @@ function Bookmarks() {
   const bookmarks = useWorkspace((s) => s.bookmarks);
   const currentFile = useWorkspace((s) => s.currentFile);
   const openFile = useWorkspace((s) => s.openFile);
+  const openingFiles = useWorkspace((s) => s.openingFiles);
+  const fileOpenErrors = useWorkspace((s) => s.fileOpenErrors);
   const toggleBookmark = useWorkspace((s) => s.toggleBookmark);
   const [expanded, setExpanded] = useState(true);
 
@@ -145,21 +177,25 @@ function Bookmarks() {
         <div className="recent-list">
           {bookmarks.map((path) => {
             const active = currentFile === path;
+            const opening = openingFiles.has(path);
+            const error = fileOpenErrors.get(path);
             return (
               <div
                 key={path}
                 className={`tree-row tree-row-file${active ? " tree-row-active" : ""}`}
                 style={{ paddingLeft: "24px" }}
-                title={path}
+                title={error ?? path}
               >
                 <button
                   className="tree-row-main"
-                  onClick={() => openFile(path)}
+                  aria-busy={opening || undefined}
+                  onClick={() => void openFile(path).catch(() => {})}
                 >
                   <span className="tree-icon tree-icon-star">
                     <IconStarFilled size={13} />
                   </span>
                   <span className="tree-name">{basename(path)}</span>
+                  <FileOpenStatus opening={opening} error={error} />
                 </button>
                 <button
                   className="tree-row-side"
@@ -187,6 +223,8 @@ function FileNodeRow({
   error,
   active,
   opened,
+  opening,
+  openError,
   renaming,
   renameValue,
   renameInputRef,
@@ -206,6 +244,8 @@ function FileNodeRow({
   error: boolean;
   active: boolean;
   opened: boolean;
+  opening: boolean;
+  openError?: string;
   renaming: boolean;
   renameValue: string;
   renameInputRef: React.RefObject<HTMLInputElement | null>;
@@ -283,6 +323,8 @@ function FileNodeRow({
       disabled={!md}
       onClick={onOpen}
       onContextMenu={onMenu}
+      title={openError ?? node.path}
+      aria-busy={opening || undefined}
       data-tree-row
       data-path={node.path}
     >
@@ -290,7 +332,10 @@ function FileNodeRow({
         {md ? <IconFileText size={14} /> : <IconFile size={14} />}
       </span>
       <span className="tree-name">{node.name}</span>
-      {opened && !active && <span className="tree-open-dot" title="已打开" />}
+      <FileOpenStatus opening={opening} error={openError} />
+      {!opening && !openError && opened && !active && (
+        <span className="tree-open-dot" title="已打开" />
+      )}
     </button>
   );
 }
@@ -303,6 +348,8 @@ function WorkspaceFileTree({ tree }: { tree: FileNode }) {
   const directoryErrors = useWorkspace((s) => s.directoryErrors);
   const currentFile = useWorkspace((s) => s.currentFile);
   const openTabs = useWorkspace((s) => s.openTabs);
+  const openingFiles = useWorkspace((s) => s.openingFiles);
+  const fileOpenErrors = useWorkspace((s) => s.fileOpenErrors);
   const toggleDirExpanded = useWorkspace((s) => s.toggleDirExpanded);
   const setDirExpanded = useWorkspace((s) => s.setDirExpanded);
   const loadDirectory = useWorkspace((s) => s.loadDirectory);
@@ -541,6 +588,8 @@ function WorkspaceFileTree({ tree }: { tree: FileNode }) {
                 error={directoryErrors.has(node.path)}
                 active={currentFile === node.path}
                 opened={openedPaths.has(node.path)}
+                opening={openingFiles.has(node.path)}
+                openError={fileOpenErrors.get(node.path)}
                 renaming={renamingNode?.path === node.path}
                 renameValue={renameValue}
                 renameInputRef={renameInputRef}
@@ -548,7 +597,7 @@ function WorkspaceFileTree({ tree }: { tree: FileNode }) {
                 onCommitRename={commitRename}
                 onCancelRename={() => setRenamingNode(null)}
                 onToggle={() => toggleDirExpanded(node.path)}
-                onOpen={() => void openFile(node.path)}
+                onOpen={() => void openFile(node.path).catch(() => {})}
                 onMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -661,12 +710,17 @@ function TreeContextMenu({
 
   /** 在新窗口打开文件（仅桌面端；浏览器回退到当前窗口新 tab） */
   const handleOpenInNewWindow = async () => {
-    const ok = await openInNewWindow(payload.node.path);
-    if (!ok) {
-      // 浏览器端无多窗口，回退到当前窗口打开
-      await useWorkspace.getState().openFile(payload.node.path);
+    try {
+      const ok = await openInNewWindow(payload.node.path);
+      if (!ok) {
+        // 浏览器端无多窗口，回退到当前窗口打开
+        await useWorkspace.getState().openFile(payload.node.path);
+      }
+    } catch (e) {
+      alert(`打开文件失败：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      onClose();
     }
-    onClose();
   };
 
   const { node, x, y } = payload;
@@ -752,7 +806,7 @@ function TreeContextMenu({
 export function Sidebar() {
   const rootPath = useWorkspace((s) => s.rootPath);
   const tree = useWorkspace((s) => s.tree);
-  const loading = useWorkspace((s) => s.loading);
+  const workspaceLoading = useWorkspace((s) => s.workspaceLoading);
   const openWorkspace = useWorkspace((s) => s.openWorkspace);
   const openFileStandalone = useWorkspace((s) => s.openFileStandalone);
   const recentFiles = useWorkspace((s) => s.recentFiles);
@@ -786,17 +840,21 @@ export function Sidebar() {
 
   // 打开单个 md 文件（单文件模式）：不绑定文件夹，可继续打开散落在不同目录的 md 作为标签页
   const handleOpenFile = useCallback(async () => {
-    if (!isTauri()) {
-      await openFileStandalone("/mock-workspace/intro.md");
-      return;
-    }
-    const selected = await open({
-      directory: false,
-      multiple: false,
-      filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
-    });
-    if (typeof selected === "string") {
-      await openFileStandalone(selected);
+    try {
+      if (!isTauri()) {
+        await openFileStandalone("/mock-workspace/intro.md");
+        return;
+      }
+      const selected = await open({
+        directory: false,
+        multiple: false,
+        filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+      });
+      if (typeof selected === "string") {
+        await openFileStandalone(selected);
+      }
+    } catch (e) {
+      alert(`打开文件失败：${e instanceof Error ? e.message : String(e)}`);
     }
   }, [openFileStandalone]);
 
@@ -826,21 +884,21 @@ export function Sidebar() {
         </div>
       </div>
       <div className="sidebar-tree">
-        {loading && <div className="sidebar-empty">加载中…</div>}
-        {!loading && tree && (
+        {workspaceLoading && <div className="sidebar-empty">加载中…</div>}
+        {!workspaceLoading && tree && (
           <>
             <RecentFiles />
             <Bookmarks />
-            <WorkspaceFileTree tree={tree} />
+            <WorkspaceFileTree key={tree.path} tree={tree} />
           </>
         )}
-        {!loading && !tree && (recentFiles.length > 0 || bookmarks.length > 0) && (
+        {!workspaceLoading && !tree && (recentFiles.length > 0 || bookmarks.length > 0) && (
           <>
             <RecentFiles />
             <Bookmarks />
           </>
         )}
-        {!loading && !tree && recentFiles.length === 0 && bookmarks.length === 0 && (
+        {!workspaceLoading && !tree && recentFiles.length === 0 && bookmarks.length === 0 && (
           <div className="sidebar-empty">
             点击右上角按钮打开文件夹，或打开单个 Markdown 文件开始编辑
           </div>

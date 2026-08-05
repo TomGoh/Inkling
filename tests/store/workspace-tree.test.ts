@@ -1,5 +1,5 @@
 // 工作区文件树状态测试
-// 覆盖单层加载、目录请求去重、工作区切换竞态和局部刷新
+// 覆盖单层加载、目录/文件请求去重、工作区切换竞态和局部刷新
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileNode } from "../../src/lib/fs";
@@ -16,7 +16,7 @@ vi.mock("../../src/lib/fs", () => ({
   writeTextFile: writeTextFileMock,
 }));
 
-import { useWorkspace } from "../../src/store/workspace";
+import { useWorkspace, type OpenTab } from "../../src/store/workspace";
 
 function dir(path: string, children: FileNode[] = []): FileNode {
   return {
@@ -33,6 +33,17 @@ function file(path: string): FileNode {
     path,
     is_dir: false,
     children: [],
+  };
+}
+
+function tab(path: string, content = `# ${path}`): OpenTab {
+  return {
+    path,
+    content,
+    dirty: false,
+    lastSavedAt: null,
+    cursorPos: null,
+    scrollTop: null,
   };
 }
 
@@ -56,7 +67,9 @@ beforeEach(() => {
     rootPath: null,
     workspaceMode: null,
     tree: null,
-    loading: false,
+    workspaceLoading: false,
+    openingFiles: new Set(),
+    fileOpenErrors: new Map(),
     expandedDirs: new Set(),
     loadedDirs: new Set(),
     loadingDirs: new Set(),
@@ -65,7 +78,15 @@ beforeEach(() => {
     activeTabPath: null,
     currentFile: null,
     currentContent: "",
+    dirty: false,
+    saving: false,
+    saveError: null,
+    lastSavedAt: null,
+    currentHeadingSlug: null,
+    splitFile: null,
+    splitContent: "",
     recentFiles: [],
+    bookmarks: [],
   });
 });
 
@@ -193,7 +214,7 @@ describe("工作区按需加载", () => {
     expect(useWorkspace.getState().rootPath).toBe("/workspace");
     expect(useWorkspace.getState().tree).toBe(previousTree);
     expect(useWorkspace.getState().expandedDirs).toEqual(new Set(["/workspace"]));
-    expect(useWorkspace.getState().loading).toBe(false);
+    expect(useWorkspace.getState().workspaceLoading).toBe(false);
   });
 
   it("刷新父目录时保留已经加载的子树", async () => {
@@ -271,5 +292,332 @@ describe("工作区按需加载", () => {
     await vi.waitFor(() =>
       expect(useWorkspace.getState().tree?.children[0].path).toBe("/workspace/notes"),
     );
+  });
+});
+
+describe("文件读取与标签页竞态", () => {
+  it("读取未打开文件时不进入工作区加载态且保留文件树", async () => {
+    const reading = deferred<string>();
+    readTextFileMock.mockReturnValueOnce(reading.promise);
+    const previousTree = dir("/workspace", [file("/workspace/readme.md")]);
+    const previousExpanded = new Set(["/workspace"]);
+    const previousLoaded = new Set(["/workspace"]);
+    useWorkspace.setState({
+      rootPath: "/workspace",
+      workspaceMode: "folder",
+      tree: previousTree,
+      expandedDirs: previousExpanded,
+      loadedDirs: previousLoaded,
+    });
+
+    const opening = useWorkspace.getState().openFile("/workspace/readme.md");
+    await Promise.resolve();
+    const pendingState = useWorkspace.getState();
+    const pendingReadCount = readTextFileMock.mock.calls.length;
+    const pendingListCount = listDirMock.mock.calls.length;
+
+    reading.resolve("# readme");
+    await opening;
+
+    expect(pendingState.workspaceLoading).toBe(false);
+    expect(pendingState.openingFiles).toEqual(new Set(["/workspace/readme.md"]));
+    expect(pendingState.tree).toBe(previousTree);
+    expect(pendingState.expandedDirs).toBe(previousExpanded);
+    expect(pendingState.loadedDirs).toBe(previousLoaded);
+    expect(pendingReadCount).toBe(1);
+    expect(pendingListCount).toBe(0);
+    expect(useWorkspace.getState().workspaceLoading).toBe(false);
+    expect(useWorkspace.getState().openingFiles).toEqual(new Set());
+    expect(useWorkspace.getState().tree).toBe(previousTree);
+    expect(listDirMock).not.toHaveBeenCalled();
+  });
+
+  it("同一文件的并发打开只读取一次并创建一个标签页", async () => {
+    const reading = deferred<string>();
+    readTextFileMock.mockReturnValueOnce(reading.promise);
+
+    const first = useWorkspace.getState().openFile("/workspace/readme.md");
+    const second = useWorkspace.getState().openFile("/workspace/readme.md");
+    await Promise.resolve();
+    const pendingReadCount = readTextFileMock.mock.calls.length;
+    const pendingFiles = useWorkspace.getState().openingFiles;
+
+    reading.resolve("# shared");
+    await Promise.all([first, second]);
+
+    const state = useWorkspace.getState();
+    expect(pendingReadCount).toBe(1);
+    expect(pendingFiles).toEqual(new Set(["/workspace/readme.md"]));
+    expect(readTextFileMock).toHaveBeenCalledTimes(1);
+    expect(state.openTabs.filter((item) => item.path === "/workspace/readme.md")).toHaveLength(
+      1,
+    );
+    expect(state.activeTabPath).toBe("/workspace/readme.md");
+    expect(state.openingFiles).toEqual(new Set());
+  });
+
+  it("文件 A 晚于文件 B 完成时仍保持最后点击的 B 为活跃项", async () => {
+    const readingA = deferred<string>();
+    const readingB = deferred<string>();
+    readTextFileMock.mockImplementation((path: string) => {
+      if (path === "/workspace/a.md") return readingA.promise;
+      if (path === "/workspace/b.md") return readingB.promise;
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    const openA = useWorkspace.getState().openFile("/workspace/a.md");
+    const openB = useWorkspace.getState().openFile("/workspace/b.md");
+    await Promise.resolve();
+
+    readingB.resolve("# B");
+    await openB;
+    const activeAfterB = useWorkspace.getState().activeTabPath;
+    readingA.resolve("# A");
+    await openA;
+
+    const state = useWorkspace.getState();
+    expect(readTextFileMock).toHaveBeenCalledTimes(2);
+    expect(activeAfterB).toBe("/workspace/b.md");
+    expect(state.activeTabPath).toBe("/workspace/b.md");
+    expect(new Set(state.openTabs.map((item) => item.path))).toEqual(
+      new Set(["/workspace/a.md", "/workspace/b.md"]),
+    );
+    expect(state.openingFiles).toEqual(new Set());
+  });
+
+  it("文件 A 读取期间切换到已打开文件 C 后不会被 A 抢回焦点", async () => {
+    const readingA = deferred<string>();
+    readTextFileMock.mockReturnValueOnce(readingA.promise);
+    const keptTab = tab("/workspace/c.md", "# C");
+    useWorkspace.setState({
+      openTabs: [keptTab],
+      activeTabPath: keptTab.path,
+      currentFile: keptTab.path,
+      currentContent: keptTab.content,
+    });
+
+    const openA = useWorkspace.getState().openFile("/workspace/a.md");
+    useWorkspace.getState().switchTab(keptTab.path);
+    await Promise.resolve();
+    readingA.resolve("# A");
+    await openA;
+
+    const state = useWorkspace.getState();
+    expect(state.activeTabPath).toBe(keptTab.path);
+    expect(state.currentFile).toBe(keptTab.path);
+    expect(state.currentContent).toBe(keptTab.content);
+    expect(state.openTabs.some((item) => item.path === "/workspace/a.md")).toBe(true);
+    expect(state.openingFiles).toEqual(new Set());
+  });
+
+  it("文件读取失败时保留文件树和编辑器并允许重试", async () => {
+    const reading = deferred<string>();
+    readTextFileMock
+      .mockReturnValueOnce(reading.promise)
+      .mockResolvedValueOnce("# recovered");
+    const previousTree = dir("/workspace", [file("/workspace/a.md")]);
+    const keptTab = tab("/workspace/c.md", "# kept");
+    const previousTabs = [keptTab];
+    const previousRecent = [keptTab.path];
+    useWorkspace.setState({
+      rootPath: "/workspace",
+      workspaceMode: "folder",
+      tree: previousTree,
+      openTabs: previousTabs,
+      activeTabPath: keptTab.path,
+      currentFile: keptTab.path,
+      currentContent: keptTab.content,
+      recentFiles: previousRecent,
+    });
+
+    const opening = useWorkspace.getState().openFile("/workspace/a.md");
+    const rejected = expect(opening).rejects.toThrow("permission denied");
+    await Promise.resolve();
+    reading.reject(new Error("permission denied"));
+    await rejected;
+
+    const failedState = useWorkspace.getState();
+    expect(failedState.tree).toBe(previousTree);
+    expect(failedState.openTabs).toBe(previousTabs);
+    expect(failedState.activeTabPath).toBe(keptTab.path);
+    expect(failedState.currentFile).toBe(keptTab.path);
+    expect(failedState.currentContent).toBe(keptTab.content);
+    expect(failedState.recentFiles).toBe(previousRecent);
+    expect(failedState.openingFiles.has("/workspace/a.md")).toBe(false);
+    expect(failedState.fileOpenErrors.get("/workspace/a.md")).toBe(
+      "permission denied",
+    );
+    expect(listDirMock).not.toHaveBeenCalled();
+
+    await useWorkspace.getState().openFile("/workspace/a.md");
+
+    const recoveredState = useWorkspace.getState();
+    expect(readTextFileMock).toHaveBeenCalledTimes(2);
+    expect(recoveredState.fileOpenErrors.has("/workspace/a.md")).toBe(false);
+    expect(recoveredState.openingFiles).toEqual(new Set());
+    expect(recoveredState.activeTabPath).toBe("/workspace/a.md");
+    expect(recoveredState.currentContent).toBe("# recovered");
+  });
+});
+
+describe("分屏与工作区上下文竞态", () => {
+  it("主面板与分屏并发选择同一文件时关闭重复分屏", async () => {
+    const reading = deferred<string>();
+    readTextFileMock.mockReturnValueOnce(reading.promise);
+    const mainTab = tab("/workspace/main.md", "# main");
+    useWorkspace.setState({
+      openTabs: [mainTab],
+      activeTabPath: mainTab.path,
+      currentFile: mainTab.path,
+      currentContent: mainTab.content,
+    });
+
+    const openingSplit = useWorkspace.getState().splitOpen("/workspace/shared.md");
+    const openingMain = useWorkspace.getState().openFile("/workspace/shared.md");
+    await Promise.resolve();
+    reading.resolve("# shared");
+    await Promise.all([openingSplit, openingMain]);
+
+    const state = useWorkspace.getState();
+    expect(readTextFileMock).toHaveBeenCalledTimes(1);
+    expect(state.activeTabPath).toBe("/workspace/shared.md");
+    expect(state.splitFile).toBeNull();
+    expect(state.splitContent).toBe("");
+  });
+
+  it("切换或仅保留分屏文件时关闭重复分屏", () => {
+    const mainTab = tab("/workspace/main.md", "# main");
+    const splitTab = tab("/workspace/split.md", "# split");
+    useWorkspace.setState({
+      openTabs: [mainTab, splitTab],
+      activeTabPath: mainTab.path,
+      currentFile: mainTab.path,
+      currentContent: mainTab.content,
+      splitFile: splitTab.path,
+      splitContent: splitTab.content,
+    });
+
+    useWorkspace.getState().switchTab(splitTab.path);
+    expect(useWorkspace.getState().splitFile).toBeNull();
+
+    useWorkspace.setState({
+      openTabs: [mainTab, splitTab],
+      activeTabPath: mainTab.path,
+      currentFile: mainTab.path,
+      currentContent: mainTab.content,
+      splitFile: splitTab.path,
+      splitContent: splitTab.content,
+    });
+    useWorkspace.getState().closeOthers(splitTab.path);
+
+    const state = useWorkspace.getState();
+    expect(state.activeTabPath).toBe(splitTab.path);
+    expect(state.openTabs).toEqual([splitTab]);
+    expect(state.splitFile).toBeNull();
+    expect(state.splitContent).toBe("");
+  });
+
+  it("分屏并发打开只接受最新结果且关闭后不会被未完成读取重开", async () => {
+    const readingA = deferred<string>();
+    const readingB = deferred<string>();
+    const readingD = deferred<string>();
+    const requests = new Map([
+      ["/workspace/a.md", readingA],
+      ["/workspace/b.md", readingB],
+      ["/workspace/d.md", readingD],
+    ]);
+    readTextFileMock.mockImplementation((path: string) => {
+      const request = requests.get(path);
+      if (!request) throw new Error(`unexpected path: ${path}`);
+      return request.promise;
+    });
+    const mainTab = tab("/workspace/main.md", "# main");
+    const selectedTab = tab("/workspace/selected.md", "# selected");
+    useWorkspace.setState({
+      openTabs: [mainTab, selectedTab],
+      activeTabPath: mainTab.path,
+      currentFile: mainTab.path,
+      currentContent: mainTab.content,
+    });
+
+    const openA = useWorkspace.getState().splitOpen("/workspace/a.md");
+    const openB = useWorkspace.getState().splitOpen("/workspace/b.md");
+    useWorkspace.getState().switchTab(selectedTab.path);
+    await Promise.resolve();
+    readingB.resolve("# B");
+    await openB;
+    const splitAfterB = useWorkspace.getState().splitFile;
+    readingA.resolve("# A");
+    await openA;
+    const splitAfterA = useWorkspace.getState().splitFile;
+
+    const openD = useWorkspace.getState().splitOpen("/workspace/d.md");
+    await Promise.resolve();
+    useWorkspace.getState().splitClose();
+    readingD.resolve("# D");
+    await openD;
+
+    const state = useWorkspace.getState();
+    expect(splitAfterB).toBe("/workspace/b.md");
+    expect(splitAfterA).toBe("/workspace/b.md");
+    expect(state.splitFile).toBeNull();
+    expect(state.splitContent).toBe("");
+    expect(state.activeTabPath).toBe(selectedTab.path);
+    expect(state.currentContent).toBe(selectedTab.content);
+    expect(readTextFileMock).toHaveBeenCalledTimes(3);
+    expect(state.openingFiles).toEqual(new Set());
+  });
+
+  it("工作区加载中后打开的单文件上下文优先", async () => {
+    const workspaceListing = deferred<FileNode>();
+    const fileReading = deferred<string>();
+    listDirMock.mockReturnValueOnce(workspaceListing.promise);
+    readTextFileMock.mockReturnValueOnce(fileReading.promise);
+
+    const openingWorkspace = useWorkspace.getState().openWorkspace("/old-workspace");
+    const openingFile = useWorkspace
+      .getState()
+      .openFileStandalone("/notes/latest.md");
+    await Promise.resolve();
+    fileReading.resolve("# latest");
+    await openingFile;
+    workspaceListing.resolve(dir("/old-workspace", [file("/old-workspace/stale.md")]));
+    await openingWorkspace;
+
+    const state = useWorkspace.getState();
+    expect(state.workspaceMode).toBe("file");
+    expect(state.rootPath).toBe("/notes");
+    expect(state.tree).toBeNull();
+    expect(state.activeTabPath).toBe("/notes/latest.md");
+    expect(state.currentContent).toBe("# latest");
+    expect(state.workspaceLoading).toBe(false);
+    expect(state.openingFiles).toEqual(new Set());
+  });
+
+  it("单文件读取中后打开的文件夹上下文优先", async () => {
+    const fileReading = deferred<string>();
+    const workspaceListing = deferred<FileNode>();
+    readTextFileMock.mockReturnValueOnce(fileReading.promise);
+    listDirMock.mockReturnValueOnce(workspaceListing.promise);
+
+    const openingFile = useWorkspace
+      .getState()
+      .openFileStandalone("/notes/stale.md");
+    const openingWorkspace = useWorkspace.getState().openWorkspace("/workspace");
+    await Promise.resolve();
+    workspaceListing.resolve(dir("/workspace", [file("/workspace/current.md")]));
+    await openingWorkspace;
+    fileReading.resolve("# stale");
+    await openingFile;
+
+    const state = useWorkspace.getState();
+    expect(state.workspaceMode).toBe("folder");
+    expect(state.rootPath).toBe("/workspace");
+    expect(state.tree?.path).toBe("/workspace");
+    expect(state.activeTabPath).toBeNull();
+    expect(state.currentFile).toBeNull();
+    expect(state.openTabs.some((item) => item.path === "/notes/stale.md")).toBe(true);
+    expect(state.workspaceLoading).toBe(false);
+    expect(state.openingFiles).toEqual(new Set());
   });
 });

@@ -28,6 +28,7 @@ export async function openFile(page: Page, fileName: string) {
     target = page.locator(".workspace-tree-scroll").getByText(fileName, { exact: true });
   }
   await target.click();
+  await expect(page.locator(".tab-active")).toContainText(fileName, { timeout: 10_000 });
   await expect(page.locator(".ProseMirror")).toBeVisible({ timeout: 10_000 });
 }
 

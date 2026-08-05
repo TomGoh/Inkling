@@ -2,7 +2,17 @@
 // 覆盖默认折叠、按需加载、单一动作监听器和大目录窗口化渲染
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+const { readTextFileMock } = vi.hoisted(() => ({
+  readTextFileMock: vi.fn(),
+}));
+
+vi.mock("../../src/lib/fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/lib/fs")>();
+  return { ...actual, readTextFile: readTextFileMock };
+});
+
 import { Sidebar } from "../../src/components/Sidebar/Sidebar";
 import { useWorkspace } from "../../src/store/workspace";
 import type { FileNode } from "../../src/lib/fs";
@@ -33,19 +43,42 @@ function file(path: string): FileNode {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 beforeEach(() => {
+  readTextFileMock.mockReset();
+  readTextFileMock.mockResolvedValue("# test");
   useWorkspace.setState({
     ...originalActions,
     rootPath: "/workspace",
     workspaceMode: "folder",
     tree: null,
-    loading: false,
+    workspaceLoading: false,
+    openingFiles: new Set(),
+    fileOpenErrors: new Map(),
     expandedDirs: new Set(["/workspace"]),
     loadedDirs: new Set(["/workspace"]),
     loadingDirs: new Set(),
     directoryErrors: new Map(),
     openTabs: [],
+    activeTabPath: null,
     currentFile: null,
+    currentContent: "",
+    dirty: false,
+    saving: false,
+    saveError: null,
+    lastSavedAt: null,
+    currentHeadingSlug: null,
+    splitFile: null,
+    splitContent: "",
     recentFiles: [],
     bookmarks: [],
   });
@@ -121,5 +154,74 @@ describe("Sidebar 文件树", () => {
 
     fireEvent.click(screen.getByText("guide.markdown"));
     expect(openFile).toHaveBeenCalledWith("/workspace/guide.markdown");
+  });
+
+  it("读取未加载文件时保留文件树 DOM 与滚动位置", async () => {
+    const content = deferred<string>();
+    readTextFileMock.mockReturnValue(content.promise);
+    const tree = dir("/workspace", [file("/workspace/slow.md")]);
+    useWorkspace.setState({ tree });
+
+    const { container } = render(<Sidebar />);
+    const scroll = container.querySelector<HTMLElement>(".workspace-tree-scroll");
+    expect(scroll).not.toBeNull();
+    scroll!.scrollTop = 56;
+    fireEvent.scroll(scroll!);
+
+    fireEvent.click(screen.getByText("slow.md"));
+    await waitFor(() => expect(readTextFileMock).toHaveBeenCalledTimes(1));
+
+    expect(container.querySelector(".workspace-tree-scroll")).toBe(scroll);
+    expect(scroll!.scrollTop).toBe(56);
+    expect(useWorkspace.getState().tree).toBe(tree);
+    expect(useWorkspace.getState().workspaceLoading).toBe(false);
+    expect(screen.getByLabelText("正在打开")).toBeInTheDocument();
+    expect(screen.getByText("slow.md").closest("button")).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    expect(screen.getByText("slow.md").closest("button")).toBeEnabled();
+    expect(screen.queryByText("加载中…")).not.toBeInTheDocument();
+
+    await act(async () => content.resolve("# slow"));
+    await waitFor(() => {
+      expect(useWorkspace.getState().activeTabPath).toBe("/workspace/slow.md");
+    });
+
+    expect(container.querySelector(".workspace-tree-scroll")).toBe(scroll);
+    expect(scroll!.scrollTop).toBe(56);
+    expect(useWorkspace.getState().tree).toBe(tree);
+    expect(screen.queryByLabelText("正在打开")).not.toBeInTheDocument();
+  });
+
+  it("文件读取失败后在原行提示错误并允许点击重试", async () => {
+    readTextFileMock
+      .mockRejectedValueOnce(new Error("permission denied"))
+      .mockResolvedValueOnce("# retried");
+    useWorkspace.setState({
+      tree: dir("/workspace", [file("/workspace/retry.md")]),
+    });
+
+    const { container } = render(<Sidebar />);
+    const scroll = container.querySelector(".workspace-tree-scroll");
+    fireEvent.click(screen.getByText("retry.md"));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("打开失败，点击重试")).toBeInTheDocument();
+    });
+    expect(container.querySelector(".workspace-tree-scroll")).toBe(scroll);
+    expect(screen.getByText("retry.md").closest("button")).toHaveAttribute(
+      "title",
+      "permission denied",
+    );
+
+    fireEvent.click(screen.getByText("retry.md"));
+    await waitFor(() => {
+      expect(useWorkspace.getState().activeTabPath).toBe("/workspace/retry.md");
+    });
+
+    expect(readTextFileMock).toHaveBeenCalledTimes(2);
+    expect(container.querySelector(".workspace-tree-scroll")).toBe(scroll);
+    expect(screen.queryByLabelText("打开失败，点击重试")).not.toBeInTheDocument();
   });
 });

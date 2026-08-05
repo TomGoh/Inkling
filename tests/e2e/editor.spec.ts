@@ -32,6 +32,38 @@ test.describe("编辑器核心流程", () => {
     await expect(page.locator(".tab-active")).toContainText("readme.md");
   });
 
+  test("从侧边栏打开文件时保留文件树实例与滚动位置", async ({ page }) => {
+    await openMockWorkspace(page);
+    await expandMockNotes(page);
+    await page.addStyleTag({
+      content: ".workspace-tree-scroll { flex: none !important; height: 56px !important; }",
+    });
+
+    const tree = page.locator(".workspace-tree-scroll");
+    const expectedScrollTop = await tree.evaluate((element) => {
+      const scroll = element as HTMLElement;
+      scroll.dataset.issue12Sentinel = "preserved";
+      scroll.scrollTop = 28;
+      scroll.dispatchEvent(new Event("scroll", { bubbles: true }));
+      return scroll.scrollTop;
+    });
+    expect(expectedScrollTop).toBe(28);
+
+    await page
+      .locator('[data-tree-row][data-path="/mock-workspace/notes/readme.md"]')
+      .click();
+    await expect(page.locator(".tab-active")).toContainText("readme.md");
+
+    await expect(tree).toHaveAttribute("data-issue12-sentinel", "preserved");
+    expect(await tree.evaluate((element) => (element as HTMLElement).scrollTop)).toBe(
+      expectedScrollTop,
+    );
+    await expect(
+      page.locator('[data-tree-row][data-path="/mock-workspace/notes"]'),
+    ).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator(".sidebar-tree").getByText("加载中…")).toHaveCount(0);
+  });
+
   test("编辑器渲染 mock 文件内容", async ({ page }) => {
     await openMockWorkspace(page);
     await openFile(page, "readme.md");
