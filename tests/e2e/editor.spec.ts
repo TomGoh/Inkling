@@ -2,21 +2,8 @@
 // 浏览器版本（isTauri() === false）需先点击「打开文件夹」按钮加载 mock 工作区
 // 覆盖：应用启动、打开 mock 文件、编辑器渲染、输入内容、状态栏统计
 
-import { test, expect, type Page } from "@playwright/test";
-
-// 每个用例前先打开 mock 工作区（浏览器版不自动加载，需点按钮）
-async function openMockWorkspace(page: Page) {
-  await page.goto("/");
-  await page.getByRole("button", { name: "打开文件夹" }).click();
-  // 等 mock 工作区加载：文件树出现 mock-workspace 根节点
-  await expect(page.locator(".sidebar-tree").getByText("mock-workspace")).toBeVisible({ timeout: 10_000 });
-}
-
-// 在已打开的工作区里点某个文件
-async function openFile(page: Page, fileName: string) {
-  await page.locator(".sidebar-tree").getByText(fileName, { exact: true }).click();
-  await expect(page.locator(".ProseMirror")).toBeVisible({ timeout: 10_000 });
-}
+import { test, expect } from "@playwright/test";
+import { expandMockNotes, openFile, openMockWorkspace } from "./helpers";
 
 test.describe("编辑器核心流程", () => {
   test("应用启动后显示侧边栏与打开按钮", async ({ page }) => {
@@ -30,10 +17,12 @@ test.describe("编辑器核心流程", () => {
 
   test("点击「打开文件夹」加载 mock 工作区", async ({ page }) => {
     await openMockWorkspace(page);
-    // 文件树含 mock 文件
+    // 子目录默认折叠，展开后才加载其中的文件
+    await expect(page.locator(".sidebar-tree").getByText("intro.md")).toBeVisible();
+    await expect(page.locator(".sidebar-tree").getByText("readme.md")).toHaveCount(0);
+    await expandMockNotes(page);
     await expect(page.locator(".sidebar-tree").getByText("readme.md")).toBeVisible();
     await expect(page.locator(".sidebar-tree").getByText("todo.md")).toBeVisible();
-    await expect(page.locator(".sidebar-tree").getByText("intro.md")).toBeVisible();
   });
 
   test("点击 mock 文件打开编辑器", async ({ page }) => {

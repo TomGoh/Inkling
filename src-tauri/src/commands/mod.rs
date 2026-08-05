@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+const IGNORED_DIR_NAMES: &[&str] = &["node_modules", "target", "dist", "build", "out"];
+
 /// 文件树节点
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileNode {
@@ -25,69 +27,271 @@ pub struct FileNode {
     pub children: Vec<FileNode>,
 }
 
-/// 递归列出目录树。
-/// - 递归深度由 max_depth 控制，防止超深目录卡死
-/// - 跳过隐藏目录（以 . 开头，如 .git / .vscode），减少噪音和权限问题
-/// - 文件按名称排序，目录在前
+/// 列出目录的直接子项
+/// - 文件系统操作在线程池执行，避免阻塞 Tauri 异步运行时
+/// - 跳过隐藏项、常见依赖/构建目录和目录符号链接
+/// - 仅返回目录和 Markdown 文件，目录在前并按名称排序
+///
+/// `max_depth` 仅为兼容旧版前端调用保留；目录树现在由前端按需逐层加载
 #[tauri::command]
-pub fn list_dir(dir_path: String, max_depth: Option<usize>) -> Result<FileNode, String> {
-    let root = Path::new(&dir_path);
-    if !root.exists() {
-        return Err(format!("路径不存在: {}", dir_path));
-    }
-    if !root.is_dir() {
-        return Err(format!("不是目录: {}", dir_path));
-    }
-    let depth = max_depth.unwrap_or(10);
-    list_dir_inner(root, depth).map_err(|e| e.to_string())
+pub async fn list_dir(dir_path: String, max_depth: Option<usize>) -> Result<FileNode, String> {
+    let _ = max_depth;
+    tauri::async_runtime::spawn_blocking(move || list_dir_shallow(Path::new(&dir_path)))
+        .await
+        .map_err(|e| format!("目录扫描任务失败: {e}"))?
 }
 
-fn list_dir_inner(path: &Path, depth: usize) -> std::io::Result<FileNode> {
+fn list_dir_shallow(path: &Path) -> Result<FileNode, String> {
+    if !path.exists() {
+        return Err(format!("路径不存在: {}", path.display()));
+    }
+    if !path.is_dir() {
+        return Err(format!("不是目录: {}", path.display()));
+    }
+
     let name = path
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.to_string_lossy().into_owned());
-    let is_dir = path.is_dir();
     let mut node = FileNode {
         name,
         path: path.to_string_lossy().into_owned(),
-        is_dir,
+        is_dir: true,
         children: Vec::new(),
     };
 
-    if is_dir && depth > 0 {
-        let mut dirs: Vec<FileNode> = Vec::new();
-        let mut files: Vec<FileNode> = Vec::new();
-        for entry in fs::read_dir(path)? {
-            let entry = entry?;
-            let entry_path = entry.path();
-            let entry_name = entry_path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            // 跳过隐藏文件/目录（如 .git, .vscode, .DS_Store）
-            if entry_name.starts_with('.') {
+    // 排序键在收集条目时只计算一次，避免比较器反复分配 lowercase 字符串
+    let mut dirs: Vec<(String, FileNode)> = Vec::new();
+    let mut files: Vec<(String, FileNode)> = Vec::new();
+    let entries =
+        fs::read_dir(path).map_err(|e| format!("读取目录失败 {}: {e}", path.display()))?;
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                eprintln!("skip entry in {}: {e}", path.display());
                 continue;
             }
-            match list_dir_inner(&entry_path, depth - 1) {
-                Ok(child) => {
-                    if child.is_dir {
-                        dirs.push(child);
-                    } else {
-                        files.push(child);
-                    }
-                }
-                // 单个条目读取失败不中断整个目录
-                Err(e) => eprintln!("skip {}: {}", entry_path.display(), e),
-            }
+        };
+        let entry_name = entry.file_name().to_string_lossy().into_owned();
+        if entry_name.starts_with('.') {
+            continue;
         }
-        dirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-        node.children = dirs;
-        node.children.append(&mut files);
+
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(e) => {
+                eprintln!("skip {}: {e}", entry.path().display());
+                continue;
+            }
+        };
+        // DirEntry::file_type 不跟随链接；目录链接必须跳过，普通文件链接仍可打开
+        let (is_dir, is_file) = if file_type.is_symlink() {
+            match fs::metadata(entry.path()) {
+                Ok(metadata) if metadata.is_dir() => continue,
+                Ok(metadata) => (false, metadata.is_file()),
+                Err(e) => {
+                    eprintln!("skip {}: {e}", entry.path().display());
+                    continue;
+                }
+            }
+        } else {
+            (file_type.is_dir(), file_type.is_file())
+        };
+        if is_dir && is_ignored_dir(&entry_name) {
+            continue;
+        }
+        if !is_dir && (!is_file || !is_markdown_file(&entry.path())) {
+            continue;
+        }
+
+        let child = FileNode {
+            name: entry_name.clone(),
+            path: entry.path().to_string_lossy().into_owned(),
+            is_dir,
+            children: Vec::new(),
+        };
+        let sortable = (entry_name.to_lowercase(), child);
+        if is_dir {
+            dirs.push(sortable);
+        } else {
+            files.push(sortable);
+        }
     }
 
+    let compare = |a: &(String, FileNode), b: &(String, FileNode)| {
+        a.0.cmp(&b.0).then_with(|| a.1.name.cmp(&b.1.name))
+    };
+    dirs.sort_by(compare);
+    files.sort_by(compare);
+    node.children = dirs.into_iter().map(|(_, child)| child).collect();
+    node.children
+        .extend(files.into_iter().map(|(_, child)| child));
+
     Ok(node)
+}
+
+fn is_ignored_dir(name: &str) -> bool {
+    IGNORED_DIR_NAMES
+        .iter()
+        .any(|ignored| name.eq_ignore_ascii_case(ignored))
+}
+
+fn is_markdown_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static NEXT_TEST_DIR: AtomicUsize = AtomicUsize::new(0);
+
+    struct TestDir {
+        path: PathBuf,
+    }
+
+    impl TestDir {
+        fn new(label: &str) -> Self {
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock should be after Unix epoch")
+                .as_nanos();
+            let sequence = NEXT_TEST_DIR.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "inklingmd-list-dir-{label}-{}-{nonce}-{sequence}",
+                std::process::id()
+            ));
+            fs::create_dir(&path).expect("create test directory");
+            Self { path }
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    fn touch(path: &Path) {
+        fs::write(path, "").expect("create test file");
+    }
+
+    #[test]
+    fn lists_only_direct_children() {
+        let temp = TestDir::new("shallow");
+        let nested = temp.path.join("nested");
+        fs::create_dir(&nested).unwrap();
+        touch(&temp.path.join("root.md"));
+        touch(&nested.join("deep.md"));
+
+        let root = list_dir_shallow(&temp.path).unwrap();
+
+        assert!(root.is_dir);
+        assert_eq!(root.children.len(), 2);
+        assert_eq!(root.children[0].name, "nested");
+        assert!(root.children[0].is_dir);
+        assert!(root.children[0].children.is_empty());
+        assert_eq!(root.children[1].name, "root.md");
+        assert!(!root.children[1].is_dir);
+    }
+
+    #[test]
+    fn sorts_directories_before_files_case_insensitively() {
+        let temp = TestDir::new("sorting");
+        fs::create_dir(temp.path.join("zebra")).unwrap();
+        fs::create_dir(temp.path.join("Alpha")).unwrap();
+        touch(&temp.path.join("Zeta.md"));
+        touch(&temp.path.join("beta.MD"));
+        touch(&temp.path.join("alpha.markdown"));
+
+        let root = list_dir_shallow(&temp.path).unwrap();
+        let names: Vec<_> = root
+            .children
+            .iter()
+            .map(|child| child.name.as_str())
+            .collect();
+
+        assert_eq!(
+            names,
+            ["Alpha", "zebra", "alpha.markdown", "beta.MD", "Zeta.md"]
+        );
+    }
+
+    #[test]
+    fn filters_hidden_build_and_non_markdown_entries() {
+        let temp = TestDir::new("filtering");
+        for name in [".git", "node_modules", "target", "dist", "build", "out"] {
+            fs::create_dir(temp.path.join(name)).unwrap();
+        }
+        fs::create_dir(temp.path.join("notes")).unwrap();
+        touch(&temp.path.join(".hidden.md"));
+        touch(&temp.path.join("draft.txt"));
+        touch(&temp.path.join("draft.md.bak"));
+        touch(&temp.path.join("README.md"));
+        touch(&temp.path.join("guide.markdown"));
+        for index in 0..2_000 {
+            touch(&temp.path.join(format!("unrelated-{index}.txt")));
+        }
+
+        let root = list_dir_shallow(&temp.path).unwrap();
+        let names: Vec<_> = root
+            .children
+            .iter()
+            .map(|child| child.name.as_str())
+            .collect();
+
+        assert_eq!(names, ["notes", "guide.markdown", "README.md"]);
+    }
+
+    #[test]
+    fn rejects_missing_and_non_directory_paths() {
+        let temp = TestDir::new("invalid");
+        let file_path = temp.path.join("note.md");
+        touch(&file_path);
+
+        let missing = list_dir_shallow(&temp.path.join("missing")).unwrap_err();
+        let not_directory = list_dir_shallow(&file_path).unwrap_err();
+
+        assert!(missing.contains("路径不存在"));
+        assert!(not_directory.contains("不是目录"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn does_not_follow_directory_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let temp = TestDir::new("symlink");
+        let target = TestDir::new("symlink-target");
+        let real_dir = temp.path.join("real");
+        fs::create_dir(&real_dir).unwrap();
+        touch(&real_dir.join("inside.md"));
+        let target_file = target.path.join("source.md");
+        touch(&target_file);
+        symlink(&real_dir, temp.path.join("linked")).unwrap();
+        symlink(&temp.path, temp.path.join("loop")).unwrap();
+        symlink(&target_file, temp.path.join("linked.md")).unwrap();
+
+        let root = list_dir_shallow(&temp.path).unwrap();
+        let names: Vec<_> = root
+            .children
+            .iter()
+            .map(|child| child.name.as_str())
+            .collect();
+
+        assert_eq!(names, ["real", "linked.md"]);
+        assert!(root.children[0].children.is_empty());
+        assert!(!root.children[1].is_dir);
+    }
 }
 
 /// 读取文本文件内容（UTF-8）
@@ -133,7 +337,9 @@ pub fn file_mtime(file_path: String) -> Result<f64, String> {
         return Err(format!("文件不存在: {}", file_path));
     }
     let meta = fs::metadata(path).map_err(|e| format!("读取元数据失败: {}", e))?;
-    let mtime = meta.modified().map_err(|e| format!("读取修改时间失败: {}", e))?;
+    let mtime = meta
+        .modified()
+        .map_err(|e| format!("读取修改时间失败: {}", e))?;
     let secs = mtime
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs_f64())

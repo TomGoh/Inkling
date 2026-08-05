@@ -76,8 +76,36 @@
 
 .sidebar-tree {
   flex: 1;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   padding: 0.25rem 0;
+}
+
+/* 文件树使用固定行高窗口化渲染，DOM 数量只随视口高度变化 */
+.workspace-tree-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.workspace-tree-spacer {
+  position: relative;
+  min-width: 100%;
+}
+
+.workspace-tree-virtual-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 28px;
+}
+
+.workspace-tree-virtual-row > .tree-row {
+  height: 28px;
+  box-sizing: border-box;
 }
 
 .sidebar-empty {
@@ -128,6 +156,24 @@
 .tree-row-file-disabled:hover {
   background: transparent;
 }
+
+.tree-row-status {
+  color: var(--text-muted, #6e7681);
+  cursor: default;
+}
+
+.tree-row-status:hover {
+  background: transparent;
+}
+
+.tree-row-error {
+  color: var(--danger, #cf222e);
+  cursor: pointer;
+}
+
+.tree-row-error:hover {
+  background: rgba(207, 34, 46, 0.08);
+}
 /* 活跃文件：accent 淡底 + 左侧指示条，一眼定位当前文档 */
 .tree-row-active {
   background: var(--row-active-bg, rgba(9, 105, 218, 0.1));
@@ -173,6 +219,9 @@
 
 /* 最近打开文件区块 */
 .recent-section {
+  flex-shrink: 0;
+  max-height: 35%;
+  overflow-y: auto;
   border-bottom: 1px solid var(--border, #eaeef2);
   padding-bottom: 0.3rem;
   margin-bottom: 0.3rem;
