@@ -1,8 +1,19 @@
 // E2E：主题切换与设置面板
 // 覆盖：明暗切换、data-theme 属性、localStorage 持久化、设置项开关、代码高亮主题、恢复默认、关闭方式
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { openMockWorkspace, openFile, MOD } from "./helpers";
+
+async function insertCodeBlock(page: Page) {
+  await page.keyboard.press(`${MOD}+n`);
+  await expect(page.locator(".ProseMirror p")).toBeVisible({ timeout: 5_000 });
+  await page.locator(".ProseMirror p").first().click();
+  await page.keyboard.type("/");
+  await expect(page.locator(".slash-popup")).toBeVisible({ timeout: 5_000 });
+  await page.keyboard.type("代码");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".code-block")).toBeVisible({ timeout: 5_000 });
+}
 
 test.describe("主题切换", () => {
   test.beforeEach(async ({ page }) => {
@@ -24,12 +35,14 @@ test.describe("主题切换", () => {
     const lightItem = page.locator(".export-item", { hasText: "浅色" });
     await lightItem.click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
   });
 
   test("TH3 切换深色后 data-theme=dark 并持久化", async ({ page }) => {
     await page.locator('.topbar-btn[title="主题"]').click();
     await page.locator(".export-item", { hasText: "深色" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
     // localStorage 持久化
     const stored = await page.evaluate(() => localStorage.getItem("inkling-theme"));
     expect(stored).toBe("dark");
@@ -69,12 +82,43 @@ test.describe("设置面板", () => {
     expect(stored).toContain("focusMode");
   });
 
-  test("SE3 切换代码高亮主题", async ({ page }) => {
+  test("SE3 代码高亮主题同步原生控件配色", async ({ page }) => {
+    await insertCodeBlock(page);
+    const codeBlock = page.locator(".code-block");
+    const languageSelect = codeBlock.locator(".code-block-lang");
+    await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
+    await expect(codeBlock).toHaveAttribute("data-code-theme", "oneDark");
+    await expect(languageSelect).toHaveCSS("color-scheme", "dark");
+
+    await page.locator('.topbar-btn[title="主题"]').click();
+    await page.locator(".export-item", { hasText: "深色" }).click();
+    await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
+    await expect(languageSelect).toHaveCSS("color-scheme", "dark");
+
     await page.locator('.topbar-btn[title*="偏好设置"]').click();
     const select = page.locator(".settings-select");
+    await expect(select).toHaveCSS("color-scheme", "dark");
+    await select.selectOption("light");
+    await expect(codeBlock).toHaveAttribute("data-code-theme", "light");
+    await expect(languageSelect).toHaveCSS("color-scheme", "light");
+
+    await page.locator(".settings-backdrop").click({ position: { x: 5, y: 5 } });
+    await page.locator('.topbar-btn[title="主题"]').click();
+    await page.locator(".export-item", { hasText: "浅色" }).click();
+    await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
+    await expect(languageSelect).toHaveCSS("color-scheme", "light");
+
+    await page.locator('.topbar-btn[title*="偏好设置"]').click();
     await select.selectOption("none");
-    // 断言不抛错且值已改
     await expect(select).toHaveValue("none");
+    await expect(codeBlock).toHaveAttribute("data-code-theme", "none");
+    await expect(languageSelect).toHaveCSS("color-scheme", "light");
+
+    await page.locator(".settings-backdrop").click({ position: { x: 5, y: 5 } });
+    await page.locator('.topbar-btn[title="主题"]').click();
+    await page.locator(".export-item", { hasText: "深色" }).click();
+    await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
+    await expect(languageSelect).toHaveCSS("color-scheme", "dark");
   });
 
   test("SE4 恢复默认", async ({ page }) => {

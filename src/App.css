@@ -15,6 +15,7 @@
 /* 浅色主题（默认） */
 :root,
 [data-theme="light"] {
+  color-scheme: light;
   color: #1f2328;
   background-color: #ffffff;
   /* 品牌强调色：统一原先散落的 #0969da / #2f81f7 */
@@ -542,7 +543,11 @@ button svg,
   background: var(--code-block-bg);
   color: var(--code-block-text);
 }
+.editor-scroll .milkdown .code-block[data-code-theme="oneDark"] {
+  color-scheme: dark;
+}
 .editor-scroll .milkdown .code-block[data-code-theme="light"] {
+  color-scheme: light;
   --code-block-bg: #ffffff;
   --code-block-toolbar-bg: #f6f8fa;
   --code-block-control-bg: #ffffff;
@@ -1049,6 +1054,7 @@ button svg,
 
 /* 深色主题：通过 data-theme="dark" 切换，支持手动覆盖系统偏好 */
 [data-theme="dark"] {
+  color-scheme: dark;
   color: #e6edf3;
   background-color: #0d1117;
   --accent: #2f81f7;
