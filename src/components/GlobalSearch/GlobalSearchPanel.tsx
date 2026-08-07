@@ -139,9 +139,17 @@ export function GlobalSearchPanel({ getEditor, onClose }: GlobalSearchPanelProps
 
   /** 跳转到命中位置 */
   const jumpTo = async (hit: SearchHit) => {
-    await openFile(hit.path);
+    try {
+      await openFile(hit.path);
+    } catch {
+      // 错误已由 workspace store 按路径记录，留在当前搜索结果即可重试
+      return;
+    }
+    // 文件读取期间若用户选择了其他文件，旧结果不得在新编辑器中移动光标
+    if (useWorkspace.getState().currentFile !== hit.path) return;
     // 等编辑器更新后定位光标
     setTimeout(() => {
+      if (useWorkspace.getState().currentFile !== hit.path) return;
       const editor = getEditor();
       if (!editor) return;
       editor.action((ctx) => {

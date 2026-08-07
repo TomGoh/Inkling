@@ -70,6 +70,18 @@ const directoryRequests = new Map<string, Promise<void>>();
 /** 加载中的目录发生文件变更时，合并为一次后续强制刷新 */
 const forcedDirectoryRequests = new Map<string, Promise<void>>();
 
+/** 同一文件的并发读取复用一个 Promise，避免重复读取和重复创建 tab */
+const fileRequests = new Map<string, Promise<string>>();
+
+/** 主面板文件选择序号：较旧的读取结果可以加入 tab，但不得抢回活跃状态 */
+let mainFileIntent = 0;
+
+/** 分屏文件选择序号：连续打开时只允许最后一次操作更新分屏 */
+let splitFileIntent = 0;
+
+/** 工作区上下文序号：文件夹与单文件模式只接受最后一次切换结果 */
+let workspaceContextIntent = 0;
+
 /** 书签列表的持久化 key */
 const BOOKMARKS_KEY = "inkling-bookmarks";
 
@@ -144,8 +156,12 @@ interface WorkspaceState {
   workspaceMode: "folder" | "file" | null;
   /** 文件树根节点 */
   tree: FileNode | null;
-  /** 加载中标志 */
-  loading: boolean;
+  /** 正在打开或切换工作区 */
+  workspaceLoading: boolean;
+  /** 正在读取的文件路径集合 */
+  openingFiles: Set<string>;
+  /** 文件读取错误（按路径记录，点击文件可重试） */
+  fileOpenErrors: Map<string, string>;
 
   /** 已打开的标签页列表 */
   openTabs: OpenTab[];
@@ -254,11 +270,123 @@ interface WorkspaceState {
   onFileDeleted: (path: string) => void;
 }
 
-export const useWorkspace = create<WorkspaceState>((set, get) => ({
+export const useWorkspace = create<WorkspaceState>((set, get) => {
+  /** 读取文件并维护逐文件加载状态；同一路径的并发调用共享同一请求 */
+  const readFileOnce = (filePath: string): Promise<string> => {
+    const existing = fileRequests.get(filePath);
+    if (existing) return existing;
+
+    set((current) => {
+      const openingFiles = new Set(current.openingFiles);
+      const fileOpenErrors = new Map(current.fileOpenErrors);
+      openingFiles.add(filePath);
+      fileOpenErrors.delete(filePath);
+      return { openingFiles, fileOpenErrors };
+    });
+
+    let request: Promise<string>;
+    request = Promise.resolve()
+      .then(() => readTextFile(filePath))
+      .catch((error) => {
+        if (fileRequests.get(filePath) === request) {
+          set((current) => {
+            const fileOpenErrors = new Map(current.fileOpenErrors);
+            fileOpenErrors.set(
+              filePath,
+              error instanceof Error ? error.message : String(error),
+            );
+            return { fileOpenErrors };
+          });
+        }
+        throw error;
+      })
+      .finally(() => {
+        if (fileRequests.get(filePath) !== request) return;
+        fileRequests.delete(filePath);
+        set((current) => {
+          if (!current.openingFiles.has(filePath)) return {};
+          const openingFiles = new Set(current.openingFiles);
+          openingFiles.delete(filePath);
+          return { openingFiles };
+        });
+      });
+    fileRequests.set(filePath, request);
+    return request;
+  };
+
+  /** 确保文件已加入标签页，但不改变主面板或分屏的活跃文件 */
+  const ensureTab = async (filePath: string): Promise<OpenTab> => {
+    const existing = get().openTabs.find((tab) => tab.path === filePath);
+    if (existing) return existing;
+
+    const content = await readFileOnce(filePath);
+    let resolvedTab: OpenTab | undefined;
+    set((current) => {
+      const currentTab = current.openTabs.find((tab) => tab.path === filePath);
+      if (currentTab) {
+        resolvedTab = currentTab;
+        return {};
+      }
+
+      resolvedTab = {
+        path: filePath,
+        content,
+        dirty: false,
+        lastSavedAt: null,
+        cursorPos: null,
+        scrollTop: null,
+      };
+      return { openTabs: [...current.openTabs, resolvedTab] };
+    });
+    return resolvedTab!;
+  };
+
+  /** 构造主面板激活状态；目标已在分屏时同步关闭分屏，避免重复展示 */
+  const mainTabPatch = (
+    current: WorkspaceState,
+    tab: OpenTab,
+  ): Partial<WorkspaceState> => {
+    const closesSplit = current.splitFile === tab.path;
+    if (closesSplit) splitFileIntent += 1;
+    return {
+      activeTabPath: tab.path,
+      currentFile: tab.path,
+      currentContent: tab.content,
+      dirty: tab.dirty,
+      saveError: null,
+      lastSavedAt: tab.lastSavedAt,
+      currentHeadingSlug: null,
+      ...(closesSplit ? { splitFile: null, splitContent: "" } : {}),
+    };
+  };
+
+  /** 按操作序号激活主面板；过期请求只保留为后台标签页 */
+  const activateMainTab = (filePath: string, intent: number): void => {
+    let nextRecent: string[] | null = null;
+    set((current) => {
+      if (intent !== mainFileIntent) return {};
+      const tab = current.openTabs.find((candidate) => candidate.path === filePath);
+      if (!tab) return {};
+
+      nextRecent = pushRecent(current.recentFiles, filePath);
+      const fileOpenErrors = new Map(current.fileOpenErrors);
+      fileOpenErrors.delete(filePath);
+      return {
+        ...mainTabPatch(current, tab),
+        recentFiles: nextRecent,
+        fileOpenErrors,
+      };
+    });
+    if (nextRecent) persistRecentFiles(nextRecent);
+  };
+
+  return {
   rootPath: null,
   workspaceMode: null,
   tree: null,
-  loading: false,
+  workspaceLoading: false,
+  openingFiles: new Set(),
+  fileOpenErrors: new Map(),
 
   // 分屏状态
   splitFile: null,
@@ -399,90 +527,80 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   isBookmarked: (path) => get().bookmarks.includes(path),
 
   openWorkspace: async (dirPath) => {
+    // 用户开始切换工作区后，旧的文件读取不得再抢占活跃 tab
+    mainFileIntent += 1;
+    const contextIntent = ++workspaceContextIntent;
     const generation = ++workspaceGeneration;
     const expandedDirs = new Set(get().expandedDirs);
     expandedDirs.add(dirPath);
     set({
-      loading: true,
+      workspaceLoading: true,
       loadingDirs: new Set([dirPath]),
     });
     try {
       const tree = await listDir(dirPath);
-      if (generation !== workspaceGeneration) return;
+      if (
+        generation !== workspaceGeneration ||
+        contextIntent !== workspaceContextIntent
+      ) {
+        return;
+      }
       persistExpandedDirs(expandedDirs);
       set({
         rootPath: dirPath,
         workspaceMode: "folder",
         tree,
-        loading: false,
+        workspaceLoading: false,
         expandedDirs,
         loadedDirs: new Set([dirPath]),
         loadingDirs: new Set(),
         directoryErrors: new Map(),
       });
     } catch (e) {
-      if (generation !== workspaceGeneration) return;
-      set({ loading: false, loadingDirs: new Set() });
+      if (
+        generation !== workspaceGeneration ||
+        contextIntent !== workspaceContextIntent
+      ) {
+        return;
+      }
+      set({ workspaceLoading: false, loadingDirs: new Set() });
       throw e;
     }
   },
 
   openFile: async (filePath) => {
-    const { openTabs } = get();
-    // 已打开：直接切换，不重复读取
-    const existing = openTabs.find((t) => t.path === filePath);
-    if (existing) {
-      get().switchTab(filePath);
-      // 已打开的文件被再次打开，也更新最近列表
-      const next = pushRecent(get().recentFiles, filePath);
-      set({ recentFiles: next });
-      persistRecentFiles(next);
-      return;
-    }
-    // 未打开：读取内容并新增 tab
-    set({ loading: true });
-    try {
-      const content = await readTextFile(filePath);
-      const tab: OpenTab = {
-        path: filePath,
-        content,
-        dirty: false,
-        lastSavedAt: null,
-        cursorPos: null,
-        scrollTop: null,
-      };
-      const nextRecent = pushRecent(get().recentFiles, filePath);
-      set({
-        openTabs: [...get().openTabs, tab],
-        activeTabPath: filePath,
-        currentFile: filePath,
-        currentContent: content,
-        dirty: false,
-        saveError: null,
-        lastSavedAt: null,
-        currentHeadingSlug: null,
-        recentFiles: nextRecent,
-        loading: false,
-      });
-      persistRecentFiles(nextRecent);
-    } catch (e) {
-      set({ loading: false });
-      throw e;
-    }
+    const intent = ++mainFileIntent;
+    await ensureTab(filePath);
+    activateMainTab(filePath, intent);
   },
 
   openFileStandalone: async (filePath) => {
+    const ownsWorkspaceContext = get().workspaceMode !== "folder";
+    const contextIntent = ownsWorkspaceContext ? ++workspaceContextIntent : null;
+    if (ownsWorkspaceContext) {
+      // 单文件入口晚于尚未完成的文件夹打开时，以最新的用户操作为准
+      workspaceGeneration += 1;
+      set({ workspaceLoading: false, loadingDirs: new Set() });
+    }
     // 先用 openFile 完成 tab 读取/切换/recent 更新
     await get().openFile(filePath);
     // 单文件模式：不构建文件树，但保留父目录作为当前文件上下文。
     // 仅当当前不是 folder 模式时才设为 file 模式，避免覆盖已打开的文件夹工作区。
-    const { workspaceMode } = get();
-    if (workspaceMode === "folder") return;
+    const { workspaceMode, activeTabPath } = get();
+    if (
+      !ownsWorkspaceContext ||
+      contextIntent !== workspaceContextIntent ||
+      workspaceMode === "folder" ||
+      activeTabPath !== filePath
+    ) {
+      return;
+    }
     const parent = parentDir(filePath);
     set({ rootPath: parent, workspaceMode: "file", tree: null });
   },
 
   newTab: () => {
+    mainFileIntent += 1;
     const { openTabs } = get();
     // 生成唯一虚拟路径 untitled-1, untitled-2...（避免与已打开草稿重名）
     let n = 1;
@@ -511,22 +629,18 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   splitOpen: async (filePath) => {
-    // 确保该文件已在 openTabs 中（不在则先打开，但不要切换主面板活跃 tab）
-    const existed = get().openTabs.find((t) => t.path === filePath);
-    if (!existed) {
-      // 先记录当前活跃 tab，openFile 会切换活跃，之后切回
-      const prevActive = get().activeTabPath;
-      await get().openFile(filePath);
-      if (prevActive && prevActive !== filePath) get().switchTab(prevActive);
-    }
-    const tab = get().openTabs.find((t) => t.path === filePath);
-    if (!tab) return;
+    const intent = ++splitFileIntent;
+    const tab = await ensureTab(filePath);
+    if (intent !== splitFileIntent) return;
     // 不让分屏文件与主文件相同（无对照意义）
     if (filePath === get().currentFile) return;
     set({ splitFile: filePath, splitContent: tab.content });
   },
 
-  splitClose: () => set({ splitFile: null, splitContent: "" }),
+  splitClose: () => {
+    splitFileIntent += 1;
+    set({ splitFile: null, splitContent: "" });
+  },
 
   splitSwap: () => {
     const { splitFile, currentFile, openTabs } = get();
@@ -551,16 +665,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   switchTab: (filePath) => {
     const tab = get().openTabs.find((t) => t.path === filePath);
     if (!tab) return;
-    set({
-      activeTabPath: filePath,
-      currentFile: tab.path,
-      currentContent: tab.content,
-      dirty: tab.dirty,
-      lastSavedAt: tab.lastSavedAt,
-      saveError: null,
-      // 切换 tab 时重置大纲高亮，等编辑器更新后由 tracker 重新计算
-      currentHeadingSlug: null,
-    });
+    mainFileIntent += 1;
+    // 切换 tab 时重置大纲高亮，等编辑器更新后由 tracker 重新计算
+    set((current) => mainTabPatch(current, tab));
   },
 
   closeTab: (filePath) => {
@@ -570,6 +677,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const nextTabs = openTabs.filter((t) => t.path !== filePath);
     // 若关闭的是分屏文件，同步关闭分屏面板
     const splitClosing = get().splitFile === filePath;
+    if (activeTabPath === filePath) mainFileIntent += 1;
+    if (splitClosing) splitFileIntent += 1;
 
     // 关闭的是活跃 tab：选择相邻 tab 激活
     if (activeTabPath === filePath) {
@@ -589,16 +698,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         // 优先激活右边的（原 idx 位置），越界则取最后一个
         const nextIdx = Math.min(idx, nextTabs.length - 1);
         const next = nextTabs[nextIdx];
-        set({
+        set((current) => ({
           openTabs: nextTabs,
-          activeTabPath: next.path,
-          currentFile: next.path,
-          currentContent: next.content,
-          dirty: next.dirty,
-          lastSavedAt: next.lastSavedAt,
-          saveError: null,
-          currentHeadingSlug: null,
-        });
+          ...mainTabPatch(current, next),
+        }));
       }
     } else {
       // 关闭的不是活跃 tab，只更新列表
@@ -609,52 +712,47 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   },
 
   closeOthers: (keepPath) => {
-    const { openTabs, activeTabPath, splitFile } = get();
+    const { openTabs, splitFile } = get();
     const keep = openTabs.find((t) => t.path === keepPath);
     if (!keep) return;
-    // 若活跃 tab 不在保留项中，激活保留项
-    const nextActive = activeTabPath === keepPath ? keepPath : keepPath;
-    // 分屏文件若不在保留项，关闭分屏
-    const splitStillValid = splitFile === keepPath;
-    set({
+    mainFileIntent += 1;
+    if (splitFile && splitFile !== keepPath) splitFileIntent += 1;
+    set((current) => ({
       openTabs: [keep],
-      activeTabPath: nextActive,
-      currentFile: keep.path,
-      currentContent: keep.content,
-      dirty: keep.dirty,
-      lastSavedAt: keep.lastSavedAt,
-      saveError: null,
-      currentHeadingSlug: null,
-      splitFile: splitStillValid ? splitFile : null,
-      splitContent: splitStillValid ? get().splitContent : "",
-    });
+      ...mainTabPatch(current, keep),
+      splitFile: null,
+      splitContent: "",
+    }));
   },
 
   closeToRight: (fromPath) => {
-    const { openTabs, activeTabPath } = get();
+    const { openTabs, activeTabPath, splitFile } = get();
     const idx = openTabs.findIndex((t) => t.path === fromPath);
     if (idx === -1) return;
+    mainFileIntent += 1;
     const nextTabs = openTabs.slice(0, idx + 1);
+    const splitRemoved = !!splitFile && !nextTabs.some((tab) => tab.path === splitFile);
+    if (splitRemoved) splitFileIntent += 1;
     // 若活跃 tab 被关掉了，激活 fromPath
     const activeTab = nextTabs.find((t) => t.path === activeTabPath);
     if (activeTab) {
-      set({ openTabs: nextTabs });
-    } else {
-      const fallback = openTabs[idx];
       set({
         openTabs: nextTabs,
-        activeTabPath: fallback.path,
-        currentFile: fallback.path,
-        currentContent: fallback.content,
-        dirty: fallback.dirty,
-        lastSavedAt: fallback.lastSavedAt,
-        saveError: null,
-        currentHeadingSlug: null,
+        ...(splitRemoved ? { splitFile: null, splitContent: "" } : {}),
       });
+    } else {
+      const fallback = openTabs[idx];
+      set((current) => ({
+        openTabs: nextTabs,
+        ...mainTabPatch(current, fallback),
+        ...(splitRemoved ? { splitFile: null, splitContent: "" } : {}),
+      }));
     }
   },
 
   closeAll: () => {
+    mainFileIntent += 1;
+    splitFileIntent += 1;
     set({
       openTabs: [],
       activeTabPath: null,
@@ -875,4 +973,5 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     persistExpandedDirs(nextExpanded);
     void get().refreshTree(parentDir(path));
   },
-}));
+  };
+});

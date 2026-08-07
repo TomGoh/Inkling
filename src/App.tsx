@@ -180,19 +180,19 @@ function App() {
     // 派生窗口只处理自身的派生目标，不参与 pending / 单实例（避免与主窗口重复打开）
     const winTarget = getNewWindowFilePath();
     if (winTarget) {
-      void open(winTarget);
+      void open(winTarget).catch(() => {});
       return;
     }
 
     // 主窗口：拉取首次启动的待打开文件
     let cancelled = false;
     invoke<string | null>("take_pending_file").then((p) => {
-      if (!cancelled && p) void open(p);
+      if (!cancelled && p) void open(p).catch(() => {});
     });
 
     // 主窗口：监听单实例转发的双击打开事件
     const unlisten = listen<string>("open-file", (e) => {
-      if (!cancelled) void open(e.payload);
+      if (!cancelled) void open(e.payload).catch(() => {});
     });
 
     return () => {

@@ -217,6 +217,48 @@
   margin-right: 4px;
 }
 
+/* 文件读取状态只占用当前行，避免用全局加载状态替换文件树 */
+.tree-file-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  margin-left: auto;
+  margin-right: 2px;
+}
+
+.tree-file-spinner {
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: tree-file-spin 0.7s linear infinite;
+}
+
+.tree-file-opening {
+  color: var(--text-muted, #6e7681);
+}
+
+.tree-file-error {
+  color: var(--danger, #cf222e);
+}
+
+@keyframes tree-file-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-file-spinner {
+    animation: none;
+  }
+}
+
 /* 最近打开文件区块 */
 .recent-section {
   flex-shrink: 0;
