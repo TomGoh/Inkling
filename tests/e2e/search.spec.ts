@@ -2,18 +2,8 @@
 // 浏览器版本需先点「打开文件夹」加载 mock 工作区并打开一个文件
 // 验证 Ctrl+F 打开查找、输入查找词高亮、Ctrl+R 打开替换、替换功能、Esc 关闭
 
-import { test, expect, type Page } from "@playwright/test";
-
-async function openMockWorkspace(page: Page) {
-  await page.goto("/");
-  await page.getByRole("button", { name: "打开文件夹" }).click();
-  await expect(page.locator(".sidebar-tree").getByText("mock-workspace")).toBeVisible({ timeout: 10_000 });
-}
-
-async function openFile(page: Page, fileName: string) {
-  await page.locator(".sidebar-tree").getByText(fileName, { exact: true }).click();
-  await expect(page.locator(".ProseMirror")).toBeVisible({ timeout: 10_000 });
-}
+import { test, expect } from "@playwright/test";
+import { openFile, openMockWorkspace } from "./helpers";
 
 test.describe("查找替换", () => {
   test("Ctrl+F 打开查找面板", async ({ page }) => {

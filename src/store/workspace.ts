@@ -6,6 +6,11 @@
 import { create } from "zustand";
 import { isTauri } from "@tauri-apps/api/core";
 import { listDir, readTextFile, writeTextFile, type FileNode } from "../lib/fs";
+import {
+  collectDirectoryPaths,
+  isPathWithin,
+  mergeDirectoryListing,
+} from "../lib/fileTree";
 
 /** 最近打开文件列表的持久化 key */
 const RECENT_FILES_KEY = "inkling-recent-files";
@@ -32,13 +37,13 @@ function persistRecentFiles(files: string[]): void {
   }
 }
 
-/** 折叠目录列表的持久化 key（存被用户折叠的目录，未记录的默认展开） */
-const COLLAPSED_DIRS_KEY = "inkling-collapsed-dirs";
+/** 展开目录列表的持久化 key（未记录的目录默认折叠） */
+const EXPANDED_DIRS_KEY = "inkling-expanded-dirs-v2";
 
-/** 读取持久化的折叠目录列表 */
-function loadCollapsedDirs(): Set<string> {
+/** 读取持久化的展开目录列表 */
+function loadExpandedDirs(): Set<string> {
   try {
-    const raw = localStorage.getItem(COLLAPSED_DIRS_KEY);
+    const raw = localStorage.getItem(EXPANDED_DIRS_KEY);
     if (!raw) return new Set();
     const arr = JSON.parse(raw) as string[];
     return Array.isArray(arr) ? new Set(arr) : new Set();
@@ -47,14 +52,23 @@ function loadCollapsedDirs(): Set<string> {
   }
 }
 
-/** 持久化折叠目录列表 */
-function persistCollapsedDirs(dirs: Set<string>): void {
+/** 持久化展开目录列表 */
+function persistExpandedDirs(dirs: Set<string>): void {
   try {
-    localStorage.setItem(COLLAPSED_DIRS_KEY, JSON.stringify([...dirs]));
+    localStorage.setItem(EXPANDED_DIRS_KEY, JSON.stringify([...dirs]));
   } catch {
     // 忽略写入失败
   }
 }
+
+/** 工作区切换序号：较旧的异步结果不得覆盖后来打开的工作区 */
+let workspaceGeneration = 0;
+
+/** 同一目录的并发请求复用同一个 Promise，避免重复枚举 */
+const directoryRequests = new Map<string, Promise<void>>();
+
+/** 加载中的目录发生文件变更时，合并为一次后续强制刷新 */
+const forcedDirectoryRequests = new Map<string, Promise<void>>();
 
 /** 书签列表的持久化 key */
 const BOOKMARKS_KEY = "inkling-bookmarks";
@@ -89,8 +103,15 @@ function pushRecent(list: string[], path: string): string[] {
 /** 取文件所在目录路径（兼容 / 与 \），根目录则返回原路径 */
 function parentDir(filePath: string): string {
   const idx = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
-  if (idx <= 0) return filePath;
+  if (idx < 0) return filePath;
+  if (idx === 0) return filePath.slice(0, 1);
+  if (idx === 2 && /^[a-zA-Z]:[\\/]/.test(filePath)) return filePath.slice(0, 3);
   return filePath.slice(0, idx);
+}
+
+/** 把目录重命名前缀同步到持久化路径 */
+function rebasePathPrefix(path: string, from: string, to: string): string {
+  return isPathWithin(path, from) ? to + path.slice(from.length) : path;
 }
 
 /** 单个打开的标签页 */
@@ -164,14 +185,22 @@ interface WorkspaceState {
   /** 最近打开的文件路径列表（最多 10 个，最新在前） */
   recentFiles: string[];
 
-  /** 折叠的目录路径集合（持久化，未记录的目录默认展开） */
-  collapsedDirs: Set<string>;
+  /** 展开的目录路径集合（持久化，未记录的目录默认折叠） */
+  expandedDirs: Set<string>;
+  /** 已完成单层枚举的目录路径集合 */
+  loadedDirs: Set<string>;
+  /** 正在枚举的目录路径集合 */
+  loadingDirs: Set<string>;
+  /** 目录枚举错误（按路径记录，点击错误行可重试） */
+  directoryErrors: Map<string, string>;
   /** 切换目录展开状态并持久化 */
   toggleDirExpanded: (path: string) => void;
   /** 设置目录展开状态并持久化 */
   setDirExpanded: (path: string, expanded: boolean) => void;
-  /** 查询目录是否展开（未记录时默认 true，即默认展开） */
+  /** 查询目录是否展开（未记录时默认折叠） */
   isDirExpanded: (path: string) => boolean;
+  /** 按需枚举一个目录的直接子项 */
+  loadDirectory: (path: string, force?: boolean) => Promise<void>;
 
   /** 书签文件路径列表 */
   bookmarks: string[];
@@ -180,7 +209,7 @@ interface WorkspaceState {
   /** 查询是否已收藏 */
   isBookmarked: (path: string) => boolean;
 
-  /** 打开工作区：读取目录树 */
+  /** 打开工作区：只读取根目录的直接子项 */
   openWorkspace: (dirPath: string) => Promise<void>;
   /** 打开文件：已打开则切换到对应 tab，否则读取内容新增 tab。不改变当前工作区模式 */
   openFile: (filePath: string) => Promise<void>;
@@ -217,8 +246,8 @@ interface WorkspaceState {
   saveCursorState: (pos: number, scrollTop: number) => void;
   /** 读取活跃 tab 的编辑位置（用于编辑器 ready 后恢复） */
   getActiveCursorState: () => { pos: number | null; scrollTop: number | null };
-  /** 刷新文件树（文件操作后调用） */
-  refreshTree: () => Promise<void>;
+  /** 刷新指定目录（省略路径时刷新工作区根目录） */
+  refreshTree: (dirPath?: string) => Promise<void>;
   /** 文件被重命名时同步 tab 状态 */
   onFileRenamed: (from: string, to: string) => void;
   /** 文件被删除时同步 tab 状态 */
@@ -244,29 +273,119 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   lastSavedAt: null,
   currentHeadingSlug: null,
   recentFiles: loadRecentFiles(),
-  collapsedDirs: loadCollapsedDirs(),
+  expandedDirs: loadExpandedDirs(),
+  loadedDirs: new Set(),
+  loadingDirs: new Set(),
+  directoryErrors: new Map(),
   bookmarks: loadBookmarks(),
 
   toggleDirExpanded: (path) => {
-    const next = new Set(get().collapsedDirs);
-    // 当前展开（不在折叠集合）→ 折叠（加入集合）；反之移除
-    if (next.has(path)) next.delete(path);
-    else next.add(path);
-    set({ collapsedDirs: next });
-    persistCollapsedDirs(next);
+    const next = new Set(get().expandedDirs);
+    if (!next.has(path)) next.add(path);
+    else next.delete(path);
+    set({ expandedDirs: next });
+    persistExpandedDirs(next);
   },
 
   setDirExpanded: (path, expanded) => {
-    const next = new Set(get().collapsedDirs);
-    if (expanded) next.delete(path);
-    else next.add(path);
-    set({ collapsedDirs: next });
-    persistCollapsedDirs(next);
+    const next = new Set(get().expandedDirs);
+    if (expanded) next.add(path);
+    else next.delete(path);
+    set({ expandedDirs: next });
+    persistExpandedDirs(next);
   },
 
-  isDirExpanded: (path) => {
-    // 未记录的目录默认展开（不在折叠集合里）
-    return !get().collapsedDirs.has(path);
+  isDirExpanded: (path) => get().expandedDirs.has(path),
+
+  loadDirectory: async (path, force = false) => {
+    const state = get();
+    if (
+      !state.rootPath ||
+      state.workspaceMode !== "folder" ||
+      !isPathWithin(path, state.rootPath)
+    ) {
+      return;
+    }
+    if (!force && state.loadedDirs.has(path)) return;
+
+    const generation = workspaceGeneration;
+    const requestKey = `${generation}\0${path}`;
+    const existing = directoryRequests.get(requestKey);
+    if (existing) {
+      if (!force) return existing;
+      const queued = forcedDirectoryRequests.get(requestKey);
+      if (queued) return queued;
+
+      const refresh = existing
+        .catch(() => {})
+        .then(() => {
+          // 后续扫描开始前释放标记，使扫描期间的新变更可继续排队
+          forcedDirectoryRequests.delete(requestKey);
+          if (generation !== workspaceGeneration) return;
+          return get().loadDirectory(path, true);
+        });
+      forcedDirectoryRequests.set(requestKey, refresh);
+      return refresh;
+    }
+
+    const request = (async () => {
+      const loadingDirs = new Set(get().loadingDirs);
+      const directoryErrors = new Map(get().directoryErrors);
+      loadingDirs.add(path);
+      directoryErrors.delete(path);
+      set({ loadingDirs, directoryErrors });
+
+      try {
+        const listing = await listDir(path);
+        if (generation !== workspaceGeneration) return;
+
+        set((current) => {
+          if (
+            !current.tree ||
+            current.rootPath !== state.rootPath ||
+            current.workspaceMode !== "folder"
+          ) {
+            return {};
+          }
+
+          const tree = mergeDirectoryListing(current.tree, listing);
+          if (tree === current.tree) return {};
+
+          const existingDirs = collectDirectoryPaths(tree);
+          const loadedDirs = new Set(
+            [...current.loadedDirs].filter((dir) => existingDirs.has(dir)),
+          );
+          loadedDirs.add(path);
+          const errors = new Map(
+            [...current.directoryErrors].filter(([dir]) => existingDirs.has(dir)),
+          );
+          errors.delete(path);
+          return { tree, loadedDirs, directoryErrors: errors };
+        });
+      } catch (e) {
+        const current = get();
+        if (
+          generation === workspaceGeneration &&
+          current.tree &&
+          collectDirectoryPaths(current.tree).has(path)
+        ) {
+          const errors = new Map(current.directoryErrors);
+          errors.set(path, e instanceof Error ? e.message : String(e));
+          set({ directoryErrors: errors });
+        }
+        throw e;
+      } finally {
+        directoryRequests.delete(requestKey);
+        if (generation === workspaceGeneration) {
+          const next = new Set(get().loadingDirs);
+          next.delete(path);
+          set({ loadingDirs: next });
+        }
+      }
+    })();
+
+    directoryRequests.set(requestKey, request);
+    return request;
   },
 
   toggleBookmark: (path) => {
@@ -280,17 +399,30 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   isBookmarked: (path) => get().bookmarks.includes(path),
 
   openWorkspace: async (dirPath) => {
-    set({ loading: true });
+    const generation = ++workspaceGeneration;
+    const expandedDirs = new Set(get().expandedDirs);
+    expandedDirs.add(dirPath);
+    set({
+      loading: true,
+      loadingDirs: new Set([dirPath]),
+    });
     try {
       const tree = await listDir(dirPath);
+      if (generation !== workspaceGeneration) return;
+      persistExpandedDirs(expandedDirs);
       set({
         rootPath: dirPath,
         workspaceMode: "folder",
         tree,
         loading: false,
+        expandedDirs,
+        loadedDirs: new Set([dirPath]),
+        loadingDirs: new Set(),
+        directoryErrors: new Map(),
       });
     } catch (e) {
-      set({ loading: false });
+      if (generation !== workspaceGeneration) return;
+      set({ loading: false, loadingDirs: new Set() });
       throw e;
     }
   },
@@ -643,20 +775,27 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     return { pos: tab.cursorPos, scrollTop: tab.scrollTop };
   },
 
-  refreshTree: async () => {
+  refreshTree: async (dirPath) => {
     const { rootPath, workspaceMode } = get();
     // 单文件模式不构建文件树，跳过刷新
     if (!rootPath || workspaceMode !== "folder") return;
     try {
-      const tree = await listDir(rootPath);
-      set({ tree });
+      await get().loadDirectory(dirPath ?? rootPath, true);
     } catch {
       // 刷新失败忽略，不阻塞用户操作
     }
   },
 
   onFileRenamed: (from, to) => {
-    const { openTabs, activeTabPath, splitFile } = get();
+    const {
+      openTabs,
+      activeTabPath,
+      splitFile,
+      expandedDirs,
+      loadedDirs,
+      loadingDirs,
+      directoryErrors,
+    } = get();
     const nextTabs = openTabs.map((t) =>
       t.path === from ? { ...t, path: to } : t,
     );
@@ -678,13 +817,31 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         ? to + p.slice(from.length)
         : p,
     );
-    set({ bookmarks: bk });
+    // 目录重命名后保留展开偏好，但让新路径重新按需加载子项
+    const nextExpanded = new Set(
+      [...expandedDirs].map((path) => rebasePathPrefix(path, from, to)),
+    );
+    const nextLoaded = new Set([...loadedDirs].filter((path) => !isPathWithin(path, from)));
+    const nextLoading = new Set(
+      [...loadingDirs].filter((path) => !isPathWithin(path, from)),
+    );
+    const nextErrors = new Map(
+      [...directoryErrors].filter(([path]) => !isPathWithin(path, from)),
+    );
+    set({
+      bookmarks: bk,
+      expandedDirs: nextExpanded,
+      loadedDirs: nextLoaded,
+      loadingDirs: nextLoading,
+      directoryErrors: nextErrors,
+    });
     persistBookmarks(bk);
-    void get().refreshTree();
+    persistExpandedDirs(nextExpanded);
+    void get().refreshTree(parentDir(from));
   },
 
   onFileDeleted: (path) => {
-    const { openTabs } = get();
+    const { openTabs, expandedDirs, loadedDirs, loadingDirs, directoryErrors } = get();
     const affected = openTabs.find((t) => t.path === path);
     if (affected) {
       get().closeTab(path);
@@ -697,8 +854,25 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const bk = get().bookmarks.filter(
       (p) => p !== path && !p.startsWith(path + "/") && !p.startsWith(path + "\\"),
     );
-    set({ bookmarks: bk });
+    const nextExpanded = new Set(
+      [...expandedDirs].filter((dir) => !isPathWithin(dir, path)),
+    );
+    const nextLoaded = new Set([...loadedDirs].filter((dir) => !isPathWithin(dir, path)));
+    const nextLoading = new Set(
+      [...loadingDirs].filter((dir) => !isPathWithin(dir, path)),
+    );
+    const nextErrors = new Map(
+      [...directoryErrors].filter(([dir]) => !isPathWithin(dir, path)),
+    );
+    set({
+      bookmarks: bk,
+      expandedDirs: nextExpanded,
+      loadedDirs: nextLoaded,
+      loadingDirs: nextLoading,
+      directoryErrors: nextErrors,
+    });
     persistBookmarks(bk);
-    void get().refreshTree();
+    persistExpandedDirs(nextExpanded);
+    void get().refreshTree(parentDir(path));
   },
 }));

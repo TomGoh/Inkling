@@ -2,7 +2,38 @@
 // 覆盖 joinPath（路径拼接，兼容 Win/Unix）和 resolvePathFromDocument（浏览器分支）
 
 import { describe, it, expect, vi } from "vitest";
-import { joinPath, resolvePathFromDocument } from "../../src/lib/fs";
+import { joinPath, listDir, resolvePathFromDocument } from "../../src/lib/fs";
+
+describe("listDir", () => {
+  it("浏览器 mock 只返回根目录的直接子项", async () => {
+    const root = await listDir("/mock-workspace");
+
+    expect(root.path).toBe("/mock-workspace");
+    expect(root.children.map((node) => node.name)).toEqual(["notes", "intro.md"]);
+    expect(root.children.find((node) => node.name === "notes")?.children).toEqual([]);
+  });
+
+  it("展开目录时才返回该目录的直接子项", async () => {
+    const notes = await listDir("/mock-workspace/notes");
+
+    expect(notes.path).toBe("/mock-workspace/notes");
+    expect(notes.children).toContainEqual(
+      expect.objectContaining({ name: "readme.md", is_dir: false }),
+    );
+  });
+
+  it("每次返回独立副本", async () => {
+    const first = await listDir("/mock-workspace");
+    first.children.length = 0;
+
+    const second = await listDir("/mock-workspace");
+    expect(second.children.length).toBeGreaterThan(0);
+  });
+
+  it("不存在的目录返回明确错误", async () => {
+    await expect(listDir("/mock-workspace/missing")).rejects.toThrow("路径不存在");
+  });
+});
 
 describe("joinPath", () => {
   it("Unix 路径用 / 拼接", () => {

@@ -1,13 +1,14 @@
 // 侧边栏：工作区文件树 + 最近打开文件列表
 // 支持文件/文件夹的右键菜单：重命名、删除、新建文件、新建文件夹
 // 重命名采用行内输入框，回车确认，Esc 取消
-// TreeNode 与右键菜单之间通过自定义事件通信，避免 props 层层透传
+// 文件树与右键菜单之间通过自定义事件通信，避免 props 层层透传
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import { useWorkspace } from "../../store/workspace";
 import { openInNewWindow } from "../../lib/newWindow";
+import { flattenVisibleTree } from "../../lib/fileTree";
 import {
   joinPath,
   renamePath,
@@ -29,7 +30,7 @@ import "./Sidebar.css";
 
 /** 判断是否为 Markdown 文件 */
 function isMarkdown(name: string): boolean {
-  return /\.md$/i.test(name);
+  return /\.(md|markdown)$/i.test(name);
 }
 
 /** 取文件名（路径最后一段） */
@@ -40,7 +41,10 @@ function basename(p: string): string {
 /** 取父目录路径 */
 function dirname(p: string): string {
   const idx = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
-  return idx === -1 ? "" : p.slice(0, idx);
+  if (idx < 0) return "";
+  if (idx === 0) return p.slice(0, 1);
+  if (idx === 2 && /^[a-zA-Z]:[\\/]/.test(p)) return p.slice(0, 3);
+  return p.slice(0, idx);
 }
 
 /** 自定义事件名 */
@@ -54,9 +58,9 @@ interface MenuPayload {
   y: number;
 }
 
-/** Sidebar 指令 TreeNode 执行的动作 */
+/** Sidebar 指令文件树执行的动作 */
 type TreeAction =
-  | { type: "rename"; path: string }
+  | { type: "rename"; node: FileNode }
   | { type: "new"; parentPath: string; kind: "file" | "dir" };
 
 /** 新建项的输入框状态 */
@@ -64,6 +68,18 @@ interface NewItemState {
   parentPath: string;
   kind: "file" | "dir";
 }
+
+/** 文件树固定行高与视口外预渲染行数 */
+const TREE_ROW_HEIGHT = 28;
+const TREE_OVERSCAN = 8;
+const TREE_FALLBACK_HEIGHT = 560;
+
+/** 窗口化文件树中的一行 */
+type FileTreeRow =
+  | { kind: "node"; node: FileNode; depth: number }
+  | { kind: "new"; parentPath: string; itemKind: "file" | "dir"; depth: number }
+  | { kind: "loading"; path: string; depth: number }
+  | { kind: "error"; path: string; message: string; depth: number };
 
 /** 最近打开文件区块 */
 function RecentFiles() {
@@ -161,89 +177,229 @@ function Bookmarks() {
   );
 }
 
-/** 单个树节点（递归渲染） */
-function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
-  // 折叠状态从 store 读取并持久化（根目录与一级目录默认展开）
-  const isDirExpanded = useWorkspace((s) => s.isDirExpanded);
-  const toggleDirExpanded = useWorkspace((s) => s.toggleDirExpanded);
-  const [expanded, setExpanded] = useState(() => isDirExpanded(node.path));
+/** 窗口化列表中的文件或目录行 */
+function FileNodeRow({
+  node,
+  depth,
+  expanded,
+  loaded,
+  loading,
+  error,
+  active,
+  opened,
+  renaming,
+  renameValue,
+  renameInputRef,
+  onRenameValue,
+  onCommitRename,
+  onCancelRename,
+  onToggle,
+  onOpen,
+  onMenu,
+  loadDirectory,
+}: {
+  node: FileNode;
+  depth: number;
+  expanded: boolean;
+  loaded: boolean;
+  loading: boolean;
+  error: boolean;
+  active: boolean;
+  opened: boolean;
+  renaming: boolean;
+  renameValue: string;
+  renameInputRef: React.RefObject<HTMLInputElement | null>;
+  onRenameValue: (value: string) => void;
+  onCommitRename: () => Promise<void>;
+  onCancelRename: () => void;
+  onToggle: () => void;
+  onOpen: () => void;
+  onMenu: (e: React.MouseEvent) => void;
+  loadDirectory: (path: string, force?: boolean) => Promise<void>;
+}) {
+  // 恢复持久化展开状态时，仅为进入渲染视口的目录加载子项
+  useEffect(() => {
+    if (!node.is_dir || !expanded || loaded || loading || error) return;
+    void loadDirectory(node.path).catch(() => {});
+  }, [node.is_dir, node.path, expanded, loaded, loading, error, loadDirectory]);
+
+  if (renaming) {
+    return (
+      <div
+        className="tree-row tree-row-rename"
+        style={{ paddingLeft: `${depth * 12 + (node.is_dir ? 8 : 24)}px` }}
+        data-tree-row
+        data-path={node.path}
+      >
+        <span className="tree-icon">
+          {node.is_dir ? (
+            <IconChevronRight size={12} />
+          ) : isMarkdown(node.name) ? (
+            <IconFileText size={14} />
+          ) : (
+            <IconFile size={14} />
+          )}
+        </span>
+        <input
+          ref={renameInputRef}
+          className="rename-input"
+          value={renameValue}
+          onChange={(e) => onRenameValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void onCommitRename();
+            else if (e.key === "Escape") onCancelRename();
+          }}
+          onBlur={() => void onCommitRename()}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    );
+  }
+
+  if (node.is_dir) {
+    return (
+      <button
+        className="tree-row tree-row-dir"
+        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        onClick={onToggle}
+        onContextMenu={onMenu}
+        aria-expanded={expanded}
+        data-tree-row
+        data-path={node.path}
+      >
+        <span className="tree-icon">
+          {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+        </span>
+        <span className="tree-name">{node.name}</span>
+      </button>
+    );
+  }
+
+  const md = isMarkdown(node.name);
+  return (
+    <button
+      className={`tree-row tree-row-file${md ? "" : " tree-row-file-disabled"}${active ? " tree-row-active" : ""}`}
+      style={{ paddingLeft: `${depth * 12 + 24}px` }}
+      disabled={!md}
+      onClick={onOpen}
+      onContextMenu={onMenu}
+      data-tree-row
+      data-path={node.path}
+    >
+      <span className="tree-icon">
+        {md ? <IconFileText size={14} /> : <IconFile size={14} />}
+      </span>
+      <span className="tree-name">{node.name}</span>
+      {opened && !active && <span className="tree-open-dot" title="已打开" />}
+    </button>
+  );
+}
+
+/** 工作区文件树：按展开状态扁平化，并只渲染视口附近的行 */
+function WorkspaceFileTree({ tree }: { tree: FileNode }) {
+  const expandedDirs = useWorkspace((s) => s.expandedDirs);
+  const loadedDirs = useWorkspace((s) => s.loadedDirs);
+  const loadingDirs = useWorkspace((s) => s.loadingDirs);
+  const directoryErrors = useWorkspace((s) => s.directoryErrors);
   const currentFile = useWorkspace((s) => s.currentFile);
   const openTabs = useWorkspace((s) => s.openTabs);
+  const toggleDirExpanded = useWorkspace((s) => s.toggleDirExpanded);
+  const setDirExpanded = useWorkspace((s) => s.setDirExpanded);
+  const loadDirectory = useWorkspace((s) => s.loadDirectory);
   const openFile = useWorkspace((s) => s.openFile);
   const onFileRenamed = useWorkspace((s) => s.onFileRenamed);
   const refreshTree = useWorkspace((s) => s.refreshTree);
 
-  const [renaming, setRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState(node.name);
+  const [renamingNode, setRenamingNode] = useState<FileNode | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [newItem, setNewItem] = useState<NewItemState | null>(null);
   const [newItemValue, setNewItemValue] = useState("");
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(TREE_FALLBACK_HEIGHT);
 
+  const scrollRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const newInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (renaming && renameInputRef.current) {
-      renameInputRef.current.focus();
-      renameInputRef.current.select();
+  const openedPaths = useMemo(() => new Set(openTabs.map((tab) => tab.path)), [openTabs]);
+
+  const rows = useMemo<FileTreeRow[]>(() => {
+    const next: FileTreeRow[] = [];
+    for (const row of flattenVisibleTree(tree, expandedDirs)) {
+      next.push({ kind: "node", ...row });
+      if (!row.node.is_dir || !expandedDirs.has(row.node.path)) continue;
+
+      if (newItem?.parentPath === row.node.path) {
+        next.push({
+          kind: "new",
+          parentPath: row.node.path,
+          itemKind: newItem.kind,
+          depth: row.depth + 1,
+        });
+      }
+      if (loadingDirs.has(row.node.path)) {
+        next.push({ kind: "loading", path: row.node.path, depth: row.depth + 1 });
+      } else {
+        const message = directoryErrors.get(row.node.path);
+        if (message) {
+          next.push({ kind: "error", path: row.node.path, message, depth: row.depth + 1 });
+        }
+      }
     }
-  }, [renaming]);
+    return next;
+  }, [tree, expandedDirs, newItem, loadingDirs, directoryErrors]);
 
   useEffect(() => {
-    if (newItem && newInputRef.current) {
-      newInputRef.current.focus();
+    const element = scrollRef.current;
+    if (!element) return;
+    const updateHeight = () => {
+      if (element.clientHeight > 0) setViewportHeight(element.clientHeight);
+    };
+    updateHeight();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateHeight);
+      return () => window.removeEventListener("resize", updateHeight);
     }
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!renamingNode || !renameInputRef.current) return;
+    renameInputRef.current.focus();
+    renameInputRef.current.select();
+  }, [renamingNode]);
+
+  useEffect(() => {
+    if (newItem && newInputRef.current) newInputRef.current.focus();
   }, [newItem]);
 
-  // 切换展开状态时同步到 store 持久化
-  const handleToggle = () => {
-    const next = !expanded;
-    setExpanded(next);
-    toggleDirExpanded(node.path);
-  };
-
-  // 监听 Sidebar 派发的动作事件
+  // 文件树动作只在容器上监听一次，避免监听器数量随节点增长
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<TreeAction>).detail;
       if (!detail) return;
-      if (detail.type === "rename" && detail.path === node.path) {
-        setRenameValue(node.name);
-        setRenaming(true);
-      } else if (
-        detail.type === "new" &&
-        node.is_dir &&
-        detail.parentPath === node.path
-      ) {
-        setNewItem({ parentPath: detail.parentPath, kind: detail.kind });
-        setNewItemValue("");
-        if (!expanded) {
-          setExpanded(true);
-          toggleDirExpanded(node.path);
-        }
+      if (detail.type === "rename") {
+        setRenamingNode(detail.node);
+        setRenameValue(detail.node.name);
+        return;
       }
+      setNewItem({ parentPath: detail.parentPath, kind: detail.kind });
+      setNewItemValue("");
+      setDirExpanded(detail.parentPath, true);
     };
     window.addEventListener(TREE_ACTION_EVENT, handler);
     return () => window.removeEventListener(TREE_ACTION_EVENT, handler);
-  }, [node.path, node.is_dir, expanded, toggleDirExpanded]);
+  }, [setDirExpanded]);
 
-  /** 触发右键菜单（向上冒泡到 Sidebar） */
-  const triggerMenu = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    window.dispatchEvent(
-      new CustomEvent<MenuPayload>(TREE_MENU_EVENT, {
-        detail: { node, x: e.clientX, y: e.clientY },
-      }),
-    );
-  };
-
-  /** 提交重命名 */
-  const commitRename = async () => {
+  const commitRename = useCallback(async () => {
+    if (!renamingNode) return;
+    const node = renamingNode;
     const newName = renameValue.trim();
-    if (!newName || newName === node.name) {
-      setRenaming(false);
-      return;
-    }
+    setRenamingNode(null);
+    if (!newName || newName === node.name) return;
+
     const parent = dirname(node.path);
     const to = parent ? joinPath(parent, newName) : newName;
     try {
@@ -252,153 +408,163 @@ function TreeNode({ node, depth }: { node: FileNode; depth: number }) {
     } catch (e) {
       alert(`重命名失败：${e instanceof Error ? e.message : String(e)}`);
     }
-    setRenaming(false);
-  };
+  }, [renamingNode, renameValue, onFileRenamed]);
 
-  /** 提交新建 */
-  const commitNew = async () => {
+  const commitNew = useCallback(async () => {
     if (!newItem) return;
+    const item = newItem;
     const name = newItemValue.trim();
-    if (!name) {
-      setNewItem(null);
-      return;
-    }
-    const targetPath = joinPath(newItem.parentPath, name);
+    setNewItem(null);
+    setNewItemValue("");
+    if (!name) return;
+
+    const targetPath = joinPath(item.parentPath, name);
     try {
-      if (newItem.kind === "file") {
+      if (item.kind === "file") {
         await createFile(targetPath);
         await openFile(targetPath);
       } else {
         await createDir(targetPath);
       }
-      await refreshTree();
+      await refreshTree(item.parentPath);
     } catch (e) {
       alert(`新建失败：${e instanceof Error ? e.message : String(e)}`);
     }
-    setNewItem(null);
-    setNewItemValue("");
-  };
+  }, [newItem, newItemValue, openFile, refreshTree]);
 
-  // 目录：可折叠展开
-  if (node.is_dir) {
-    return (
-      <div className="tree-node">
-        {renaming ? (
-          <div
-            className="tree-row tree-row-rename"
-            style={{ paddingLeft: `${depth * 12 + 8}px` }}
-          >
-            <span className="tree-icon">
-              <IconChevronRight size={12} />
-            </span>
-            <input
-              ref={renameInputRef}
-              className="rename-input"
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void commitRename();
-                else if (e.key === "Escape") setRenaming(false);
-              }}
-              onBlur={() => void commitRename()}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-        ) : (
-          <button
-            className="tree-row tree-row-dir"
-            style={{ paddingLeft: `${depth * 12 + 8}px` }}
-            onClick={handleToggle}
-            onContextMenu={triggerMenu}
-          >
-            <span className="tree-icon">
-              {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
-            </span>
-            <span className="tree-name">{node.name}</span>
-          </button>
-        )}
-        {expanded && (
-          <div className="tree-children">
-            {newItem && newItem.parentPath === node.path && (
-              <div
-                className="tree-row tree-row-new"
-                style={{ paddingLeft: `${(depth + 1) * 12 + 24}px` }}
-              >
-                <span className="tree-icon">
-                  {newItem.kind === "file" ? (
-                    <IconFileText size={14} />
-                  ) : (
-                    <IconFolder size={14} />
-                  )}
-                </span>
-                <input
-                  ref={newInputRef}
-                  className="rename-input"
-                  placeholder={newItem.kind === "file" ? "新文件.md" : "新目录"}
-                  value={newItemValue}
-                  onChange={(e) => setNewItemValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void commitNew();
-                    else if (e.key === "Escape") setNewItem(null);
-                  }}
-                  onBlur={() => void commitNew()}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </div>
-            )}
-            {node.children.map((child) => (
-              <TreeNode key={child.path} node={child} depth={depth + 1} />
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // 文件：仅 .md 可点击打开
-  const md = isMarkdown(node.name);
-  const active = currentFile === node.path;
-  const isOpen = openTabs.some((t) => t.path === node.path);
-
-  if (renaming) {
-    return (
-      <div
-        className="tree-row tree-row-rename"
-        style={{ paddingLeft: `${depth * 12 + 24}px` }}
-      >
-        <span className="tree-icon">
-          {md ? <IconFileText size={14} /> : <IconFile size={14} />}
-        </span>
-        <input
-          ref={renameInputRef}
-          className="rename-input"
-          value={renameValue}
-          onChange={(e) => setRenameValue(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void commitRename();
-            else if (e.key === "Escape") setRenaming(false);
-          }}
-          onBlur={() => void commitRename()}
-          onClick={(e) => e.stopPropagation()}
-        />
-      </div>
-    );
-  }
+  const start = Math.max(0, Math.floor(scrollTop / TREE_ROW_HEIGHT) - TREE_OVERSCAN);
+  const end = Math.min(
+    rows.length,
+    Math.ceil((scrollTop + viewportHeight) / TREE_ROW_HEIGHT) + TREE_OVERSCAN,
+  );
+  const visibleRows = rows.slice(start, end);
 
   return (
-    <button
-      className={`tree-row tree-row-file${md ? "" : " tree-row-file-disabled"}${active ? " tree-row-active" : ""}`}
-      style={{ paddingLeft: `${depth * 12 + 24}px` }}
-      disabled={!md}
-      onClick={() => openFile(node.path)}
-      onContextMenu={triggerMenu}
+    <div
+      ref={scrollRef}
+      className="workspace-tree-scroll"
+      onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+      role="tree"
     >
-      <span className="tree-icon">
-        {md ? <IconFileText size={14} /> : <IconFile size={14} />}
-      </span>
-      <span className="tree-name">{node.name}</span>
-      {isOpen && !active && <span className="tree-open-dot" title="已打开" />}
-    </button>
+      <div className="workspace-tree-spacer" style={{ height: `${rows.length * TREE_ROW_HEIGHT}px` }}>
+        {visibleRows.map((row, offset) => {
+          const index = start + offset;
+          const rowStyle = { top: `${index * TREE_ROW_HEIGHT}px` };
+
+          if (row.kind === "new") {
+            return (
+              <div
+                key={`new:${row.parentPath}`}
+                className="workspace-tree-virtual-row"
+                style={rowStyle}
+              >
+                <div
+                  className="tree-row tree-row-new"
+                  style={{ paddingLeft: `${row.depth * 12 + 24}px` }}
+                  data-tree-row
+                >
+                  <span className="tree-icon">
+                    {row.itemKind === "file" ? (
+                      <IconFileText size={14} />
+                    ) : (
+                      <IconFolder size={14} />
+                    )}
+                  </span>
+                  <input
+                    ref={newInputRef}
+                    className="rename-input"
+                    placeholder={row.itemKind === "file" ? "新文件.md" : "新目录"}
+                    value={newItemValue}
+                    onChange={(e) => setNewItemValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void commitNew();
+                      else if (e.key === "Escape") setNewItem(null);
+                    }}
+                    onBlur={() => void commitNew()}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
+              </div>
+            );
+          }
+
+          if (row.kind === "loading") {
+            return (
+              <div
+                key={`loading:${row.path}`}
+                className="workspace-tree-virtual-row"
+                style={rowStyle}
+              >
+                <div
+                  className="tree-row tree-row-status"
+                  style={{ paddingLeft: `${row.depth * 12 + 24}px` }}
+                >
+                  加载中…
+                </div>
+              </div>
+            );
+          }
+
+          if (row.kind === "error") {
+            return (
+              <div
+                key={`error:${row.path}`}
+                className="workspace-tree-virtual-row"
+                style={rowStyle}
+              >
+                <button
+                  className="tree-row tree-row-status tree-row-error"
+                  style={{ paddingLeft: `${row.depth * 12 + 24}px` }}
+                  title={row.message}
+                  onClick={() => void loadDirectory(row.path, true).catch(() => {})}
+                >
+                  加载失败，点击重试
+                </button>
+              </div>
+            );
+          }
+
+          const { node, depth } = row;
+          return (
+            <div
+              key={node.path}
+              className="workspace-tree-virtual-row"
+              style={rowStyle}
+              role="treeitem"
+            >
+              <FileNodeRow
+                node={node}
+                depth={depth}
+                expanded={expandedDirs.has(node.path)}
+                loaded={loadedDirs.has(node.path)}
+                loading={loadingDirs.has(node.path)}
+                error={directoryErrors.has(node.path)}
+                active={currentFile === node.path}
+                opened={openedPaths.has(node.path)}
+                renaming={renamingNode?.path === node.path}
+                renameValue={renameValue}
+                renameInputRef={renameInputRef}
+                onRenameValue={setRenameValue}
+                onCommitRename={commitRename}
+                onCancelRename={() => setRenamingNode(null)}
+                onToggle={() => toggleDirExpanded(node.path)}
+                onOpen={() => void openFile(node.path)}
+                onMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  window.dispatchEvent(
+                    new CustomEvent<MenuPayload>(TREE_MENU_EVENT, {
+                      detail: { node, x: e.clientX, y: e.clientY },
+                    }),
+                  );
+                }}
+                loadDirectory={loadDirectory}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -413,7 +579,6 @@ function TreeContextMenu({
   const rootPath = useWorkspace((s) => s.rootPath);
   const openTabs = useWorkspace((s) => s.openTabs);
   const onFileDeleted = useWorkspace((s) => s.onFileDeleted);
-  const refreshTree = useWorkspace((s) => s.refreshTree);
   const toggleBookmark = useWorkspace((s) => s.toggleBookmark);
   const isBookmarked = useWorkspace((s) => s.isBookmarked);
   const ref = useRef<HTMLDivElement>(null);
@@ -434,7 +599,7 @@ function TreeContextMenu({
     };
   }, [onClose]);
 
-  /** 派发动作事件给 TreeNode */
+  /** 派发动作事件给文件树 */
   const dispatchAction = (action: TreeAction) => {
     window.dispatchEvent(new CustomEvent(TREE_ACTION_EVENT, { detail: action }));
     onClose();
@@ -478,7 +643,6 @@ function TreeContextMenu({
     try {
       await deletePath(node.path);
       onFileDeleted(node.path);
-      await refreshTree();
     } catch (e) {
       alert(`删除失败：${e instanceof Error ? e.message : String(e)}`);
     }
@@ -507,7 +671,7 @@ function TreeContextMenu({
 
   const { node, x, y } = payload;
   const isRoot = rootPath === node.path;
-  const isMdFile = !node.is_dir && /\.md$/i.test(node.name);
+  const isMdFile = !node.is_dir && isMarkdown(node.name);
 
   return (
     <div className="tree-context-backdrop">
@@ -540,7 +704,7 @@ function TreeContextMenu({
         )}
         <button
           className="tree-context-item"
-          onClick={() => dispatchAction({ type: "rename", path: node.path })}
+          onClick={() => dispatchAction({ type: "rename", node })}
           disabled={isRoot}
           title={isRoot ? "工作区根目录不能重命名" : ""}
         >
@@ -595,7 +759,7 @@ export function Sidebar() {
   const bookmarks = useWorkspace((s) => s.bookmarks);
   const [menu, setMenu] = useState<MenuPayload | null>(null);
 
-  // 监听 TreeNode 派发的右键事件
+  // 监听文件树派发的右键事件
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent<MenuPayload>).detail;
@@ -606,13 +770,17 @@ export function Sidebar() {
   }, []);
 
   const handleOpenFolder = useCallback(async () => {
-    if (!isTauri()) {
-      await openWorkspace("/mock-workspace");
-      return;
-    }
-    const selected = await open({ directory: true, multiple: false });
-    if (typeof selected === "string") {
-      await openWorkspace(selected);
+    try {
+      if (!isTauri()) {
+        await openWorkspace("/mock-workspace");
+        return;
+      }
+      const selected = await open({ directory: true, multiple: false });
+      if (typeof selected === "string") {
+        await openWorkspace(selected);
+      }
+    } catch (e) {
+      alert(`打开工作区失败：${e instanceof Error ? e.message : String(e)}`);
     }
   }, [openWorkspace]);
 
@@ -663,7 +831,7 @@ export function Sidebar() {
           <>
             <RecentFiles />
             <Bookmarks />
-            <TreeNode node={tree} depth={0} />
+            <WorkspaceFileTree tree={tree} />
           </>
         )}
         {!loading && !tree && (recentFiles.length > 0 || bookmarks.length > 0) && (

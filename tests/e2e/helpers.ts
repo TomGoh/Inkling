@@ -9,9 +9,25 @@ export async function openMockWorkspace(page: Page) {
   await expect(page.locator(".sidebar-tree").getByText("mock-workspace")).toBeVisible({ timeout: 10_000 });
 }
 
+// mock 的 notes 目录默认折叠；需要访问其中的文件时再按需展开
+export async function expandMockNotes(page: Page) {
+  const notes = page.locator('[data-tree-row][data-path="/mock-workspace/notes"]');
+  if ((await notes.getAttribute("aria-expanded")) !== "true") {
+    await notes.click();
+  }
+  await expect(
+    page.locator('[data-tree-row][data-path="/mock-workspace/notes/readme.md"]'),
+  ).toBeVisible({ timeout: 10_000 });
+}
+
 // 在已打开的工作区里点某个文件，等编辑器就绪
 export async function openFile(page: Page, fileName: string) {
-  await page.locator(".sidebar-tree").getByText(fileName, { exact: true }).click();
+  let target = page.locator(".workspace-tree-scroll").getByText(fileName, { exact: true });
+  if ((await target.count()) === 0) {
+    await expandMockNotes(page);
+    target = page.locator(".workspace-tree-scroll").getByText(fileName, { exact: true });
+  }
+  await target.click();
   await expect(page.locator(".ProseMirror")).toBeVisible({ timeout: 10_000 });
 }
 

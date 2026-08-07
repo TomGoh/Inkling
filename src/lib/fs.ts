@@ -157,20 +157,23 @@ function splitPath(p: string): { dir: string; base: string } {
   return { dir: p.slice(0, idx), base: p.slice(idx + 1) };
 }
 
-/** 递归列出目录树 */
-export async function listDir(
-  dirPath: string,
-  maxDepth?: number,
-): Promise<FileNode> {
+/** 列出目录的直接子项（子目录 children 为空，由调用方按需继续加载） */
+export async function listDir(dirPath: string): Promise<FileNode> {
   if (isTauri()) {
-    return invoke<FileNode>("list_dir", {
-      dirPath,
-      maxDepth: maxDepth ?? 10,
-    });
+    return invoke<FileNode>("list_dir", { dirPath });
   }
   // 浏览器 mock
   await new Promise((r) => setTimeout(r, 100));
-  return structuredClone(MOCK_TREE);
+  const node = findNode(MOCK_TREE, dirPath);
+  if (!node) throw new Error(`路径不存在: ${dirPath}`);
+  if (!node.is_dir) throw new Error(`不是目录: ${dirPath}`);
+  return {
+    ...structuredClone(node),
+    children: node.children.map((child) => ({
+      ...structuredClone(child),
+      children: [],
+    })),
+  };
 }
 
 /** 读取文本文件 */
