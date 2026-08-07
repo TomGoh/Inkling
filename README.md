@@ -2,7 +2,7 @@
 
 一款「所见即所得」的本地 Markdown 编辑器，对标 Typora。基于 Tauri 2 + React 19 + Milkdown 构建，编辑与预览融为一体——无需左右分栏、无需切换模式，输入 Markdown 语法后立即渲染成富文本，底层保存的始终是标准 Markdown 纯文本。
 
-[![Build Windows](https://github.com/zhkp/InklingMD/actions/workflows/build-windows.yml/badge.svg?branch=main)](https://github.com/zhkp/InklingMD/actions/workflows/build-windows.yml)
+[![Build](https://github.com/zhkp/InklingMD/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/zhkp/InklingMD/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 ## 功能特性
@@ -180,6 +180,7 @@ pnpm e2e
 
 ## 版本记录
 
+- **v2.1.0** 合并社区贡献者 @TomGoh 的三项工作区/主题修复并新增 Linux 发行版：①issue #11/PR #15 大型工作区按需加载与文件树渲染——Rust `list_dir` 改为单层浅扫并迁入 `spawn_blocking` 线程池避免阻塞 Tauri 异步运行时，跳过隐藏项/依赖构建目录（node_modules、target、dist、build、out）/目录符号链接；前端目录树按需逐层加载（默认只展开根目录）、大目录窗口化渲染，工作区切换竞态/目录请求去重/局部刷新保留已加载子树，新增 `src/lib/fileTree.ts`；②issue #14/PR #16 同步原生控件与主题配色——为浅色/深色主题及代码块 `data-code-theme` 补 `color-scheme`，使下拉框/滚动条等原生控件跟随主题（修复 Linux 上原生控件不随主题切换）；③issue #12/PR #17 打开文件时保留侧边栏文件树——不再用全局加载态替换文件树，改为行内 spinner/错误图标局部提示并保留 DOM 与滚动位置，文件读取去重、标签页/分屏/工作区上下文竞态处理、读取失败保留编辑器可重试；④issue #13 Release 增加 Linux amd64 构建——CI 由 `build-windows.yml` 整合为统一 `build.yml`（共享 test + build-windows + build-linux + 独立 release job），`v*` tag 同一 Release 同时发布 Windows 安装包/便携包与 amd64 AppImage + deb。单元/组件测试 299 passed。详见 `docs/v2.1.0 设计文档.md`
 - **v2.0.2** 补全 E2E 测试覆盖并修复测试驱动发现的三个生产 bug：①[auto-pair.ts](src/components/Editor/auto-pair.ts) 无选区配对补全崩溃（`view.state.doc.resolve` 应为 `tr.doc.resolve`，Selection 指向旧文档触发 `RangeError`，输入任意括号即白屏）；②[callout.ts](src/components/Editor/callout.ts) 解析器不兼容 Obsidian 常见写法 `> [!NOTE]\n> 内容`（正则 `^\[!(\w+)\]$` 要求首段完全等于 `[!TYPE]`，改为 `^\[!(\w+)\]` 开头即匹配，后续文本作为内容保留）；③[frontmatter.ts](src/components/Editor/frontmatter.ts) NodeView 漏设 `data-value` 属性（toDOM 声明了但 NodeView 自建 dom 时遗漏）。新增 8 个 E2E 测试文件 67 个用例（auto-pair/callout/editor-modes/frontmatter/link-follow/math/shortcuts-customize/toc），修复 4 个既有 flaky 测试（export dialog 死锁、file-tree 定位冲突、outline 动态输入不稳、slash-menu Escape 不删触发字符），`fs.ts` mock 增强（rename/delete/create 同步更新目录树 + 5 个示例文件）。全套 262 单元 + 127 E2E 测试通过。详见 `docs/v2.0.2 设计文档.md`
 - **v2.0.1** 修复 Mermaid 流程图多行节点文字底部被边框裁切：渲染含 `<br/>` 多行 + 长中文文本 + `style stroke-width:2px` 加粗边框的纵向流程图时，多个矩形节点文字下沉、最后一行被 rect 底边遮挡，单行菱形判断框正常。根因为三因素叠加——①`:root line-height:1.6` 被 CSS 继承进 mermaid `nodeLabel`，使实际渲染行高 ≈ mermaid 测量行高（~1.2）的 1.33 倍，多行文字溢出底边；②`flowchart.useMaxWidth` 默认 true，长文本回流触发高度重算偏差；③`stroke-width:2px` 加粗边框向内侵占内部高度。修复：①[mermaid-view.ts](src/components/Editor/mermaid-view.ts) 提取 `MERMAID_CONFIG` 常量，补 `flowchart.htmlLabels:true`（保留 `<br/>` 换行）、`padding:20`（默认 15，加大内边距补偿）、`useMaxWidth:false`（关闭宽度回流）、`themeVariables.fontSize:"14px"`（锁定字号）；②[App.css](src/App.css) 新增 `.mermaid .nodeLabel/.edgeLabel` 与 `.mermaid-render .nodeLabel/.edgeLabel` 样式，同时作用于 mermaid 测量阶段（临时 `.mermaid` 容器）与最终渲染阶段，锁定 `line-height:1.25` + `font-size:14px` + 字体，使两阶段文字高度一致。新增 9 个测试用例（`tests/unit/mermaid-render.test.ts`，含用户报告原始流程图代码作回归 fixture），全套 262 个测试通过。详见 `docs/v2.0.1 设计文档.md`
 - **v2.0.0** UI 视觉与交互体验全面优化：①建立设计令牌（design token）系统——全应用通过 CSS 变量统一管理品牌强调色（`--accent` 浅色 `#0969da` / 深色 `#2f81f7`，统一原先散落的近似值）、三级文字色阶、分层阴影（`--shadow-sm/md/lg` 替代生硬单层阴影）、圆角梯度（`--radius-sm/md/lg`）、动效曲线（`--ease` / `--duration`）、键盘聚焦环（`--ring`），主题切换只改一处；②统一 SVG 图标库（`icons.tsx`，线性 `stroke=currentColor` 随文字颜色继承，默认 16px / 24×24 viewBox，替代原先混用的 emoji / Unicode 符号，跨平台渲染一致）；③现代化滚动条（10px 细半透明滑块 + 透明轨道 + 内缩 `background-clip`，hover 加深，标签页栏收窄至 3px）；④`:focus-visible` 键盘聚焦环（Tab 键触发蓝环，鼠标点击不干扰）；⑤菜单 / 模态弹入动效（`menu-in` 上移缩放淡入 0.12s、`modal-in` 上浮缩放淡入 0.18s、`backdrop-in` 遮罩淡入、`fade-in` 空状态淡入）；⑥ghost 风格顶栏按钮（无边框、hover 灰底，VSCode / Typora 式）；⑦渐变品牌标题（`background-clip: text` 实现正文色到强调色 135° 渐变）；⑧活跃 tab 卡片样式（顶部 2px 强调色指示条 + 底部连通编辑区 + 关闭按钮 hover 显现）；⑨活跃文件左侧指示条（`box-shadow: inset 2px 0 0`）；⑩iOS 风格 Toggle 开关（`appearance:none` 自定义胶囊轨道 + 圆形滑块，`:checked` 强调色 + 右移过渡）；⑪模态毛玻璃遮罩（`backdrop-filter: blur(2px)`）；⑫文本选择色跟随强调色；⑬全应用过渡曲线统一引用令牌。纯样式重构，编辑器逻辑与功能不变。详见 `docs/v2.0.0 设计文档.md`
@@ -220,7 +221,7 @@ pnpm e2e
 
 感谢以下小伙伴为本项目做出的贡献（按字母序）：
 
-- **Haoze Wu** ([@TomGoh](https://github.com/TomGoh)) — 修复本地图片相对路径解析（PR #8）、中文句号字形修复建议（issue #9）
+- **Haoze Wu** ([@TomGoh](https://github.com/TomGoh)) — 修复本地图片相对路径解析（PR #8）、中文句号字形修复建议（issue #9）、大型工作区按需加载与文件树优化（PR #15）、主题原生控件配色同步（PR #16）、打开文件保留侧边栏文件树（PR #17）、Release 增加 Linux amd64 构建（issue #13/PR #18）
 - **zhkp** ([@zhkp](https://github.com/zhkp)) — 项目作者，主要开发与维护
 
 欢迎更多朋友参与贡献，详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。
