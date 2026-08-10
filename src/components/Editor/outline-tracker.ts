@@ -17,28 +17,39 @@ function findViewportHeadingIndex(
   view: EditorView,
   headings: EditorOutlineSnapshot["headings"],
   scroller: HTMLElement,
-): number | null {
+): number | null | undefined {
   const scrollerRect = scroller.getBoundingClientRect();
   if (
     scrollerRect.bottom <= scrollerRect.top ||
     scrollerRect.right <= scrollerRect.left
   ) {
-    return null;
+    return undefined;
   }
 
   const editorRect = view.dom.getBoundingClientRect();
-  const left = Math.max(
-    scrollerRect.left + 1,
-    Math.min(editorRect.left + 16, scrollerRect.right - 1),
-  );
-  const top = Math.min(
-    scrollerRect.top + VIEWPORT_HEADING_OFFSET,
+  const visibleLeft = Math.max(scrollerRect.left + 1, editorRect.left + 1);
+  const visibleRight = Math.min(scrollerRect.right - 1, editorRect.right - 1);
+  const visibleTop = Math.max(scrollerRect.top + 1, editorRect.top + 1);
+  const visibleBottom = Math.min(
     scrollerRect.bottom - 1,
+    editorRect.bottom - 1,
+  );
+  if (visibleRight < visibleLeft || visibleBottom < visibleTop) {
+    return undefined;
+  }
+
+  const left = Math.max(
+    visibleLeft,
+    Math.min(editorRect.left + 16, visibleRight),
+  );
+  const top = Math.max(
+    visibleTop,
+    Math.min(scrollerRect.top + VIEWPORT_HEADING_OFFSET, visibleBottom),
   );
   const viewportPos = view.posAtCoords({ left, top });
   return viewportPos
     ? findActiveHeadingIndex(headings, viewportPos.pos)
-    : null;
+    : undefined;
 }
 
 export const outlineTrackerPlugin = (
@@ -69,7 +80,14 @@ export const outlineTrackerPlugin = (
             headings,
             scroller,
           );
-          if (nextActiveIndex === activeIndex) return;
+          // 布局切换或编辑器内边距可能令 posAtCoords 暂时无法采样；
+          // 此时保留当前章节，避免正常的小幅滚动让高亮闪烁消失。
+          if (
+            nextActiveIndex === undefined ||
+            nextActiveIndex === activeIndex
+          ) {
+            return;
+          }
           activeIndex = nextActiveIndex;
           onChange({ headings, activeIndex });
         });

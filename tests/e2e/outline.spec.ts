@@ -103,6 +103,22 @@ test.describe("大纲面板", () => {
       "自动跟随 1",
     );
 
+    // .milkdown 顶部有 2.5rem padding；小幅滚动时采样点仍需限制在
+    // ProseMirror DOM 内，不能把首个标题的高亮短暂清空。
+    await page.locator(".editor-scroll").evaluate((scroller) => {
+      scroller.scrollTop = 4;
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    await expect(page.locator(".outline-item-active")).toContainText(
+      "自动跟随 1",
+    );
+
     await editor
       .locator("h1, h2, h3, h4, h5, h6")
       .nth(12)
