@@ -3,6 +3,7 @@
 // 点击标题 → 滚动编辑器到对应标题位置。
 // 当前光标所在标题高亮（由主编辑器的 outline-tracker 插件发布）。
 
+import { useEffect, useRef } from "react";
 import type { Editor } from "@milkdown/kit/core";
 import { editorViewCtx } from "@milkdown/kit/core";
 import { TextSelection } from "@milkdown/kit/prose/state";
@@ -21,7 +22,32 @@ interface OutlinePanelProps {
 }
 
 const OUTLINE_SCROLL_DURATION = 280;
+const OUTLINE_REVEAL_MARGIN = 4;
 const outlineScrollFrames = new WeakMap<HTMLElement, number>();
+
+/** 仅在当前大纲项越界时滚动最短距离，使它重新进入可视区。 */
+function revealOutlineItem(scroller: HTMLElement, item: HTMLElement) {
+  const scrollerRect = scroller.getBoundingClientRect();
+  const itemRect = item.getBoundingClientRect();
+  const visibleTop = scrollerRect.top + OUTLINE_REVEAL_MARGIN;
+  const visibleBottom = scrollerRect.bottom - OUTLINE_REVEAL_MARGIN;
+  let targetTop = scroller.scrollTop;
+
+  if (itemRect.top < visibleTop) {
+    targetTop += itemRect.top - visibleTop;
+  } else if (itemRect.bottom > visibleBottom) {
+    targetTop += itemRect.bottom - visibleBottom;
+  } else {
+    return;
+  }
+
+  const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  targetTop = Math.max(0, Math.min(targetTop, maxTop));
+  const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth";
+  scroller.scrollTo({ top: targetTop, behavior });
+}
 
 /** 用固定时长的缓动滚动，避免原生 smooth 在长文档中耗时过长 */
 function animateScrollTo(scroller: HTMLElement, targetTop: number) {
@@ -111,13 +137,25 @@ export function OutlinePanel({
   snapshot,
 }: OutlinePanelProps) {
   const { headings, activeIndex } = snapshot;
+  const treeRef = useRef<HTMLDivElement>(null);
+  const activeItemRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (activeIndex == null) return;
+    const frame = requestAnimationFrame(() => {
+      const tree = treeRef.current;
+      const item = activeItemRef.current;
+      if (tree && item) revealOutlineItem(tree, item);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeIndex]);
 
   return (
     <aside className="outline-panel">
       <div className="outline-header">
         <span className="outline-title">大纲</span>
       </div>
-      <div className="outline-tree">
+      <div className="outline-tree" ref={treeRef}>
         {headings.length === 0 ? (
           <div className="outline-empty">文档暂无标题</div>
         ) : (
@@ -126,6 +164,7 @@ export function OutlinePanel({
             return (
               <button
                 key={h.id}
+                ref={active ? activeItemRef : undefined}
                 className={`outline-item outline-h${h.level}${active ? " outline-item-active" : ""}`}
                 style={{ paddingLeft: `${(h.level - 1) * 12 + 8}px` }}
                 title={h.text}
