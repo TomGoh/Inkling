@@ -103,21 +103,32 @@ test.describe("大纲面板", () => {
       "自动跟随 1",
     );
 
-    await editor.locator("h1, h2, h3, h4, h5, h6").last().evaluate((heading) => {
-      const scroller = heading.closest<HTMLElement>(".editor-scroll");
-      if (!scroller) throw new Error("editor scroller not found");
-      const headingRect = heading.getBoundingClientRect();
-      const scrollerRect = scroller.getBoundingClientRect();
-      scroller.scrollTop += headingRect.top - scrollerRect.top;
-      scroller.dispatchEvent(new Event("scroll"));
-    });
+    await editor
+      .locator("h1, h2, h3, h4, h5, h6")
+      .nth(12)
+      .evaluate((heading) => {
+        const scroller = heading.closest<HTMLElement>(".editor-scroll");
+        if (!scroller) throw new Error("editor scroller not found");
+        const headingRect = heading.getBoundingClientRect();
+        const scrollerRect = scroller.getBoundingClientRect();
+        scroller.scrollTop += headingRect.top - scrollerRect.top;
+        scroller.dispatchEvent(new Event("scroll"));
+      });
 
     await expect.poll(async () => {
       const text = await page.locator(".outline-item-active").textContent();
       return Number(text?.match(/自动跟随 (\d+)/)?.[1] ?? 0);
-    }).toBeGreaterThan(12);
-    await expect.poll(() =>
-      page.locator(".outline-tree").evaluate((tree) => tree.scrollTop),
-    ).toBeGreaterThan(0);
+    }).toBe(13);
+
+    // 中部章节前后都有足够项目时，高亮项应停在大纲可视区中央，
+    // 而不是仅以最短距离滚进可视区。
+    await expect.poll(async () => {
+      const treeRect = await page.locator(".outline-tree").boundingBox();
+      const itemRect = await page.locator(".outline-item-active").boundingBox();
+      if (!treeRect || !itemRect) return Number.POSITIVE_INFINITY;
+      const treeCenter = treeRect.y + treeRect.height / 2;
+      const itemCenter = itemRect.y + itemRect.height / 2;
+      return Math.abs(treeCenter - itemCenter);
+    }).toBeLessThan(2);
   });
 });

@@ -22,27 +22,20 @@ interface OutlinePanelProps {
 }
 
 const OUTLINE_SCROLL_DURATION = 280;
-const OUTLINE_REVEAL_MARGIN = 4;
 const outlineScrollFrames = new WeakMap<HTMLElement, number>();
 
-/** 仅在当前大纲项越界时滚动最短距离，使它重新进入可视区。 */
-function revealOutlineItem(scroller: HTMLElement, item: HTMLElement) {
+/** 尽量将当前大纲项置于可视区中央；首尾内容不足时自然贴边。 */
+function centerOutlineItem(scroller: HTMLElement, item: HTMLElement) {
   const scrollerRect = scroller.getBoundingClientRect();
   const itemRect = item.getBoundingClientRect();
-  const visibleTop = scrollerRect.top + OUTLINE_REVEAL_MARGIN;
-  const visibleBottom = scrollerRect.bottom - OUTLINE_REVEAL_MARGIN;
-  let targetTop = scroller.scrollTop;
-
-  if (itemRect.top < visibleTop) {
-    targetTop += itemRect.top - visibleTop;
-  } else if (itemRect.bottom > visibleBottom) {
-    targetTop += itemRect.bottom - visibleBottom;
-  } else {
-    return;
-  }
+  const itemCenter = itemRect.top + itemRect.height / 2;
+  const scrollerCenter = scrollerRect.top + scrollerRect.height / 2;
+  let targetTop = scroller.scrollTop + itemCenter - scrollerCenter;
 
   const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
   targetTop = Math.max(0, Math.min(targetTop, maxTop));
+  if (Math.abs(targetTop - scroller.scrollTop) < 0.5) return;
+
   const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
     ? "auto"
     : "smooth";
@@ -145,7 +138,7 @@ export function OutlinePanel({
     const frame = requestAnimationFrame(() => {
       const tree = treeRef.current;
       const item = activeItemRef.current;
-      if (tree && item) revealOutlineItem(tree, item);
+      if (tree && item) centerOutlineItem(tree, item);
     });
     return () => cancelAnimationFrame(frame);
   }, [activeIndex]);
