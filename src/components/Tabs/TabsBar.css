@@ -44,6 +44,9 @@
     background-color 0.12s var(--ease, ease),
     color 0.12s var(--ease, ease);
 }
+.tab-disambiguated {
+  max-width: 320px;
+}
 .tab:hover {
   background: var(--row-hover-bg, rgba(0, 0, 0, 0.04));
 }
@@ -86,6 +89,20 @@
 }
 
 .tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 同名文件的最短目录后缀：弱化显示，同时把主要空间留给文件名 */
+.tab-disambiguated .tab-name {
+  flex-shrink: 0;
+  max-width: 160px;
+}
+.tab-description {
+  color: var(--text-muted, #6e7681);
+  flex: 1 1 auto;
+  min-width: 36px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

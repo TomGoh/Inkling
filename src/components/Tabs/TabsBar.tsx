@@ -24,6 +24,61 @@ function tabLabel(tab: OpenTab): string {
   return baseName(tab.path);
 }
 
+/** 取文件所在目录的各级名称（兼容 POSIX 与 Windows 路径） */
+function parentSegments(path: string): string[] {
+  const segments = path.split(/[\\/]+/).filter(Boolean);
+  segments.pop();
+  return segments;
+}
+
+/**
+ * 为同名文件生成最短可区分的目录后缀。
+ * 普通标签不增加说明；直属父目录仍冲突时才逐级向上扩展。
+ */
+function tabPathDescriptions(tabs: OpenTab[]): Map<string, string> {
+  const groups = new Map<string, OpenTab[]>();
+
+  for (const tab of tabs) {
+    if (tab.isUntitled) continue;
+    const label = tabLabel(tab);
+    groups.set(label, [...(groups.get(label) ?? []), tab]);
+  }
+
+  const descriptions = new Map<string, string>();
+  for (const sameNameTabs of groups.values()) {
+    if (sameNameTabs.length < 2) continue;
+
+    const paths = sameNameTabs.map((tab) => ({
+      tab,
+      parents: parentSegments(tab.path),
+    }));
+
+    for (const current of paths) {
+      for (let depth = 1; depth <= current.parents.length; depth += 1) {
+        const suffix = current.parents.slice(-depth).join("/");
+        const unique = paths.every((other) =>
+          other === current
+            || other.parents.slice(-depth).join("/") !== suffix
+        );
+        if (!unique) continue;
+
+        descriptions.set(current.tab.path, `…/${suffix}`);
+        break;
+      }
+
+      // 极少数路径只能靠完整父路径区分（如绝对路径与同名相对路径）。
+      if (!descriptions.has(current.tab.path) && current.parents.length > 0) {
+        const normalizedParent = current.tab.path
+          .replace(/\\/g, "/")
+          .replace(/\/+[^/]+$/, "");
+        descriptions.set(current.tab.path, normalizedParent);
+      }
+    }
+  }
+
+  return descriptions;
+}
+
 export function TabsBar() {
   // 仅订阅 tab 的展示字段（path/dirty/isUntitled），避免 content 每次按键变化时重渲染。
   // useWorkspace 默认用 Object.is 比较，这里返回 string 快照，内容变化时快照不变。
@@ -46,6 +101,8 @@ export function TabsBar() {
 
   if (openTabs.length === 0) return null;
 
+  const pathDescriptions = tabPathDescriptions(openTabs);
+
   const handleClose = (tab: OpenTab) => {
     if (tab.dirty) {
       const ok = window.confirm(
@@ -62,10 +119,11 @@ export function TabsBar() {
         {openTabs.map((tab) => {
           const active = tab.path === activeTabPath;
           const isDragOver = dragOverPath === tab.path && dragPath !== null;
+          const pathDescription = pathDescriptions.get(tab.path);
           return (
             <div
               key={tab.path}
-              className={`tab${active ? " tab-active" : ""}${isDragOver ? " tab-drag-over" : ""}`}
+              className={`tab${active ? " tab-active" : ""}${isDragOver ? " tab-drag-over" : ""}${pathDescription ? " tab-disambiguated" : ""}`}
               title={tab.path}
               draggable
               onDragStart={(e) => {
@@ -109,6 +167,9 @@ export function TabsBar() {
               }}
             >
               <span className="tab-name">{tabLabel(tab)}</span>
+              {pathDescription && (
+                <span className="tab-description">{pathDescription}</span>
+              )}
               {tab.dirty && <span className="tab-dirty" title="未保存">●</span>}
               <button
                 className="tab-close"
