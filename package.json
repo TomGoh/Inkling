@@ -1,7 +1,7 @@
 {
   "name": "inklingmd",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "A WYSIWYG Markdown editor",
   "license": "MIT",
   "type": "module",

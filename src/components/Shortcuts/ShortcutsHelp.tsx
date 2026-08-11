@@ -29,6 +29,7 @@ const APP_SHORTCUT_DESC: Record<ShortcutId, string> = {
   toggleOutline: "切换大纲面板",
   showShortcuts: "显示快捷键帮助",
   openSettings: "打开偏好设置",
+  toggleSourceMode: "切换源代码模式",
 };
 
 const STATIC_GROUPS: ShortcutGroup[] = [

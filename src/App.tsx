@@ -40,6 +40,7 @@ import {
   IconPalette,
   IconX,
   IconArrowLeftRight,
+  IconCode,
 } from "./components/icons";
 import "./App.css";
 
@@ -71,6 +72,15 @@ function App() {
   const setSplitContent = useWorkspace((s) => s.setSplitContent);
   const splitClose = useWorkspace((s) => s.splitClose);
   const splitSwap = useWorkspace((s) => s.splitSwap);
+  const toggleTabSourceMode = useWorkspace((s) => s.toggleTabSourceMode);
+  const mainSourceMode = useWorkspace((s) => {
+    if (!s.activeTabPath) return false;
+    return s.openTabs.find((t) => t.path === s.activeTabPath)?.sourceMode ?? false;
+  });
+  const splitSourceMode = useWorkspace((s) => {
+    if (!s.splitFile) return false;
+    return s.openTabs.find((t) => t.path === s.splitFile)?.sourceMode ?? false;
+  });
   // 分屏编辑器实例引用（独立于主编辑器）
   const splitEditorRef = useRef<(() => Editor | undefined) | null>(null);
 
@@ -235,6 +245,11 @@ function App() {
       // Ctrl/Cmd+R 打开替换面板（Typora 标准：展开替换框，可逐个或全部替换）
       if (!e.shiftKey && !e.altKey && e.key.toLowerCase() === "r") {
         e.preventDefault();
+        const tabPath = useWorkspace.getState().activeTabPath;
+        if (tabPath && useWorkspace.getState().getTabSourceMode(tabPath)) {
+          alert("源代码模式下请退出后再使用查找替换；可直接在源码编辑器中编辑文本。");
+          return;
+        }
         setSearchShowReplace(true);
         setSearchOpen(true);
         return;
@@ -293,6 +308,11 @@ function App() {
       const tryMatch = (id: ShortcutId) => matchBinding(store.getBinding(id), e);
       if (tryMatch("find")) {
         e.preventDefault();
+        const tabPath = useWorkspace.getState().activeTabPath;
+        if (tabPath && useWorkspace.getState().getTabSourceMode(tabPath)) {
+          alert("源代码模式下请退出后再使用查找替换；可直接在源码编辑器中编辑文本。");
+          return;
+        }
         setSearchOpen(true);
       } else if (tryMatch("toggleSidebar")) {
         e.preventDefault();
@@ -306,11 +326,14 @@ function App() {
       } else if (tryMatch("openSettings")) {
         e.preventDefault();
         setSettingsOpen(true);
+      } else if (tryMatch("toggleSourceMode")) {
+        e.preventDefault();
+        toggleTabSourceMode();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [toggleSidebar, toggleOutline, toggleZenMode, setZenMode]);
+  }, [toggleSidebar, toggleOutline, toggleZenMode, setZenMode, toggleTabSourceMode]);
 
   const getEditor = () => getEditorRef.current?.();
   const outlineSnapshot =
@@ -332,6 +355,7 @@ function App() {
                 onChange={setContent}
                 onReady={handleEditorReady}
                 onOutlineChange={handleOutlineChange}
+                sourceMode={mainSourceMode}
               />
             </EditorErrorBoundary>
           </div>
@@ -353,6 +377,14 @@ function App() {
               </span>
               <div className="topbar-actions">
                 <SaveIndicator />
+                <button
+                  className={`topbar-btn${mainSourceMode ? " topbar-btn-active" : ""}`}
+                  onClick={() => toggleTabSourceMode()}
+                  title="源代码模式 (Ctrl/Cmd+Alt+S)"
+                  aria-pressed={mainSourceMode}
+                >
+                  <IconCode />
+                </button>
                 <button
                   className="topbar-btn"
                   onClick={toggleZenMode}
@@ -391,6 +423,10 @@ function App() {
                           className="export-item"
                           onClick={() => {
                             setExportOpen(false);
+                            if (mainSourceMode) {
+                              alert("请先退出源代码模式再导出富文本格式");
+                              return;
+                            }
                             void copyRichText(getEditor).then((ok) => {
                               if (!ok) alert("复制失败，请检查浏览器剪贴板权限");
                             });
@@ -414,6 +450,10 @@ function App() {
                           className="export-item"
                           onClick={() => {
                             setExportOpen(false);
+                            if (mainSourceMode) {
+                              alert("请先退出源代码模式再导出富文本格式");
+                              return;
+                            }
                             void exportHTML(getEditor);
                           }}
                         >
@@ -423,6 +463,10 @@ function App() {
                           className="export-item"
                           onClick={() => {
                             setExportOpen(false);
+                            if (mainSourceMode) {
+                              alert("请先退出源代码模式再导出富文本格式");
+                              return;
+                            }
                             void exportDocx().then((r) => {
                               if (!r.ok && r.error) alert(r.error);
                             });
@@ -434,6 +478,10 @@ function App() {
                           className="export-item"
                           onClick={() => {
                             setExportOpen(false);
+                            if (mainSourceMode) {
+                              alert("请先退出源代码模式再导出富文本格式");
+                              return;
+                            }
                             void exportPDF(getEditor);
                           }}
                         >
@@ -443,6 +491,10 @@ function App() {
                           className="export-item"
                           onClick={() => {
                             setExportOpen(false);
+                            if (mainSourceMode) {
+                              alert("请先退出源代码模式再导出富文本格式");
+                              return;
+                            }
                             void exportPNG(getEditor);
                           }}
                         >
@@ -548,7 +600,7 @@ function App() {
                 </button>
               </div>
             </div>
-            <TableToolbar getEditor={getEditor} inTable={mainInTable} />
+            <TableToolbar getEditor={getEditor} inTable={mainInTable && !mainSourceMode} />
             <div className={`editor-body${splitFile ? " editor-body-split" : ""}`}>
               <div className="editor-scroll" style={{ zoom: editorZoom }}>
                 {searchOpen && (
@@ -568,6 +620,7 @@ function App() {
                     onReady={handleEditorReady}
                     onOutlineChange={handleOutlineChange}
                     onInTableChange={setMainInTable}
+                    sourceMode={mainSourceMode}
                   />
                 </EditorErrorBoundary>
               </div>
@@ -578,6 +631,14 @@ function App() {
                       {splitFile.split(/[\\/]/).pop()}
                     </span>
                     <div className="topbar-actions">
+                      <button
+                        className={`topbar-btn${splitSourceMode ? " topbar-btn-active" : ""}`}
+                        onClick={() => toggleTabSourceMode(splitFile)}
+                        title="源代码模式 (Ctrl/Cmd+Alt+S)"
+                        aria-pressed={splitSourceMode}
+                      >
+                        <IconCode />
+                      </button>
                       <button
                         className="topbar-btn"
                         onClick={splitSwap}
@@ -602,6 +663,7 @@ function App() {
                         value={splitContent}
                         onChange={setSplitContent}
                         onReady={handleSplitEditorReady}
+                        sourceMode={splitSourceMode}
                       />
                     </EditorErrorBoundary>
                   </div>

@@ -142,6 +142,8 @@ export interface OpenTab {
   scrollTop: number | null;
   /** 未命名草稿：尚未保存到磁盘的新建文件，保存时弹另存为对话框 */
   isUntitled?: boolean;
+  /** 该标签页是否处于源代码模式（issue #19） */
+  sourceMode?: boolean;
 }
 
 interface WorkspaceState {
@@ -262,6 +264,12 @@ interface WorkspaceState {
   saveCursorState: (pos: number, scrollTop: number) => void;
   /** 读取活跃 tab 的编辑位置（用于编辑器 ready 后恢复） */
   getActiveCursorState: () => { pos: number | null; scrollTop: number | null };
+  /** 设置指定 tab 的源码模式开关；path 省略则作用于当前 activeTabPath */
+  setTabSourceMode: (enabled: boolean, path?: string) => void;
+  /** 读取指定 tab 是否源码模式；path 省略则读 activeTabPath */
+  getTabSourceMode: (path?: string) => boolean;
+  /** 切换指定 tab 源码模式 */
+  toggleTabSourceMode: (path?: string) => void;
   /** 刷新指定目录（省略路径时刷新工作区根目录） */
   refreshTree: (dirPath?: string) => Promise<void>;
   /** 文件被重命名时同步 tab 状态 */
@@ -871,6 +879,28 @@ export const useWorkspace = create<WorkspaceState>((set, get) => {
     const tab = openTabs.find((t) => t.path === activeTabPath);
     if (!tab) return { pos: null, scrollTop: null };
     return { pos: tab.cursorPos, scrollTop: tab.scrollTop };
+  },
+
+  setTabSourceMode: (enabled, path) => {
+    const target = path ?? get().activeTabPath;
+    if (!target) return;
+    const nextTabs = get().openTabs.map((t) =>
+      t.path === target ? { ...t, sourceMode: enabled } : t,
+    );
+    set({ openTabs: nextTabs });
+  },
+
+  getTabSourceMode: (path) => {
+    const target = path ?? get().activeTabPath;
+    if (!target) return false;
+    return get().openTabs.find((t) => t.path === target)?.sourceMode ?? false;
+  },
+
+  toggleTabSourceMode: (path) => {
+    const target = path ?? get().activeTabPath;
+    if (!target) return;
+    const cur = get().getTabSourceMode(target);
+    get().setTabSourceMode(!cur, target);
   },
 
   refreshTree: async (dirPath) => {
