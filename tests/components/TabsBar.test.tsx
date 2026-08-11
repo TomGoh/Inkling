@@ -1,6 +1,7 @@
 // TabsBar 组件测试
-// 验证：无 tab 不渲染、tab 显示文件名、未命名 tab 显示「未命名 N」、
-// 未保存显示圆点、点击切换、关闭按钮、中键关闭、未保存确认
+// 验证：无 tab 不渲染、tab 显示文件名、同名文件显示最短目录后缀、
+// 未命名 tab 显示「未命名 N」、未保存显示圆点、点击切换、关闭按钮、
+// 中键关闭、未保存确认
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
@@ -48,6 +49,57 @@ describe("TabsBar", () => {
     });
     render(<TabsBar />);
     expect(screen.getByText("doc.md")).toBeInTheDocument();
+  });
+
+  it("不同文件名不显示目录说明", () => {
+    useWorkspace.setState({
+      openTabs: [
+        makeTab({ path: "/docs/readme.md" }),
+        makeTab({ path: "/examples/guide.md" }),
+      ],
+      activeTabPath: "/docs/readme.md",
+    });
+    const { container } = render(<TabsBar />);
+    expect(container.querySelector(".tab-description")).toBeNull();
+  });
+
+  it("同名文件显示各自的直属父目录", () => {
+    useWorkspace.setState({
+      openTabs: [
+        makeTab({ path: "/issues/006-unshare/ISSUE_zh.md" }),
+        makeTab({ path: "/issues/007-protected/ISSUE_zh.md" }),
+      ],
+      activeTabPath: "/issues/006-unshare/ISSUE_zh.md",
+    });
+    render(<TabsBar />);
+    expect(screen.getByText("…/006-unshare")).toBeInTheDocument();
+    expect(screen.getByText("…/007-protected")).toBeInTheDocument();
+  });
+
+  it("直属父目录同名时显示最短可区分的多级后缀", () => {
+    useWorkspace.setState({
+      openTabs: [
+        makeTab({ path: "/workspace/alpha/docs/readme.md" }),
+        makeTab({ path: "/workspace/beta/docs/readme.md" }),
+      ],
+      activeTabPath: "/workspace/alpha/docs/readme.md",
+    });
+    render(<TabsBar />);
+    expect(screen.getByText("…/alpha/docs")).toBeInTheDocument();
+    expect(screen.getByText("…/beta/docs")).toBeInTheDocument();
+  });
+
+  it("同名文件的目录说明兼容 Windows 路径", () => {
+    useWorkspace.setState({
+      openTabs: [
+        makeTab({ path: "C:\\work\\alpha\\notes.md" }),
+        makeTab({ path: "C:\\work\\beta\\notes.md" }),
+      ],
+      activeTabPath: "C:\\work\\alpha\\notes.md",
+    });
+    render(<TabsBar />);
+    expect(screen.getByText("…/alpha")).toBeInTheDocument();
+    expect(screen.getByText("…/beta")).toBeInTheDocument();
   });
 
   it("未命名草稿显示「未命名 N」", () => {
