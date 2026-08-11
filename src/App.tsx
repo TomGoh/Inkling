@@ -167,6 +167,14 @@ function App() {
   // 编辑器缩放倍率（Ctrl/Cmd + 滚轮调整，Ctrl/Cmd+0 重置）
   const editorZoom = useSettings((s) => s.editorZoom);
 
+  // 进入源代码模式时关闭查找面板，避免对隐藏 WYSIWYG 的替换被丢弃
+  useEffect(() => {
+    if (mainSourceMode) {
+      setSearchOpen(false);
+      setSearchShowReplace(false);
+    }
+  }, [mainSourceMode]);
+
   // Ctrl/Cmd + 滚轮缩放文档：拦截浏览器原生页面缩放，改用应用内 zoom
   // 性能关键：仅在 Ctrl/Cmd 按下时才挂载 passive:false 监听器，
   // 普通滚动时无任何 wheel 监听器，让浏览器走合成线程快速滚动路径。
@@ -257,6 +265,10 @@ function App() {
       // Ctrl/Cmd+K 插入链接（Typora 标准）：选中文本加 link mark，无选中则插入 [文本](url)
       if (!e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
+        const tabPath = useWorkspace.getState().activeTabPath;
+        if (tabPath && useWorkspace.getState().getTabSourceMode(tabPath)) {
+          return;
+        }
         const editor = getEditorRef.current?.();
         if (editor) {
           editor.action((ctx) => {
@@ -282,6 +294,10 @@ function App() {
       // Ctrl/Cmd+Alt+0 转普通段落（Typora 标准：清除块格式，标题/引用/列表等转回段落）
       if (e.altKey && !e.shiftKey && e.key === "0") {
         e.preventDefault();
+        const tabPath = useWorkspace.getState().activeTabPath;
+        if (tabPath && useWorkspace.getState().getTabSourceMode(tabPath)) {
+          return;
+        }
         const editor = getEditorRef.current?.();
         if (editor) {
           editor.action((ctx) => {
@@ -600,10 +616,12 @@ function App() {
                 </button>
               </div>
             </div>
-            <TableToolbar getEditor={getEditor} inTable={mainInTable && !mainSourceMode} />
+            {!mainSourceMode && (
+              <TableToolbar getEditor={getEditor} inTable={mainInTable} />
+            )}
             <div className={`editor-body${splitFile ? " editor-body-split" : ""}`}>
               <div className="editor-scroll" style={{ zoom: editorZoom }}>
-                {searchOpen && (
+                {searchOpen && !mainSourceMode && (
                   <SearchPanel
                     getEditor={getEditor}
                     onClose={() => setSearchOpen(false)}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   lineColumnToOffset,
   mapScrollTop,
+  markdownOffsetToProsePos,
   offsetToLineColumn,
   prosePosToMarkdownOffset,
 } from "../../src/lib/source-mode-cursor";
@@ -30,5 +31,9 @@ describe("source-mode-cursor", () => {
   it("mapScrollTop 按比例映射", () => {
     expect(mapScrollTop(50, 100, 200)).toBe(100);
     expect(mapScrollTop(0, 100, 200)).toBe(0);
+  });
+
+  it("markdownOffsetToProsePos 空文档回退到 1", () => {
+    expect(markdownOffsetToProsePos(0, "", 0)).toBe(1);
   });
 });

@@ -56,11 +56,11 @@ export function mapScrollTop(
 
 /** markdown 字符串 offset → ProseMirror doc 内 pos（按块序号近似） */
 export function markdownOffsetToProsePos(docSize: number, markdown: string, offset: number): number {
-  if (docSize <= 0) return 0;
+  if (docSize <= 0) return 1;
   const { line } = offsetToLineColumn(markdown, offset);
-  // 每行对应 doc 内约 1 个 block 的 pos 增量；粗映射到 docSize 比例
   const lines = markdown.split("\n");
   const lineCount = Math.max(1, lines.length);
   const ratio = Math.min(line, lineCount - 1) / lineCount;
-  return Math.max(1, Math.min(Math.round(ratio * docSize), docSize));
+  const pos = Math.round(ratio * docSize);
+  return Math.max(1, Math.min(pos, Math.max(1, docSize - 1)));
 }

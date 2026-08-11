@@ -1,6 +1,6 @@
 // 源代码模式编辑器：整页 CodeMirror 6 编辑原始 Markdown
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { createSourceModeExtensions } from "../../lib/codemirror-shared";
@@ -42,7 +42,8 @@ export function SourceModeEditor({
 
   const codeBlockTheme = useSettings((s) => s.codeBlockTheme);
 
-  useEffect(() => {
+  // 用 useLayoutEffect 确保卸载 cleanup 在父组件 layout effect 读取快照之前执行
+  useLayoutEffect(() => {
     if (!hostRef.current) return;
     const safeCursor = Math.max(0, Math.min(initialCursor, value.length));
     const themeComp = themeCompRef.current;

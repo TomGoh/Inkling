@@ -368,6 +368,7 @@ function EditorInner({
       exitSnapshotRef.current = null;
       const editor = getEditor();
       if (editor) {
+        let parseOk = false;
         try {
           editor.action((ctx) => {
             const view = ctx.get(editorViewCtx);
@@ -378,10 +379,18 @@ function EditorInner({
             );
           });
           lastSyncedRef.current = value;
+          parseOk = true;
         } catch (e) {
           console.error("退出源码模式时解析失败：", e);
+          void navigator.clipboard.writeText(value).catch(() => {});
+          alert(
+            "解析失败：无法切换回渲染视图。当前 Markdown 仍保留在编辑器中，并已尝试复制到剪贴板。请检查源码语法后重试。",
+          );
+          useWorkspace.getState().setTabSourceMode(true, filePath);
+          prevSourceModeRef.current = true;
+          return;
         }
-        if (snap) {
+        if (parseOk && snap) {
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
               const ed = getEditorRef.current();
@@ -392,12 +401,20 @@ function EditorInner({
                 const pos = markdownOffsetToProsePos(docSize, value, snap.cursor);
                 try {
                   const sel = TextSelection.near(
-                    view.state.doc.resolve(Math.max(1, Math.min(pos, docSize))),
+                    view.state.doc.resolve(Math.max(1, Math.min(pos, docSize - 1))),
                     -1,
                   );
                   view.dispatch(view.state.tr.setSelection(sel));
                 } catch {
-                  // pos 无效时忽略
+                  try {
+                    view.dispatch(
+                      view.state.tr.setSelection(
+                        TextSelection.near(view.state.doc.resolve(1), 1),
+                      ),
+                    );
+                  } catch {
+                    // pos 无效时忽略
+                  }
                 }
                 const scrollEl =
                   (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
