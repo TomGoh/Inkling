@@ -1,7 +1,7 @@
 // CodeMirror 6 共享主题与扩展工厂
 // 供代码块 NodeView 与源代码模式编辑器复用
 
-import { indentWithTab } from "@codemirror/commands";
+import { history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import {
   bracketMatching,
@@ -90,7 +90,8 @@ export function createSourceModeExtensions(opts: SourceModeExtensionOpts): Exten
     highlightActiveLine(),
     bracketMatching(),
     indentOnInput(),
-    keymap.of([indentWithTab]),
+    history(),
+    keymap.of([...historyKeymap, indentWithTab]),
     sharedCodeMirrorBaseTheme,
     createMarkdownLanguageSupport(),
     EditorView.lineWrapping,

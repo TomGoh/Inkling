@@ -363,7 +363,6 @@ function EditorInner({
     }
 
     if (!sourceMode && prev) {
-      setEnterSnapshot(null);
       const snap = exitSnapshotRef.current;
       exitSnapshotRef.current = null;
       const editor = getEditor();
@@ -386,10 +385,16 @@ function EditorInner({
           alert(
             "解析失败：无法切换回渲染视图。当前 Markdown 仍保留在编辑器中，并已尝试复制到剪贴板。请检查源码语法后重试。",
           );
+          // 保留快照以便 SourceModeEditor 重新挂载（enterSnapshot 为 null 会空白）
+          setEnterSnapshot({
+            cursor: snap?.cursor ?? 0,
+            scrollTop: snap?.scrollTop ?? 0,
+          });
           useWorkspace.getState().setTabSourceMode(true, filePath);
           prevSourceModeRef.current = true;
           return;
         }
+        setEnterSnapshot(null);
         if (parseOk && snap) {
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
