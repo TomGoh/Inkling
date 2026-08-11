@@ -16,7 +16,8 @@ export type ShortcutId =
   | "toggleSidebar"
   | "toggleOutline"
   | "showShortcuts"
-  | "openSettings";
+  | "openSettings"
+  | "toggleSourceMode";
 
 export interface ShortcutDef {
   id: ShortcutId;
@@ -32,6 +33,7 @@ export const SHORTCUT_DEFS: ShortcutDef[] = [
   { id: "toggleOutline", desc: "切换大纲面板", default: "mod+'" },
   { id: "showShortcuts", desc: "显示快捷键帮助", default: "mod+/" },
   { id: "openSettings", desc: "打开偏好设置", default: "mod+," },
+  { id: "toggleSourceMode", desc: "切换源代码模式", default: "mod+alt+s" },
 ];
 
 const STORAGE_KEY = "inkling-shortcuts";

@@ -1,10 +1,9 @@
 import { EditorView, lineNumbers, drawSelection, keymap, highlightActiveLine, highlightSpecialChars } from "@codemirror/view";
 import type { ViewUpdate } from "@codemirror/view";
 import { EditorState, Compartment } from "@codemirror/state";
-import type { Extension } from "@codemirror/state";
-import { LanguageDescription, LanguageSupport, StreamLanguage, bracketMatching, indentOnInput, defaultHighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { LanguageDescription, LanguageSupport, StreamLanguage, bracketMatching, indentOnInput } from "@codemirror/language";
 import { indentWithTab } from "@codemirror/commands";
-import { oneDark } from "@codemirror/theme-one-dark";
+import { codeThemeExt, sharedCodeMirrorBaseTheme as baseTheme } from "../../lib/codemirror-shared";
 import type { NodeView } from "@milkdown/kit/prose/view";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import { exitCode } from "@milkdown/kit/prose/commands";
@@ -50,54 +49,6 @@ function loadLanguage(name: string): Promise<LanguageSupport | undefined> {
   const desc = codeLanguages.find((l) => l.name === lower || l.alias.includes(lower));
   if (!desc) return Promise.resolve(undefined);
   return desc.load();
-}
-
-/** CodeMirror 基础主题：编辑器外观、行号、字体 */
-const baseTheme = EditorView.theme({
-  "&": {
-    fontSize: "0.85rem",
-    backgroundColor: "transparent",
-    color: "var(--code-block-text, var(--text, #1f2328))",
-  },
-  "&.cm-editor": {
-    backgroundColor: "transparent",
-  },
-  ".cm-scroller": {
-    fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
-    lineHeight: "1.5",
-  },
-  ".cm-gutters": {
-    backgroundColor: "transparent",
-    color: "var(--code-block-muted, var(--text-muted, #6e7681))",
-    border: "none",
-    borderRight: "1px solid var(--code-block-gutter-border, var(--border, #d0d7de))",
-  },
-  ".cm-activeLineGutter": {
-    backgroundColor: "rgba(175, 184, 193, 0.15)",
-  },
-  ".cm-activeLine": {
-    backgroundColor: "rgba(175, 184, 193, 0.1)",
-  },
-  ".cm-content": {
-    padding: "0.4rem 0",
-    caretColor: "var(--code-block-focus, #528bff)",
-  },
-  ".cm-cursor, .cm-dropCursor": {
-    borderLeftColor: "var(--code-block-focus, #528bff)",
-  },
-});
-
-/** 根据主题名返回 CodeMirror 主题扩展 */
-function codeThemeExt(name: CodeBlockTheme): Extension[] {
-  switch (name) {
-    case "oneDark":
-      return [oneDark];
-    case "light":
-      // defaultHighlightStyle 是 CodeMirror 内置浅色彩色语法高亮
-      return [syntaxHighlighting(defaultHighlightStyle)];
-    case "none":
-      return [];
-  }
 }
 
 /** 计算旧/新文本的最小变更区间，用于精准同步 */

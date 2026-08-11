@@ -25,7 +25,8 @@ export function useAutoSave() {
   useEffect(() => {
     function onKeydown(e: KeyboardEvent) {
       const mod = e.ctrlKey || e.metaKey;
-      if (mod && e.key.toLowerCase() === "s") {
+      // 排除 Alt/Shift，避免与 Ctrl/Cmd+Alt+S（源代码模式）等组合键冲突
+      if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "s") {
         e.preventDefault();
         void saveCurrent();
       }

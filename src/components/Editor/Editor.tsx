@@ -57,6 +57,11 @@ import {
 } from "./callout";
 import { slashMenuPlugin } from "./slash-menu";
 import { autoPairPlugin } from "./auto-pair";
+import { SourceModeEditor } from "./SourceModeEditor";
+import {
+  markdownOffsetToProsePos,
+  prosePosToMarkdownOffset,
+} from "../../lib/source-mode-cursor";
 
 interface EditorProps {
   /** 当前 Markdown 文件完整路径，用于解析相对图片路径 */
@@ -71,6 +76,8 @@ interface EditorProps {
   onOutlineChange?: (snapshot: EditorOutlineSnapshot) => void;
   /** 光标进入/离开表格时回调，供外部工具栏切换上下文按钮组 */
   onInTableChange?: (inTable: boolean) => void;
+  /** 是否处于源代码模式 */
+  sourceMode?: boolean;
 }
 
 /**
@@ -88,7 +95,16 @@ function EditorInner({
   onReady,
   onOutlineChange,
   onInTableChange,
+  sourceMode = false,
 }: EditorProps) {
+  const sourceModeRef = useRef(sourceMode);
+  sourceModeRef.current = sourceMode;
+  const prevSourceModeRef = useRef(sourceMode);
+  const exitSnapshotRef = useRef<{ cursor: number; scrollTop: number } | null>(null);
+  const [enterSnapshot, setEnterSnapshot] = useState<{
+    cursor: number;
+    scrollTop: number;
+  } | null>(sourceMode ? { cursor: 0, scrollTop: 0 } : null);
   // 记录最近一次同步进编辑器的 value，避免 onChange 回写的值又触发覆盖，造成循环
   const lastSyncedRef = useRef(value);
   // onChange 用 ref 持有，避免它变化导致编辑器重建
@@ -128,6 +144,7 @@ function EditorInner({
             ctx.set(defaultValueCtx, value);
             // 监听 markdown 变更，精准回调
             ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
+              if (sourceModeRef.current) return;
               // 编辑器内部产生的变更才回调；外部 value 同步进来的不回调
               if (markdown !== lastSyncedRef.current) {
                 lastSyncedRef.current = markdown;
@@ -310,6 +327,116 @@ function EditorInner({
   const getEditorRef = useRef(getEditor);
   getEditorRef.current = getEditor;
 
+  useEffect(() => {
+    if (sourceMode) {
+      inTableRef.current = false;
+      setInTable(false);
+      onInTableChangeRef.current?.(false);
+    }
+  }, [sourceMode]);
+
+  // 进入/退出源码模式：采集光标、互斥专注/打字机、退出时灌回 PM
+  useLayoutEffect(() => {
+    const prev = prevSourceModeRef.current;
+    if (sourceMode && !prev) {
+      const settings = useSettings.getState();
+      if (settings.focusMode) settings.setFocusMode(false);
+      if (settings.typewriterMode) settings.setTypewriterMode(false);
+
+      let cursor = 0;
+      let scrollTop = 0;
+      const editor = getEditor();
+      if (editor) {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const head = view.state.selection.head;
+          const textBefore = view.state.doc.textBetween(0, head, "\n", "\n");
+          cursor = prosePosToMarkdownOffset(value, textBefore);
+          const scrollEl =
+            (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
+            view.dom.closest(".editor-scroll");
+          scrollTop = scrollEl instanceof HTMLElement ? scrollEl.scrollTop : 0;
+        });
+      }
+      setEnterSnapshot({ cursor, scrollTop });
+      lastSyncedRef.current = value;
+    }
+
+    if (!sourceMode && prev) {
+      const snap = exitSnapshotRef.current;
+      exitSnapshotRef.current = null;
+      const editor = getEditor();
+      if (editor) {
+        let parseOk = false;
+        try {
+          editor.action((ctx) => {
+            const view = ctx.get(editorViewCtx);
+            const parser = ctx.get(parserCtx);
+            const newDoc = parser(value);
+            view.dispatch(
+              view.state.tr.replaceWith(0, view.state.doc.content.size, newDoc.content),
+            );
+          });
+          lastSyncedRef.current = value;
+          parseOk = true;
+        } catch (e) {
+          console.error("退出源码模式时解析失败：", e);
+          void navigator.clipboard.writeText(value).catch(() => {});
+          alert(
+            "解析失败：无法切换回渲染视图。当前 Markdown 仍保留在编辑器中，并已尝试复制到剪贴板。请检查源码语法后重试。",
+          );
+          // 保留快照以便 SourceModeEditor 重新挂载（enterSnapshot 为 null 会空白）
+          setEnterSnapshot({
+            cursor: snap?.cursor ?? 0,
+            scrollTop: snap?.scrollTop ?? 0,
+          });
+          useWorkspace.getState().setTabSourceMode(true, filePath);
+          prevSourceModeRef.current = true;
+          return;
+        }
+        setEnterSnapshot(null);
+        if (parseOk && snap) {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              const ed = getEditorRef.current();
+              if (!ed) return;
+              ed.action((ctx) => {
+                const view = ctx.get(editorViewCtx);
+                const docSize = view.state.doc.content.size;
+                const pos = markdownOffsetToProsePos(docSize, value, snap.cursor);
+                try {
+                  const sel = TextSelection.near(
+                    view.state.doc.resolve(Math.max(1, Math.min(pos, docSize - 1))),
+                    -1,
+                  );
+                  view.dispatch(view.state.tr.setSelection(sel));
+                } catch {
+                  try {
+                    view.dispatch(
+                      view.state.tr.setSelection(
+                        TextSelection.near(view.state.doc.resolve(1), 1),
+                      ),
+                    );
+                  } catch {
+                    // pos 无效时忽略
+                  }
+                }
+                const scrollEl =
+                  (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
+                  view.dom.closest(".editor-scroll");
+                if (scrollEl instanceof HTMLElement) {
+                  scrollEl.scrollTop = snap.scrollTop;
+                }
+              });
+            });
+          });
+        }
+      }
+    }
+
+    prevSourceModeRef.current = sourceMode;
+  }, [sourceMode, getEditor, value]);
+
   /**
    * 点击编辑器空白区域（右侧 padding / 文档下方空白）时的光标定位：
    * - 点击落在有效内容节点上：交给 ProseMirror 自行处理
@@ -398,7 +525,7 @@ function EditorInner({
 
   // 外部 value 变化时，覆盖编辑器内容（仅当与上次同步值不同时）
   useEffect(() => {
-    if (loading) return;
+    if (loading || sourceMode) return;
     if (value === lastSyncedRef.current) return;
     const editor = getEditor();
     if (!editor) return;
@@ -430,14 +557,14 @@ function EditorInner({
         // 连降级都失败，放弃同步，交由 ErrorBoundary 兜底
       }
     }
-  }, [value, loading, getEditor]);
+  }, [value, loading, getEditor, sourceMode]);
 
   // 编辑位置记忆：value 变化（切 tab）后恢复光标和滚动位置
   // 用 currentFile 作为依赖，而非 value，避免内容编辑时也触发恢复
   const currentFile = useWorkspace((s) => s.currentFile);
   const getActiveCursorState = useWorkspace((s) => s.getActiveCursorState);
   useEffect(() => {
-    if (loading) return;
+    if (loading || sourceMode) return;
     const editor = getEditor();
     if (!editor) return;
     const { pos, scrollTop } = getActiveCursorState();
@@ -464,7 +591,7 @@ function EditorInner({
         });
       }
     });
-  }, [currentFile, loading, getEditor, getActiveCursorState]);
+  }, [currentFile, loading, getEditor, getActiveCursorState, sourceMode]);
 
   // 降级模式：Milkdown 初始化失败，显示只读 textarea 展示原始 markdown
   if (fallback) {
@@ -485,11 +612,31 @@ function EditorInner({
 
   return (
     <div
-      className={`md-editor-root${focusMode ? " focus-mode" : ""}`}
-      spellCheck={spellcheck}
-      onMouseDown={handleRootMouseDown}
+      className={`md-editor-root${focusMode && !sourceMode ? " focus-mode" : ""}${sourceMode ? " source-mode-active" : ""}`}
+      spellCheck={spellcheck && !sourceMode}
+      onMouseDown={sourceMode ? undefined : handleRootMouseDown}
     >
-      <Milkdown />
+      <div
+        className="md-editor-wysiwyg"
+        style={{ display: sourceMode ? "none" : undefined }}
+      >
+        <Milkdown />
+      </div>
+      {sourceMode && enterSnapshot && (
+        <SourceModeEditor
+          value={value}
+          onChange={(md) => {
+            lastSyncedRef.current = md;
+            onChangeRef.current?.(md);
+          }}
+          initialCursor={enterSnapshot.cursor}
+          initialScrollTop={enterSnapshot.scrollTop}
+          spellcheck={spellcheck}
+          onUnmountSnapshot={(snap) => {
+            exitSnapshotRef.current = snap;
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -506,6 +653,7 @@ export function MarkdownEditor({
   onReady,
   onOutlineChange,
   onInTableChange,
+  sourceMode,
 }: EditorProps) {
   return (
     <MilkdownProvider>
@@ -516,6 +664,7 @@ export function MarkdownEditor({
         onReady={onReady}
         onOutlineChange={onOutlineChange}
         onInTableChange={onInTableChange}
+        sourceMode={sourceMode}
       />
     </MilkdownProvider>
   );

@@ -184,7 +184,7 @@ describe("formatBinding", () => {
 });
 
 describe("SHORTCUT_DEFS", () => {
-  it("包含全部 5 个可自定义快捷键", () => {
+  it("包含全部 6 个可自定义快捷键", () => {
     const ids = SHORTCUT_DEFS.map((d) => d.id);
     expect(ids).toEqual([
       "find",
@@ -192,6 +192,7 @@ describe("SHORTCUT_DEFS", () => {
       "toggleOutline",
       "showShortcuts",
       "openSettings",
+      "toggleSourceMode",
     ]);
   });
 
