@@ -3,6 +3,7 @@
 // 点击标题 → 滚动编辑器到对应标题位置。
 // 当前光标所在标题高亮（由主编辑器的 outline-tracker 插件发布）。
 
+import { useEffect, useRef } from "react";
 import type { Editor } from "@milkdown/kit/core";
 import { editorViewCtx } from "@milkdown/kit/core";
 import { TextSelection } from "@milkdown/kit/prose/state";
@@ -22,6 +23,24 @@ interface OutlinePanelProps {
 
 const OUTLINE_SCROLL_DURATION = 280;
 const outlineScrollFrames = new WeakMap<HTMLElement, number>();
+
+/** 尽量将当前大纲项置于可视区中央；首尾内容不足时自然贴边。 */
+function centerOutlineItem(scroller: HTMLElement, item: HTMLElement) {
+  const scrollerRect = scroller.getBoundingClientRect();
+  const itemRect = item.getBoundingClientRect();
+  const itemCenter = itemRect.top + itemRect.height / 2;
+  const scrollerCenter = scrollerRect.top + scrollerRect.height / 2;
+  let targetTop = scroller.scrollTop + itemCenter - scrollerCenter;
+
+  const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  targetTop = Math.max(0, Math.min(targetTop, maxTop));
+  if (Math.abs(targetTop - scroller.scrollTop) < 0.5) return;
+
+  const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth";
+  scroller.scrollTo({ top: targetTop, behavior });
+}
 
 /** 用固定时长的缓动滚动，避免原生 smooth 在长文档中耗时过长 */
 function animateScrollTo(scroller: HTMLElement, targetTop: number) {
@@ -111,13 +130,25 @@ export function OutlinePanel({
   snapshot,
 }: OutlinePanelProps) {
   const { headings, activeIndex } = snapshot;
+  const treeRef = useRef<HTMLDivElement>(null);
+  const activeItemRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (activeIndex == null) return;
+    const frame = requestAnimationFrame(() => {
+      const tree = treeRef.current;
+      const item = activeItemRef.current;
+      if (tree && item) centerOutlineItem(tree, item);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeIndex]);
 
   return (
     <aside className="outline-panel">
       <div className="outline-header">
         <span className="outline-title">大纲</span>
       </div>
-      <div className="outline-tree">
+      <div className="outline-tree" ref={treeRef}>
         {headings.length === 0 ? (
           <div className="outline-empty">文档暂无标题</div>
         ) : (
@@ -126,6 +157,7 @@ export function OutlinePanel({
             return (
               <button
                 key={h.id}
+                ref={active ? activeItemRef : undefined}
                 className={`outline-item outline-h${h.level}${active ? " outline-item-active" : ""}`}
                 style={{ paddingLeft: `${(h.level - 1) * 12 + 8}px` }}
                 title={h.text}
