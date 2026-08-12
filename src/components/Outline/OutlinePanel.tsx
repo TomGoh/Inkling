@@ -3,23 +3,49 @@
 // 点击标题 → 滚动编辑器到对应标题位置。
 // 当前光标所在标题高亮（由主编辑器的 outline-tracker 插件发布）。
 
-import { useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef } from "react";
 import type { Editor } from "@milkdown/kit/core";
 import { editorViewCtx } from "@milkdown/kit/core";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import {
   findEditorHeadingPos,
   type EditorOutlineHeading,
-  type EditorOutlineSnapshot,
 } from "../../lib/outline";
+import { selectOutlineForFile, useOutline } from "../../store/outline";
+import { useWorkspace } from "../../store/workspace";
 import "./OutlinePanel.css";
 
 interface OutlinePanelProps {
   /** 获取 Milkdown 编辑器实例，用于滚动定位 */
   getEditor: () => Editor | undefined;
-  /** 主编辑器插件发布的渲染标题与当前标题 */
-  snapshot: EditorOutlineSnapshot;
 }
+
+interface OutlineItemProps {
+  heading: EditorOutlineHeading;
+  active: boolean;
+  activeRef: (el: HTMLButtonElement | null) => void;
+  onClick: (heading: EditorOutlineHeading) => void;
+}
+
+/** 列表项 memo 化：滚动仅切换 active 两项的重渲染，标题多时不重建整列表 */
+const OutlineItem = memo(function OutlineItem({
+  heading,
+  active,
+  activeRef,
+  onClick,
+}: OutlineItemProps) {
+  return (
+    <button
+      ref={active ? activeRef : undefined}
+      className={`outline-item outline-h${heading.level}${active ? " outline-item-active" : ""}`}
+      style={{ paddingLeft: `${(heading.level - 1) * 12 + 8}px` }}
+      title={heading.text}
+      onClick={() => onClick(heading)}
+    >
+      <span className="outline-item-text">{heading.text}</span>
+    </button>
+  );
+});
 
 const OUTLINE_SCROLL_DURATION = 280;
 const outlineScrollFrames = new WeakMap<HTMLElement, number>();
@@ -125,13 +151,20 @@ function scrollToHeading(
   });
 }
 
-export function OutlinePanel({
-  getEditor,
-  snapshot,
-}: OutlinePanelProps) {
+export function OutlinePanel({ getEditor }: OutlinePanelProps) {
+  // 快照走独立 store：滚动高频更新只重渲染本面板，不再牵连 App 树
+  const currentFile = useWorkspace((s) => s.currentFile);
+  const snapshot = useOutline((s) => selectOutlineForFile(s, currentFile));
   const { headings, activeIndex } = snapshot;
   const treeRef = useRef<HTMLDivElement>(null);
-  const activeItemRef = useRef<HTMLButtonElement>(null);
+  const activeItemRef = useRef<HTMLButtonElement | null>(null);
+  const setActiveItemRef = useCallback((el: HTMLButtonElement | null) => {
+    activeItemRef.current = el;
+  }, []);
+  const handleClick = useCallback(
+    (heading: EditorOutlineHeading) => scrollToHeading(getEditor, heading),
+    [getEditor],
+  );
 
   useEffect(() => {
     if (activeIndex == null) return;
@@ -152,21 +185,15 @@ export function OutlinePanel({
         {headings.length === 0 ? (
           <div className="outline-empty">文档暂无标题</div>
         ) : (
-          headings.map((h) => {
-            const active = h.index === activeIndex;
-            return (
-              <button
-                key={h.id}
-                ref={active ? activeItemRef : undefined}
-                className={`outline-item outline-h${h.level}${active ? " outline-item-active" : ""}`}
-                style={{ paddingLeft: `${(h.level - 1) * 12 + 8}px` }}
-                title={h.text}
-                onClick={() => scrollToHeading(getEditor, h)}
-              >
-                <span className="outline-item-text">{h.text}</span>
-              </button>
-            );
-          })
+          headings.map((h) => (
+            <OutlineItem
+              key={h.id}
+              heading={h}
+              active={h.index === activeIndex}
+              activeRef={setActiveItemRef}
+              onClick={handleClick}
+            />
+          ))
         )}
       </div>
     </aside>

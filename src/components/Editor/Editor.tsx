@@ -7,6 +7,7 @@ import {
   parserCtx,
   prosePluginsCtx,
   rootCtx,
+  serializerCtx,
 } from "@milkdown/kit/core";
 import { commonmark } from "@milkdown/kit/preset/commonmark";
 import {
@@ -14,7 +15,6 @@ import {
   columnResizingPlugin,
 } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
-import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { Plugin, PluginKey, TextSelection, AllSelection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { findParentNodeClosestToPos } from "@milkdown/kit/prose";
@@ -28,6 +28,7 @@ import { imageView } from "./image-node-view";
 import { imageUploadPlugin } from "./image-upload";
 import { linkClickPlugin } from "./link-click";
 import { outlineTrackerPlugin } from "./outline-tracker";
+import { markdownPublisherPlugin } from "./markdown-publisher";
 import { formulaNumberingPlugin, formulaNumberingKey } from "./formula-numbering";
 import { editorModesPlugin } from "./editor-modes";
 import { blockDragPlugin } from "./block-drag";
@@ -142,15 +143,6 @@ function EditorInner({
           .config((ctx) => {
             ctx.set(rootCtx, container);
             ctx.set(defaultValueCtx, value);
-            // 监听 markdown 变更，精准回调
-            ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
-              if (sourceModeRef.current) return;
-              // 编辑器内部产生的变更才回调；外部 value 同步进来的不回调
-              if (markdown !== lastSyncedRef.current) {
-                lastSyncedRef.current = markdown;
-                onChangeRef.current?.(markdown);
-              }
-            });
             // 注入选区跟踪插件：光标进入/离开表格时更新 inTable 状态
             ctx.update(prosePluginsCtx, (ps) => [
               ...ps,
@@ -168,6 +160,17 @@ function EditorInner({
                     }
                   },
                 }),
+              }),
+              // Markdown 源码发布：全文序列化防抖 150ms，避免每次按键
+              // 都 O(n) 序列化整篇文档（万行文档输入掉帧的主因之一）
+              markdownPublisherPlugin({
+                serialize: (doc) => ctx.get(serializerCtx)(doc),
+                isSourceMode: () => sourceModeRef.current,
+                getLastSynced: () => lastSyncedRef.current,
+                setLastSynced: (md) => {
+                  lastSyncedRef.current = md;
+                },
+                onChange: (md) => onChangeRef.current?.(md),
               }),
               // 图片拖拽/粘贴上传：复制到当前文档的 assets/ 并插入相对路径
               imageUploadPlugin(filePath),
@@ -213,17 +216,25 @@ function EditorInner({
                     if (timer) clearTimeout(timer);
                     timer = setTimeout(flush, 300);
                   };
+                  // scrollTop 用 passive 监听缓存：每个 transaction 直接读
+                  // scrollTop 会在万行文档下每次按键强制同步布局
+                  const scrollEl =
+                    (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
+                    view.dom.closest<HTMLElement>(".editor-scroll");
+                  let cachedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+                  const onScroll = () => {
+                    cachedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+                  };
+                  scrollEl?.addEventListener("scroll", onScroll, { passive: true });
                   // 失焦立即落盘
                   view.dom.addEventListener("blur", flush);
                   return {
                     update: (nextView) => {
-                      const pos = nextView.state.selection.head;
-                      const scrollEl = (nextView as EditorView & { scrollDOM?: HTMLElement }).scrollDOM;
-                      const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
-                      schedule(pos, scrollTop);
+                      schedule(nextView.state.selection.head, cachedScrollTop);
                     },
                     destroy: () => {
                       flush();
+                      scrollEl?.removeEventListener("scroll", onScroll);
                       view.dom.removeEventListener("blur", flush);
                     },
                   };
@@ -287,8 +298,7 @@ function EditorInner({
           .use(remarkCalloutPlugin)
           .use(calloutSchema)
           .use(calloutView)
-          .use(history)
-          .use(listener);
+          .use(history);
       } catch (e) {
         console.error("Milkdown 编辑器初始化失败：", e);
         return undefined;
@@ -583,11 +593,12 @@ function EditorInner({
         }
       }
       // 恢复滚动位置（下一帧执行，等文档渲染完）
-      const scrollEl = (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM;
+      const scrollEl =
+        (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
+        view.dom.closest<HTMLElement>(".editor-scroll");
       if (scrollTop != null && scrollEl) {
         requestAnimationFrame(() => {
-          const el = (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM;
-          if (el) el.scrollTop = scrollTop;
+          if (scrollEl.isConnected) scrollEl.scrollTop = scrollTop;
         });
       }
     });

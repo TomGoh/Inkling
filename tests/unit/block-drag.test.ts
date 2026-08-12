@@ -1,0 +1,108 @@
+// block-drag 装饰集性能测试
+// 验证：手柄 widget 跨 transaction 增量映射复用同一实例（视图层据此复用 DOM，
+// 万行文档输入不再每键重建全部手柄，issue #31）、新增块补手柄、指示器增删
+
+import { describe, expect, it } from "vitest";
+import { EditorState, TextSelection } from "@milkdown/kit/prose/state";
+import { Schema } from "@milkdown/kit/prose/model";
+import type { Decoration, DecorationSet } from "@milkdown/kit/prose/view";
+import { blockDragKey, blockDragPlugin } from "../../src/components/Editor/block-drag";
+
+const schema = new Schema({
+  nodes: {
+    doc: { content: "block+" },
+    paragraph: { group: "block", content: "text*" },
+    text: {},
+  },
+});
+
+function createState(paras: string[]) {
+  const doc = schema.node(
+    "doc",
+    null,
+    paras.map((t) => schema.node("paragraph", null, t ? schema.text(t) : undefined)),
+  );
+  return EditorState.create({ doc, plugins: [blockDragPlugin()] });
+}
+
+interface BlockDragState {
+  dropIndex: number | null;
+  decos: DecorationSet;
+}
+
+function handles(state: EditorState): Decoration[] {
+  const s = blockDragKey.getState(state) as unknown as BlockDragState;
+  return s.decos.find(
+    undefined,
+    undefined,
+    (spec) => (spec as { handle?: boolean }).handle === true,
+  );
+}
+
+function indicators(state: EditorState): Decoration[] {
+  const s = blockDragKey.getState(state) as unknown as BlockDragState;
+  return s.decos.find(
+    undefined,
+    undefined,
+    (spec) => (spec as { indicator?: boolean }).indicator === true,
+  );
+}
+
+describe("blockDragPlugin 装饰集增量更新", () => {
+  it("初始为每个顶层块创建一个手柄", () => {
+    const state = createState(["a", "b", "c"]);
+    const hs = handles(state);
+    expect(hs).toHaveLength(3);
+    expect(hs.map((h) => h.from)).toEqual([0, 3, 6]);
+  });
+
+  it("文本编辑复用既有手柄 widget 实例（位置随映射平移）", () => {
+    const initial = createState(["a", "b", "c"]);
+    const before = handles(initial);
+    let state = initial.apply(initial.tr.insertText("xx", 1));
+    const after = handles(state);
+    expect(after).toHaveLength(3);
+    // 实例同一 → WidgetType.eq 命中 → 视图层复用 DOM 而非销毁重建
+    after.forEach((deco, i) => {
+      expect(deco.type).toBe(before[i].type);
+    });
+    // 首个块起点不变，后续块因插入 2 字符右移
+    expect(after.map((h) => h.from)).toEqual([0, 5, 8]);
+  });
+
+  it("新增顶层块只为其补建手柄，旧块复用实例", () => {
+    const initial = createState(["a", "b"]);
+    const before = handles(initial);
+    let state = initial;
+    const newPara = schema.node("paragraph", null, schema.text("n"));
+    state = state.apply(state.tr.insert(3, newPara));
+    const after = handles(state);
+    expect(after).toHaveLength(3);
+    expect(after.map((h) => h.from)).toEqual([0, 3, 6]);
+    // 旧手柄随映射平移到新块起点，实例复用；仅新增块补建手柄
+    expect(after[0].type).toBe(before[0].type);
+    expect(after[1].type).toBe(before[1].type);
+  });
+
+  it("dropIndex 放置指示器，clear 移除且不影响手柄", () => {
+    let state = createState(["a", "b"]);
+    state = state.apply(state.tr.setMeta(blockDragKey, { dropIndex: 1 }));
+    expect(indicators(state)).toHaveLength(1);
+    expect(indicators(state)[0].from).toBe(3);
+    expect(handles(state)).toHaveLength(2);
+
+    state = state.apply(state.tr.setMeta(blockDragKey, { clear: true }));
+    expect(indicators(state)).toHaveLength(0);
+    expect(handles(state)).toHaveLength(2);
+  });
+
+  it("纯选区移动直接复用缓存装饰集", () => {
+    let state = createState(["a", "b"]);
+    const decosBefore = (blockDragKey.getState(state) as unknown as BlockDragState).decos;
+    state = state.apply(
+      state.tr.setSelection(TextSelection.create(state.doc, 1)),
+    );
+    const decosAfter = (blockDragKey.getState(state) as unknown as BlockDragState).decos;
+    expect(decosAfter).toBe(decosBefore);
+  });
+});

@@ -64,6 +64,8 @@ export const outlineTrackerPlugin = (
         view.state.selection.head,
       );
       let scrollFrame: number | null = null;
+      // 编辑时全文遍历提取标题开销大（万行文档每键 O(n)），防抖到输入停顿后
+      let extractTimer: ReturnType<typeof setTimeout> | null = null;
       const scroller = view.dom.closest<HTMLElement>(".editor-scroll");
 
       onChange({ headings, activeIndex });
@@ -100,26 +102,38 @@ export const outlineTrackerPlugin = (
           const selectionChanged = !nextView.state.selection.eq(
             previousState.selection,
           );
-          const nextHeadings = docChanged
-            ? extractEditorOutline(nextView.state.doc)
-            : headings;
-          const nextActiveIndex =
-            docChanged || selectionChanged
-              ? findActiveHeadingIndex(
-                  nextHeadings,
-                  nextView.state.selection.head,
-                )
-              : activeIndex;
 
-          if (docChanged || nextActiveIndex !== activeIndex) {
-            headings = nextHeadings;
-            activeIndex = nextActiveIndex;
-            onChange({ headings, activeIndex });
+          if (docChanged) {
+            // 标题集合防抖重算；重算时顺带按最新选区校正当前章节
+            if (extractTimer) clearTimeout(extractTimer);
+            extractTimer = setTimeout(() => {
+              extractTimer = null;
+              if (!view.dom.isConnected) return;
+              headings = extractEditorOutline(view.state.doc);
+              activeIndex = findActiveHeadingIndex(
+                headings,
+                view.state.selection.head,
+              );
+              onChange({ headings, activeIndex });
+            }, 150);
+            return;
+          }
+
+          if (selectionChanged) {
+            const nextActiveIndex = findActiveHeadingIndex(
+              headings,
+              nextView.state.selection.head,
+            );
+            if (nextActiveIndex !== activeIndex) {
+              activeIndex = nextActiveIndex;
+              onChange({ headings, activeIndex });
+            }
           }
         },
         destroy: () => {
           scroller?.removeEventListener("scroll", handleScroll);
           if (scrollFrame != null) cancelAnimationFrame(scrollFrame);
+          if (extractTimer) clearTimeout(extractTimer);
         },
       };
     },

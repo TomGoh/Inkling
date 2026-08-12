@@ -24,10 +24,8 @@ import { exportHTML, exportPDF, exportDocx, exportPNG, exportOutline, copyMarkdo
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getNewWindowFilePath } from "./lib/newWindow";
-import {
-  EMPTY_EDITOR_OUTLINE,
-  type EditorOutlineSnapshot,
-} from "./lib/outline";
+import { type EditorOutlineSnapshot } from "./lib/outline";
+import { useOutline } from "./store/outline";
 import {
   IconMaximize,
   IconPanelLeft,
@@ -86,7 +84,6 @@ function App() {
 
   // 持有编辑器实例获取函数，供大纲面板与导出使用
   const getEditorRef = useRef<(() => Editor | undefined) | null>(null);
-  const [mainEditorReady, setMainEditorReady] = useState(false);
   // 主编辑器光标是否在表格内（驱动工具栏的表格上下文按钮组）
   const [mainInTable, setMainInTable] = useState(false);
   // Ctrl+N 新建未命名草稿后，编辑器重建完成时自动聚焦
@@ -94,7 +91,6 @@ function App() {
   const handleEditorReady = useCallback(
     (getEditor: (() => Editor | undefined) | null) => {
       getEditorRef.current = getEditor;
-      setMainEditorReady(getEditor !== null);
       if (getEditor && pendingFocusRef.current) {
         pendingFocusRef.current = false;
         const editor = getEditor();
@@ -116,17 +112,13 @@ function App() {
     },
     [],
   );
-  // 主编辑器发布的大纲快照；记录文件以避免切换时短暂显示旧大纲。
-  const [outlineState, setOutlineState] = useState<{
-    file: string | null;
-    snapshot: EditorOutlineSnapshot;
-  }>({ file: null, snapshot: EMPTY_EDITOR_OUTLINE });
+  // 主编辑器发布的大纲快照直接写独立 store，仅 OutlinePanel 订阅：
+  // 经 App useState 中转会导致滚动时整棵 App 树高频重渲染（issue #31）。
   const handleOutlineChange = useCallback(
     (snapshot: EditorOutlineSnapshot) => {
-      setOutlineState({
-        file: useWorkspace.getState().currentFile,
-        snapshot,
-      });
+      useOutline
+        .getState()
+        .publish(useWorkspace.getState().currentFile, snapshot);
     },
     [],
   );
@@ -352,10 +344,6 @@ function App() {
   }, [toggleSidebar, toggleOutline, toggleZenMode, setZenMode, toggleTabSourceMode]);
 
   const getEditor = () => getEditorRef.current?.();
-  const outlineSnapshot =
-    mainEditorReady && outlineState.file === currentFile
-      ? outlineState.snapshot
-      : EMPTY_EDITOR_OUTLINE;
 
   // 禅模式：仅渲染编辑器，隐藏所有 UI（侧边栏/大纲/标签页/工具栏/状态栏）
   if (zenMode && currentFile) {
@@ -707,12 +695,7 @@ function App() {
           </div>
         )}
       </div>
-      {currentFile && outlineVisible && (
-        <OutlinePanel
-          getEditor={getEditor}
-          snapshot={outlineSnapshot}
-        />
-      )}
+      {currentFile && outlineVisible && <OutlinePanel getEditor={getEditor} />}
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       {shortcutsOpen && (
         <ShortcutsHelp
