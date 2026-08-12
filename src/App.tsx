@@ -382,6 +382,7 @@ function App() {
 
   return (
     <main className="app-shell">
+      <div className="app-main">
       {sidebarVisible && <Sidebar />}
       <div className="editor-wrap">
         {currentFile ? (
@@ -688,7 +689,6 @@ function App() {
                 </div>
               )}
             </div>
-            <StatusBar />
           </>
         ) : (
           <div className="empty-state">
@@ -713,6 +713,8 @@ function App() {
           snapshot={outlineSnapshot}
         />
       )}
+      </div>
+      {currentFile && <StatusBar />}
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       {shortcutsOpen && (
         <ShortcutsHelp

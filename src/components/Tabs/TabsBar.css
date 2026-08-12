@@ -17,9 +17,11 @@
 
 .tabs-list {
   display: flex;
-  height: 34px;
+  /* 39px 内容 + 1px border-bottom = 40px，与侧边栏/大纲头部底边对齐 */
+  height: 39px;
   align-items: stretch;
-  padding: 0 4px;
+  /* 左侧不留 padding，首个 tab 紧贴侧边栏边界 */
+  padding: 0 4px 0 0;
 }
 
 .tab {

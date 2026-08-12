@@ -131,6 +131,14 @@ button svg,
 .app-shell {
   height: 100%;
   display: flex;
+  flex-direction: column;
+}
+
+/* 三列主体容器：状态栏改为全宽后，三列包在 app-main 行容器内 */
+.app-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
   flex-direction: row;
 }
 
@@ -1395,10 +1403,11 @@ button svg,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.4rem 1rem;
+  padding: 0.3rem 0.9rem;
   border-bottom: 1px solid var(--border, #d0d7de);
   background: var(--topbar-bg, #ffffff);
   flex-shrink: 0;
+  min-height: 38px;
 }
 .split-pane-header .topbar-actions {
   gap: 0.4rem;
