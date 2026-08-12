@@ -124,17 +124,25 @@ export const blockDragPlugin = () =>
         if (newState.doc !== value.doc) {
           // 增量映射：手柄 widget 实例不变，视图层复用已有 DOM
           decos = decos.map(tr.mapping, newState.doc);
-          // 新增的顶层块补手柄
-          const have = new Set<number>();
-          for (const d of decos.find(
+          const starts = blockStarts(newState.doc);
+          const startsSet = new Set(starts);
+          const mappedHandles = decos.find(
             undefined,
             undefined,
             (spec) => (spec as { handle?: boolean }).handle === true,
-          )) {
-            have.add(d.from);
-          }
+          );
+          // 结构事务（如块被包进列表/引用）会把旧手柄映射到非顶层位置，
+          // 先清除这些 stale 手柄，避免重复手柄与拖拽解析到外层包裹块
+          const stale = mappedHandles.filter((d) => !startsSet.has(d.from));
+          if (stale.length) decos = decos.remove(stale);
+          // 新增的顶层块补手柄
+          const have = new Set(
+            mappedHandles
+              .filter((d) => startsSet.has(d.from))
+              .map((d) => d.from),
+          );
           const adds: Decoration[] = [];
-          for (const start of blockStarts(newState.doc)) {
+          for (const start of starts) {
             if (!have.has(start)) adds.push(handleDecoration(start));
           }
           if (adds.length) decos = decos.add(newState.doc, adds);

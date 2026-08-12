@@ -355,21 +355,33 @@ function EditorInner({
 
       let cursor = 0;
       let scrollTop = 0;
+      // publisher 序列化有 150ms 防抖，切换瞬间 store 可能落后最后一次按键：
+      // 当场序列化作为唯一事实源，否则源码模式用旧内容播种并永久丢失最近编辑
+      let fresh = value;
       const editor = getEditor();
       if (editor) {
         editor.action((ctx) => {
           const view = ctx.get(editorViewCtx);
+          try {
+            fresh = ctx.get(serializerCtx)(view.state.doc);
+          } catch {
+            fresh = value;
+          }
           const head = view.state.selection.head;
           const textBefore = view.state.doc.textBetween(0, head, "\n", "\n");
-          cursor = prosePosToMarkdownOffset(value, textBefore);
+          cursor = prosePosToMarkdownOffset(fresh, textBefore);
           const scrollEl =
             (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
             view.dom.closest(".editor-scroll");
           scrollTop = scrollEl instanceof HTMLElement ? scrollEl.scrollTop : 0;
         });
       }
+      if (fresh !== value) {
+        lastSyncedRef.current = fresh;
+        onChangeRef.current?.(fresh);
+      }
       setEnterSnapshot({ cursor, scrollTop });
-      lastSyncedRef.current = value;
+      lastSyncedRef.current = fresh;
     }
 
     if (!sourceMode && prev) {

@@ -12,6 +12,7 @@ const schema = new Schema({
   nodes: {
     doc: { content: "block+" },
     paragraph: { group: "block", content: "text*" },
+    blockquote: { group: "block", content: "block+" },
     text: {},
   },
 });
@@ -82,6 +83,21 @@ describe("blockDragPlugin 装饰集增量更新", () => {
     // 旧手柄随映射平移到新块起点，实例复用；仅新增块补建手柄
     expect(after[0].type).toBe(before[0].type);
     expect(after[1].type).toBe(before[1].type);
+  });
+
+  it("结构事务包裹块后清除映射到非顶层位置的旧手柄", () => {
+    const initial = createState(["a", "b"]);
+    // 两个段落整体包进 blockquote：旧手柄被映射到嵌套位置，不再是顶层块
+    const quote = schema.node("blockquote", null, [
+      schema.node("paragraph", null, schema.text("a")),
+      schema.node("paragraph", null, schema.text("b")),
+    ]);
+    const state = initial.apply(
+      initial.tr.replaceWith(0, initial.doc.content.size, quote),
+    );
+    const hs = handles(state);
+    expect(hs).toHaveLength(1);
+    expect(hs[0].from).toBe(0);
   });
 
   it("dropIndex 放置指示器，clear 移除且不影响手柄", () => {
