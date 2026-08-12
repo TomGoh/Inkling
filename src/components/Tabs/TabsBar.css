@@ -2,17 +2,13 @@
   flex-shrink: 0;
   background: var(--sidebar-bg, #f6f8fa);
   border-bottom: 1px solid var(--border, #d0d7de);
+  /* 隐藏横向滚动条（避免占用垂直高度破坏边界对齐），滚轮滚动见 TabsBar.tsx */
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  scrollbar-width: none;
 }
 .tabs-bar::-webkit-scrollbar {
-  height: 3px;
-}
-.tabs-bar::-webkit-scrollbar-thumb {
-  background: var(--text-muted, #6e7681);
-  border-radius: 2px;
-  border: none;
+  display: none;
 }
 
 .tabs-list {

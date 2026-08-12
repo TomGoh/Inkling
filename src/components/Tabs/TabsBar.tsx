@@ -4,7 +4,7 @@
 // 右键弹出上下文菜单（关闭其他/关闭右侧/全部关闭/复制路径）。
 // 支持拖拽重排标签页顺序。
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWorkspace, type OpenTab } from "../../store/workspace";
 import { TabContextMenu } from "./TabContextMenu";
 import { IconX } from "../icons";
@@ -99,6 +99,22 @@ export function TabsBar() {
   const [dragPath, setDragPath] = useState<string | null>(null);
   const [dragOverPath, setDragOverPath] = useState<string | null>(null);
 
+  // 横向滚动条已隐藏，改用滚轮滚动 tab 条（垂直滚轮转横向，触控板横向滑动原生生效）
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const empty = openTabs.length === 0;
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (!delta) return;
+      e.preventDefault();
+      el.scrollLeft += delta;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [empty]);
+
   if (openTabs.length === 0) return null;
 
   const pathDescriptions = tabPathDescriptions(openTabs);
@@ -114,7 +130,7 @@ export function TabsBar() {
   };
 
   return (
-    <div className="tabs-bar">
+    <div className="tabs-bar" ref={barRef}>
       <div className="tabs-list">
         {openTabs.map((tab) => {
           const active = tab.path === activeTabPath;
