@@ -106,10 +106,17 @@ export function TabsBar() {
     const el = barRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-      if (!delta) return;
+      const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (!raw) return;
       e.preventDefault();
-      el.scrollLeft += delta;
+      // deltaMode 为行/页时（Firefox 等）delta 非像素，需按行高/页宽换算，否则滚动量过小
+      const scale =
+        e.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 32
+          : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? el.clientWidth
+            : 1;
+      el.scrollLeft += raw * scale;
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
