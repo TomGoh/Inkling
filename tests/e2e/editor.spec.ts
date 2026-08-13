@@ -121,6 +121,24 @@ test.describe("多标签页", () => {
     await expect(page.locator(".tab")).toHaveCount(1);
   });
 
+  test("防抖窗口内中键关闭 tab 弹未保存确认，不静默丢弃", async ({ page }) => {
+    // 回归：dirty 异步标记时，窗口内中键关闭跳过确认并静默丢弃编辑
+    await openMockWorkspace(page);
+    await openFile(page, "readme.md");
+    await page.locator(".ProseMirror").click();
+    await page.keyboard.type("中键不丢");
+    let dialogMsg = "";
+    page.once("dialog", (d) => {
+      dialogMsg = d.message();
+      void d.dismiss();
+    });
+    await page.locator(".tab-active").click({ button: "middle" });
+    await expect.poll(() => dialogMsg, { timeout: 5_000 }).toContain("未保存");
+    // 取消后 tab 与内容仍在
+    await expect(page.locator(".tab")).toHaveCount(1);
+    await expect(page.locator(".ProseMirror")).toContainText("中键不丢");
+  });
+
   test("输入后立即手动保存，防抖窗口内的输入一并落盘", async ({ page }) => {
     // 回归：保存路径未 flush publisher 时，Ctrl/Cmd+S 读到旧内容，
     // 首次编辑 dirty 仍为 false 直接跳过保存，最近输入延迟落盘甚至丢失

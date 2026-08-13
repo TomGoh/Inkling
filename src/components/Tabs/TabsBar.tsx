@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { useWorkspace, type OpenTab } from "../../store/workspace";
+import { flushAllMarkdownPublishers } from "../Editor/markdown-publisher";
 import { TabContextMenu } from "./TabContextMenu";
 import { IconX } from "../icons";
 import "./TabsBar.css";
@@ -104,13 +105,18 @@ export function TabsBar() {
   const pathDescriptions = tabPathDescriptions(openTabs);
 
   const handleClose = (tab: OpenTab) => {
-    if (tab.dirty) {
+    // 先 flush 防抖窗口内的发布，关闭决策看到真实 dirty 与内容，
+    // 否则窗口内关闭会静默丢弃未发布编辑（PR #34）
+    flushAllMarkdownPublishers();
+    const fresh =
+      useWorkspace.getState().openTabs.find((t) => t.path === tab.path) ?? tab;
+    if (fresh.dirty) {
       const ok = window.confirm(
-        `「${tabLabel(tab)}」有未保存的修改，确定关闭吗？`,
+        `「${tabLabel(fresh)}」有未保存的修改，确定关闭吗？`,
       );
       if (!ok) return;
     }
-    closeTab(tab.path);
+    closeTab(fresh.path);
   };
 
   return (

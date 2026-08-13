@@ -110,6 +110,40 @@ describe("workspace.setContentFor", () => {
     expect(s.currentContent).toBe("A");
   });
 
+  it("迟到 flush 指向新主文件时同步 currentContent 镜像", () => {
+    // splitSwap 后原分屏文件成为活跃主文件：分屏侧迟到 flush 必须同步主镜像
+    useWorkspace.setState({
+      openTabs: [tab("/a.md", "A"), tab("/b.md", "B")],
+      activeTabPath: "/b.md",
+      currentContent: "B",
+      splitFile: "/a.md",
+      splitContent: "A",
+      dirty: false,
+    });
+
+    useWorkspace.getState().setSplitContentFor("/b.md", "B2");
+
+    const s = useWorkspace.getState();
+    expect(s.currentContent).toBe("B2");
+    expect(s.dirty).toBe(true);
+    expect(s.openTabs.find((t) => t.path === "/b.md")?.content).toBe("B2");
+  });
+
+  it("主编辑器迟到 flush 指向新分屏文件时同步 splitContent 镜像", () => {
+    useWorkspace.setState({
+      openTabs: [tab("/a.md", "A"), tab("/b.md", "B")],
+      activeTabPath: "/b.md",
+      currentContent: "B",
+      splitFile: "/a.md",
+      splitContent: "A",
+      dirty: false,
+    });
+
+    useWorkspace.getState().setContentFor("/a.md", "A2");
+
+    expect(useWorkspace.getState().splitContent).toBe("A2");
+  });
+
   it("tab 已关闭时 no-op", () => {
     useWorkspace.setState({
       openTabs: [tab("/a.md", "A")],

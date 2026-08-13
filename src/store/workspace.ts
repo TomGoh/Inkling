@@ -812,30 +812,24 @@ export const useWorkspace = create<WorkspaceState>((set, get) => {
     const nextTabs = openTabs.map((t) =>
       t.path === path ? { ...t, content, dirty: true } : t,
     );
-    // 目标恰为活跃 tab 时同步顶层 currentContent/dirty（顶层 dirty 是
-    // 活跃 tab 的镜像）；否则只更新该 tab 自身，不动顶层镜像，
-    // 避免干净的活动文件被显示为未保存并触发对无关文件的自动保存
+    // 同步所有当前拥有该 path 的镜像：活跃 tab 用 currentContent、
+    // 分屏用 splitContent。swap 后的迟到 flush 可能指向新主/新分屏文件，
+    // 只写 openTabs 会让另一侧编辑器拿到旧值并在下次编辑时覆盖（PR #34）
+    const patch: Partial<WorkspaceState> = { openTabs: nextTabs };
     if (path === activeTabPath) {
-      set({ openTabs: nextTabs, currentContent: content, dirty: true });
-    } else {
-      set({ openTabs: nextTabs });
+      patch.currentContent = content;
+      patch.dirty = true;
     }
+    const { splitFile, splitContent } = get();
+    if (path === splitFile && content !== splitContent) {
+      patch.splitContent = content;
+    }
+    set(patch);
   },
 
+
   setSplitContentFor: (path, content) => {
-    const { splitFile, splitContent, openTabs } = get();
-    const tab = openTabs.find((t) => t.path === path);
-    if (!tab || tab.content === content) return;
-    const nextTabs = openTabs.map((t) =>
-      t.path === path ? { ...t, content, dirty: true } : t,
-    );
-    // 目标仍是当前分屏文件时同步分屏镜像；swap/close 后的迟到 flush
-    // 只写该 tab，不把旧内容写进新分屏文件
-    if (path === splitFile && content !== splitContent) {
-      set({ openTabs: nextTabs, splitContent: content });
-    } else {
-      set({ openTabs: nextTabs });
-    }
+    get().setContentFor(path, content);
   },
 
   saveCurrent: async () => {
