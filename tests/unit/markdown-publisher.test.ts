@@ -3,7 +3,10 @@
 // 与 lastSynced 相同不回调、blur/销毁立即 flush
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { markdownPublisherPlugin } from "../../src/components/Editor/markdown-publisher";
+import {
+  flushAllMarkdownPublishers,
+  markdownPublisherPlugin,
+} from "../../src/components/Editor/markdown-publisher";
 
 interface FakeDoc {
   id: number;
@@ -102,6 +105,22 @@ describe("markdownPublisherPlugin", () => {
     dom.dispatchEvent(new Event("blur"));
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith("md-7");
+  });
+
+  it("保存路径 flush 跳过 idle 编辑器，不重跑全文序列化", () => {
+    // 自动保存每 2s 触发一次 flush：idle 编辑器不得重复全文序列化（PR #34 P2）
+    vi.useFakeTimers();
+    const { serialize, bump } = setup();
+    flushAllMarkdownPublishers();
+    expect(serialize).not.toHaveBeenCalled();
+
+    bump(1);
+    flushAllMarkdownPublishers();
+    expect(serialize).toHaveBeenCalledTimes(1);
+
+    // 发布后回到 idle：再次 flush 不重复序列化
+    flushAllMarkdownPublishers();
+    expect(serialize).toHaveBeenCalledTimes(1);
   });
 
   it("销毁时 flush 待定序列化", () => {

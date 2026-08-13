@@ -28,10 +28,11 @@ export const markdownPublisherPlugin = (deps: MarkdownPublisherDeps) =>
     view: (view) => {
       let timer: ReturnType<typeof setTimeout> | null = null;
       const flush = () => {
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
-        }
+        // 无待发编辑（timer 为 null）直接跳过：保存路径的 flush 不应
+        // 对每个挂载编辑器重跑全文序列化（万行文档的大停顿，PR #34）
+        if (!timer) return;
+        clearTimeout(timer);
+        timer = null;
         if (deps.isSourceMode()) return;
         let markdown: string;
         try {
