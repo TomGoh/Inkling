@@ -256,6 +256,8 @@ interface WorkspaceState {
   reorderTabs: (fromPath: string, toPath: string) => void;
   /** 更新当前内容（编辑器变更时调用） */
   setContent: (content: string) => void;
+  /** 更新指定 tab 的内容（异步发布必须绑定文件，避免 tab 切换后串写，PR #34） */
+  setContentFor: (path: string, content: string) => void;
   /** 保存当前文件到磁盘 */
   saveCurrent: () => Promise<void>;
   /** 设置当前光标所在标题 slug（编辑器选区变化时调用） */
@@ -798,6 +800,22 @@ export const useWorkspace = create<WorkspaceState>((set, get) => {
       set({ openTabs: nextTabs, currentContent: content, dirty: true });
     } else {
       set({ currentContent: content, dirty: true });
+    }
+  },
+
+  setContentFor: (path, content) => {
+    const { activeTabPath, openTabs } = get();
+    const tab = openTabs.find((t) => t.path === path);
+    if (!tab || tab.content === content) return;
+    const nextTabs = openTabs.map((t) =>
+      t.path === path ? { ...t, content, dirty: true } : t,
+    );
+    // 目标恰为活跃 tab 时同步顶层 currentContent；否则只更新该 tab，
+    // 销毁期 flush 串写到新 active tab 的竞态由此消除
+    if (path === activeTabPath) {
+      set({ openTabs: nextTabs, currentContent: content, dirty: true });
+    } else {
+      set({ openTabs: nextTabs, dirty: true });
     }
   },
 

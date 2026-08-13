@@ -63,7 +63,6 @@ function SaveIndicator() {
 function App() {
   const currentFile = useWorkspace((s) => s.currentFile);
   const currentContent = useWorkspace((s) => s.currentContent);
-  const setContent = useWorkspace((s) => s.setContent);
   // 分屏：右侧第二面板
   const splitFile = useWorkspace((s) => s.splitFile);
   const splitContent = useWorkspace((s) => s.splitContent);
@@ -356,7 +355,9 @@ function App() {
                 key={currentFile}
                 filePath={currentFile}
                 value={currentContent}
-                onChange={setContent}
+                onChange={(md) =>
+                  useWorkspace.getState().setContentFor(currentFile, md)
+                }
                 onReady={handleEditorReady}
                 onOutlineChange={handleOutlineChange}
                 sourceMode={mainSourceMode}
@@ -622,7 +623,9 @@ function App() {
                     key={currentFile}
                     filePath={currentFile}
                     value={currentContent}
-                    onChange={setContent}
+                    onChange={(md) =>
+                      useWorkspace.getState().setContentFor(currentFile, md)
+                    }
                     onReady={handleEditorReady}
                     onOutlineChange={handleOutlineChange}
                     onInTableChange={setMainInTable}

@@ -3,7 +3,7 @@
 // 覆盖：应用启动、打开 mock 文件、编辑器渲染、输入内容、状态栏统计
 
 import { test, expect } from "@playwright/test";
-import { expandMockNotes, openFile, openMockWorkspace } from "./helpers";
+import { expandMockNotes, openFile, openMockWorkspace, MOD } from "./helpers";
 
 test.describe("编辑器核心流程", () => {
   test("应用启动后显示侧边栏与打开按钮", async ({ page }) => {
@@ -119,5 +119,24 @@ test.describe("多标签页", () => {
     await expect(page.locator(".tab")).toHaveCount(2);
     await page.locator(".tab-active .tab-close").click();
     await expect(page.locator(".tab")).toHaveCount(1);
+  });
+
+  test("输入后立即新建 tab，防抖窗口内内容落回原 tab 不串写", async ({ page }) => {
+    // 回归：异步发布绑定文件路径前，销毁期 flush 会把旧编辑器内容写进新 active tab
+    await openMockWorkspace(page);
+    await openFile(page, "readme.md");
+    await page.locator(".ProseMirror").click();
+    await page.keyboard.type("跨tab不串内容");
+    // 不等防抖、不经过 blur，直接新建 tab
+    await page.keyboard.press(`${MOD}+n`);
+    await expect(page.locator(".tab-active")).toContainText("未命名", {
+      timeout: 5_000,
+    });
+    await expect(page.locator(".ProseMirror")).not.toContainText("跨tab不串内容");
+    // 切回原 tab，内容正确落回
+    await page.locator(".tab", { hasText: "readme.md" }).click();
+    await expect(page.locator(".ProseMirror")).toContainText("跨tab不串内容", {
+      timeout: 5_000,
+    });
   });
 });
