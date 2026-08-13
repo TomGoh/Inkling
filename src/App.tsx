@@ -341,7 +341,8 @@ function App() {
     return () => window.removeEventListener("keydown", handler);
   }, [toggleSidebar, toggleOutline, toggleZenMode, setZenMode, toggleTabSourceMode]);
 
-  const getEditor = () => getEditorRef.current?.();
+  // 稳定引用：避免 OutlinePanel 列表项 memo 因 getEditor 身份变化失效
+  const getEditor = useCallback(() => getEditorRef.current?.(), []);
 
   // 禅模式：仅渲染编辑器，隐藏所有 UI（侧边栏/大纲/标签页/工具栏/状态栏）
   if (zenMode && currentFile) {

@@ -1,6 +1,6 @@
 // markdown-publisher 插件测试
-// 验证：序列化防抖合并、doc 未变不触发、源码模式跳过、
-// 与 lastSynced 相同不回调、blur/销毁立即 flush
+// 验证：序列化防抖合并、doc 未变不触发、idle flush 跳过、
+// 与 lastSynced 相同不回调、blur/销毁立即 flush、pending 不因模式丢弃
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -12,13 +12,12 @@ interface FakeDoc {
   id: number;
 }
 
-function setup(options?: { sourceMode?: boolean; initialSynced?: string }) {
+function setup(options?: { initialSynced?: string }) {
   const onChange = vi.fn();
   const serialize = vi.fn((doc: unknown) => `md-${(doc as FakeDoc).id}`);
   let lastSynced = options?.initialSynced ?? "md-0";
   const plugin = markdownPublisherPlugin({
     serialize,
-    isSourceMode: () => options?.sourceMode ?? false,
     getLastSynced: () => lastSynced,
     setLastSynced: (md) => {
       lastSynced = md;
@@ -89,13 +88,16 @@ describe("markdownPublisherPlugin", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("源码模式下不发布", () => {
+  it("待发编辑的 flush 不受模式影响（进入源码模式不得丢弃 pending）", () => {
+    // 回归：旧 isSourceMode 守卫会在进入源码模式的 flush 中清掉 timer
+    // 且不发布，丢失窗口内编辑。源码模式下 PM doc 不变，timer 非空即
+    // 进入前的待发编辑，必须发布；源码模式期间的保护由 idle 守卫承担
     vi.useFakeTimers();
-    const { onChange, serialize, bump } = setup({ sourceMode: true });
+    const { onChange, serialize, bump } = setup();
     bump(1);
     vi.advanceTimersByTime(160);
-    expect(serialize).not.toHaveBeenCalled();
-    expect(onChange).not.toHaveBeenCalled();
+    expect(serialize).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith("md-1");
   });
 
   it("blur 立即 flush 待定序列化", () => {

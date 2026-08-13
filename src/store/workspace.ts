@@ -197,9 +197,6 @@ interface WorkspaceState {
   splitClose: () => void;
   /** 在分屏面板与主面板之间交换文件（把当前主文件挪到分屏，分屏文件挪到主） */
   splitSwap: () => void;
-  /** 更新分屏面板内容（分屏编辑时调用），同步到对应 tab */
-  setSplitContent: (content: string) => void;
-
   /** 最近打开的文件路径列表（最多 10 个，最新在前） */
   recentFiles: string[];
 
@@ -665,14 +662,6 @@ export const useWorkspace = create<WorkspaceState>((set, get) => {
     set({ splitFile: currentFile, splitContent: mainTab.content });
   },
 
-  setSplitContent: (content) => {
-    const { splitFile, splitContent, openTabs } = get();
-    if (!splitFile || content === splitContent) return;
-    const nextTabs = openTabs.map((t) =>
-      t.path === splitFile ? { ...t, content, dirty: true } : t,
-    );
-    set({ openTabs: nextTabs, splitContent: content });
-  },
 
   switchTab: (filePath) => {
     const tab = get().openTabs.find((t) => t.path === filePath);
