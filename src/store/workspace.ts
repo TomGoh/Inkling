@@ -258,6 +258,8 @@ interface WorkspaceState {
   setContent: (content: string) => void;
   /** 更新指定 tab 的内容（异步发布必须绑定文件，避免 tab 切换后串写，PR #34） */
   setContentFor: (path: string, content: string) => void;
+  /** 更新指定分屏文件的内容（绑定文件，避免 swap/close 后串写，PR #34） */
+  setSplitContentFor: (path: string, content: string) => void;
   /** 保存当前文件到磁盘 */
   saveCurrent: () => Promise<void>;
   /** 设置当前光标所在标题 slug（编辑器选区变化时调用） */
@@ -810,12 +812,29 @@ export const useWorkspace = create<WorkspaceState>((set, get) => {
     const nextTabs = openTabs.map((t) =>
       t.path === path ? { ...t, content, dirty: true } : t,
     );
-    // 目标恰为活跃 tab 时同步顶层 currentContent；否则只更新该 tab，
-    // 销毁期 flush 串写到新 active tab 的竞态由此消除
+    // 目标恰为活跃 tab 时同步顶层 currentContent/dirty（顶层 dirty 是
+    // 活跃 tab 的镜像）；否则只更新该 tab 自身，不动顶层镜像，
+    // 避免干净的活动文件被显示为未保存并触发对无关文件的自动保存
     if (path === activeTabPath) {
       set({ openTabs: nextTabs, currentContent: content, dirty: true });
     } else {
-      set({ openTabs: nextTabs, dirty: true });
+      set({ openTabs: nextTabs });
+    }
+  },
+
+  setSplitContentFor: (path, content) => {
+    const { splitFile, splitContent, openTabs } = get();
+    const tab = openTabs.find((t) => t.path === path);
+    if (!tab || tab.content === content) return;
+    const nextTabs = openTabs.map((t) =>
+      t.path === path ? { ...t, content, dirty: true } : t,
+    );
+    // 目标仍是当前分屏文件时同步分屏镜像；swap/close 后的迟到 flush
+    // 只写该 tab，不把旧内容写进新分屏文件
+    if (path === splitFile && content !== splitContent) {
+      set({ openTabs: nextTabs, splitContent: content });
+    } else {
+      set({ openTabs: nextTabs });
     }
   },
 

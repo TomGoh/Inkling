@@ -1,6 +1,7 @@
 // 保存逻辑：Ctrl/Cmd+S 手动保存 + dirty 变化后防抖 2 秒自动保存
 
 import { useEffect } from "react";
+import { flushAllMarkdownPublishers } from "../components/Editor/markdown-publisher";
 import { useWorkspace } from "../store/workspace";
 
 const AUTOSAVE_DEBOUNCE_MS = 2000;
@@ -26,10 +27,12 @@ export function useAutoSave() {
     function onKeydown(e: KeyboardEvent) {
       const mod = e.ctrlKey || e.metaKey;
       // 排除 Alt/Shift，避免与 Ctrl/Cmd+Alt+S（源代码模式）等组合键冲突
-      if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        void saveCurrent();
-      }
+        if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "s") {
+          e.preventDefault();
+          // 先 flush 防抖窗口内的序列化，再保存，否则可能保存旧内容
+          flushAllMarkdownPublishers();
+          void saveCurrent();
+        }
     }
     window.addEventListener("keydown", onKeydown);
     return () => window.removeEventListener("keydown", onKeydown);

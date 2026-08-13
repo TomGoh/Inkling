@@ -121,6 +121,21 @@ test.describe("多标签页", () => {
     await expect(page.locator(".tab")).toHaveCount(1);
   });
 
+  test("输入后立即手动保存，防抖窗口内的输入一并落盘", async ({ page }) => {
+    // 回归：保存路径未 flush publisher 时，Ctrl/Cmd+S 读到旧内容，
+    // 首次编辑 dirty 仍为 false 直接跳过保存，最近输入延迟落盘甚至丢失
+    await openMockWorkspace(page);
+    await openFile(page, "readme.md");
+    await page.locator(".ProseMirror").click();
+    await page.keyboard.type("保存不丢字");
+    await page.keyboard.press(`${MOD}+KeyS`);
+    await expect(page.getByText(/已保存/)).toBeVisible({ timeout: 5_000 });
+    // 防抖窗口过后不应出现「未保存」（修复前 publisher 迟到标记 dirty）
+    await page.waitForTimeout(600);
+    await expect(page.getByText("未保存")).toHaveCount(0);
+    await expect(page.locator(".ProseMirror")).toContainText("保存不丢字");
+  });
+
   test("输入后立即新建 tab，防抖窗口内内容落回原 tab 不串写", async ({ page }) => {
     // 回归：异步发布绑定文件路径前，销毁期 flush 会把旧编辑器内容写进新 active tab
     await openMockWorkspace(page);

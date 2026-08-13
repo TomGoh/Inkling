@@ -66,7 +66,6 @@ function App() {
   // 分屏：右侧第二面板
   const splitFile = useWorkspace((s) => s.splitFile);
   const splitContent = useWorkspace((s) => s.splitContent);
-  const setSplitContent = useWorkspace((s) => s.setSplitContent);
   const splitClose = useWorkspace((s) => s.splitClose);
   const splitSwap = useWorkspace((s) => s.splitSwap);
   const toggleTabSourceMode = useWorkspace((s) => s.toggleTabSourceMode);
@@ -670,7 +669,11 @@ function App() {
                         key={splitFile}
                         filePath={splitFile}
                         value={splitContent}
-                        onChange={setSplitContent}
+                        onChange={(md) =>
+                          useWorkspace
+                            .getState()
+                            .setSplitContentFor(splitFile, md)
+                        }
                         onReady={handleSplitEditorReady}
                         sourceMode={splitSourceMode}
                       />

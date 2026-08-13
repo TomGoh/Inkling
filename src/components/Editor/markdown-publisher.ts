@@ -14,6 +14,14 @@ export interface MarkdownPublisherDeps {
   onChange: (markdown: string) => void;
 }
 
+// 存活编辑器的 flush 注册表：保存路径在读取 store 前统一 flush，
+// 避免防抖窗口内 Ctrl/Cmd+S 读到旧内容（PR #34 review）
+const pendingFlushes = new Set<() => void>();
+
+export function flushAllMarkdownPublishers(): void {
+  for (const flush of [...pendingFlushes]) flush();
+}
+
 export const markdownPublisherPlugin = (deps: MarkdownPublisherDeps) =>
   new Plugin({
     key: new PluginKey("inkling-markdown-publisher"),
@@ -39,6 +47,7 @@ export const markdownPublisherPlugin = (deps: MarkdownPublisherDeps) =>
         }
       };
       view.dom.addEventListener("blur", flush);
+      pendingFlushes.add(flush);
       return {
         update: (nextView, prevState) => {
           if (nextView.state.doc === prevState.doc) return;
@@ -46,6 +55,7 @@ export const markdownPublisherPlugin = (deps: MarkdownPublisherDeps) =>
           timer = setTimeout(flush, 150);
         },
         destroy: () => {
+          pendingFlushes.delete(flush);
           view.dom.removeEventListener("blur", flush);
           flush();
         },

@@ -34,6 +34,21 @@ describe("workspace.setContentFor", () => {
     expect(currentContent).toBe("A");
   });
 
+  it("更新非活跃 tab 不动顶层 dirty 镜像", () => {
+    useWorkspace.setState({
+      openTabs: [tab("/a.md", "A"), tab("/b.md", "B")],
+      activeTabPath: "/a.md",
+      currentContent: "A",
+      dirty: false,
+    });
+
+    useWorkspace.getState().setContentFor("/b.md", "B2");
+
+    // 顶层 dirty 镜像活跃 tab：干净的活动文件不应显示未保存，
+    // 也不应触发对无关文件的自动保存（PR #34 review P2）
+    expect(useWorkspace.getState().dirty).toBe(false);
+  });
+
   it("目标为活跃 tab 时同步顶层 currentContent", () => {
     useWorkspace.setState({
       openTabs: [tab("/a.md", "A"), tab("/b.md", "B")],
@@ -58,6 +73,41 @@ describe("workspace.setContentFor", () => {
     useWorkspace.getState().setContentFor("/a.md", "A");
 
     expect(useWorkspace.getState().dirty).toBe(false);
+  });
+
+  it("setSplitContentFor 目标为当前分屏时同步分屏镜像", () => {
+    useWorkspace.setState({
+      openTabs: [tab("/a.md", "A"), tab("/b.md", "B")],
+      activeTabPath: "/a.md",
+      currentContent: "A",
+      splitFile: "/b.md",
+      splitContent: "B",
+      dirty: false,
+    });
+
+    useWorkspace.getState().setSplitContentFor("/b.md", "B2");
+
+    const s = useWorkspace.getState();
+    expect(s.splitContent).toBe("B2");
+    expect(s.openTabs.find((t) => t.path === "/b.md")?.content).toBe("B2");
+  });
+
+  it("setSplitContentFor 分屏已关闭时只写原 tab 不丢编辑", () => {
+    useWorkspace.setState({
+      openTabs: [tab("/a.md", "A"), tab("/b.md", "B")],
+      activeTabPath: "/a.md",
+      currentContent: "A",
+      splitFile: null,
+      splitContent: "",
+      dirty: false,
+    });
+
+    useWorkspace.getState().setSplitContentFor("/b.md", "B2");
+
+    const s = useWorkspace.getState();
+    expect(s.openTabs.find((t) => t.path === "/b.md")?.content).toBe("B2");
+    expect(s.splitContent).toBe("");
+    expect(s.currentContent).toBe("A");
   });
 
   it("tab 已关闭时 no-op", () => {
