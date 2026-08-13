@@ -43,6 +43,9 @@ export function useAutoSave() {
     if (!dirty || saving || !currentFile) return;
     if (activeTabIsUntitled) return;
     const timer = window.setTimeout(() => {
+      // 脏状态可能来自上一次保存；定时器到点时最新编辑或仍在防抖窗口内，
+      // 与手动保存同样先 flush，避免保存旧内容（PR #34 review）
+      flushAllMarkdownPublishers();
       void saveCurrent();
     }, AUTOSAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
