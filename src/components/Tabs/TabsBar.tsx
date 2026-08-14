@@ -4,7 +4,7 @@
 // 右键弹出上下文菜单（关闭其他/关闭右侧/全部关闭/复制路径）。
 // 支持拖拽重排标签页顺序。
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWorkspace, type OpenTab } from "../../store/workspace";
 import { flushAllMarkdownPublishers } from "../Editor/markdown-publisher";
 import { TabContextMenu } from "./TabContextMenu";
@@ -100,6 +100,29 @@ export function TabsBar() {
   const [dragPath, setDragPath] = useState<string | null>(null);
   const [dragOverPath, setDragOverPath] = useState<string | null>(null);
 
+  // 横向滚动条已隐藏，改用滚轮滚动 tab 条（垂直滚轮转横向，触控板横向滑动原生生效）
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const empty = openTabs.length === 0;
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const raw = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      if (!raw) return;
+      e.preventDefault();
+      // deltaMode 为行/页时（Firefox 等）delta 非像素，需按行高/页宽换算，否则滚动量过小
+      const scale =
+        e.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 32
+          : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? el.clientWidth
+            : 1;
+      el.scrollLeft += raw * scale;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [empty]);
+
   if (openTabs.length === 0) return null;
 
   const pathDescriptions = tabPathDescriptions(openTabs);
@@ -120,7 +143,7 @@ export function TabsBar() {
   };
 
   return (
-    <div className="tabs-bar">
+    <div className="tabs-bar" ref={barRef}>
       <div className="tabs-list">
         {openTabs.map((tab) => {
           const active = tab.path === activeTabPath;
