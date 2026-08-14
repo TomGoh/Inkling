@@ -260,10 +260,11 @@ interface WorkspaceState {
   saveCurrent: () => Promise<void>;
   /** 设置当前光标所在标题 slug（编辑器选区变化时调用） */
   setCurrentHeadingSlug: (slug: string | null) => void;
-  /** 保存活跃 tab 的编辑位置（光标 pos + 滚动 offset），切换/关闭前调用 */
-  saveCursorState: (pos: number, scrollTop: number) => void;
-  /** 读取活跃 tab 的编辑位置（用于编辑器 ready 后恢复） */
-  getActiveCursorState: () => { pos: number | null; scrollTop: number | null };
+  /** 保存指定 tab 的编辑位置（光标 pos + 滚动 offset）。绑定文件路径，
+   *  避免切 tab 后旧编辑器销毁期 flush 串写到新 active tab（issue #30） */
+  saveCursorState: (path: string, pos: number, scrollTop: number) => void;
+  /** 读取指定 tab 的编辑位置（用于编辑器 ready 后恢复） */
+  getCursorStateFor: (path: string) => { pos: number | null; scrollTop: number | null };
   /** 设置指定 tab 的源码模式开关；path 省略则作用于当前 activeTabPath */
   setTabSourceMode: (enabled: boolean, path?: string) => void;
   /** 读取指定 tab 是否源码模式；path 省略则读 activeTabPath */
@@ -860,23 +861,20 @@ export const useWorkspace = create<WorkspaceState>((set, get) => {
     set({ currentHeadingSlug: slug });
   },
 
-  saveCursorState: (pos, scrollTop) => {
-    const { activeTabPath, openTabs } = get();
-    if (!activeTabPath) return;
-    const tab = openTabs.find((t) => t.path === activeTabPath);
+  saveCursorState: (path, pos, scrollTop) => {
+    const { openTabs } = get();
+    const tab = openTabs.find((t) => t.path === path);
     if (!tab) return;
     // 与已存值相同则不更新，避免无意义渲染
     if (tab.cursorPos === pos && tab.scrollTop === scrollTop) return;
     const nextTabs = openTabs.map((t) =>
-      t.path === activeTabPath ? { ...t, cursorPos: pos, scrollTop } : t,
+      t.path === path ? { ...t, cursorPos: pos, scrollTop } : t,
     );
     set({ openTabs: nextTabs });
   },
 
-  getActiveCursorState: () => {
-    const { activeTabPath, openTabs } = get();
-    if (!activeTabPath) return { pos: null, scrollTop: null };
-    const tab = openTabs.find((t) => t.path === activeTabPath);
+  getCursorStateFor: (path) => {
+    const tab = get().openTabs.find((t) => t.path === path);
     if (!tab) return { pos: null, scrollTop: null };
     return { pos: tab.cursorPos, scrollTop: tab.scrollTop };
   },
