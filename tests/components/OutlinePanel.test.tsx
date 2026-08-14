@@ -1,6 +1,8 @@
 import { act, render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OutlinePanel } from "../../src/components/Outline/OutlinePanel";
+import { useOutline } from "../../src/store/outline";
+import { useWorkspace } from "../../src/store/workspace";
 import type {
   EditorOutlineHeading,
   EditorOutlineSnapshot,
@@ -35,6 +37,24 @@ function snapshot(activeIndex: number): EditorOutlineSnapshot {
   return { headings, activeIndex };
 }
 
+function renderPanel() {
+  const utils = render(<OutlinePanel getEditor={() => undefined} />);
+  return utils;
+}
+
+function publish(activeIndex: number) {
+  act(() => {
+    useOutline.getState().publish("/test.md", snapshot(activeIndex));
+  });
+}
+
+beforeEach(() => {
+  useWorkspace.setState({ currentFile: "/test.md" });
+  act(() => {
+    useOutline.getState().publish("/test.md", { headings: [], activeIndex: null });
+  });
+});
+
 describe("OutlinePanel 自动跟随", () => {
   it("当前项可居中时即使已经可见也滚动到中央", () => {
     let frame: FrameRequestCallback | null = null;
@@ -49,9 +69,8 @@ describe("OutlinePanel 自动跟随", () => {
         return rect(0, 0);
       });
 
-    const { container } = render(
-      <OutlinePanel getEditor={() => undefined} snapshot={snapshot(6)} />,
-    );
+    const { container } = renderPanel();
+    publish(6);
     const tree = container.querySelector<HTMLElement>(".outline-tree")!;
     Object.defineProperties(tree, {
       scrollTop: { value: 40, writable: true },
@@ -79,9 +98,8 @@ describe("OutlinePanel 自动跟随", () => {
         return rect(0, 0);
       });
 
-    const { container } = render(
-      <OutlinePanel getEditor={() => undefined} snapshot={snapshot(1)} />,
-    );
+    const { container } = renderPanel();
+    publish(1);
     const tree = container.querySelector<HTMLElement>(".outline-tree")!;
     Object.defineProperties(tree, {
       scrollTop: { value: 40, writable: true },
@@ -94,6 +112,37 @@ describe("OutlinePanel 自动跟随", () => {
     act(() => frame?.(0));
 
     expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: "smooth" });
+  });
+
+  it("activeIndex 变化时复用列表项 DOM，仅切换 active 类", () => {
+    // 滚动高频更新场景：headings 不变、activeIndex 变化时，
+    // memo 化列表项应跳过重渲染，DOM 节点保持同一（issue #31）
+    renderPanel();
+    const headings: EditorOutlineHeading[] = Array.from(
+      { length: 12 },
+      (_, index) => ({
+        index,
+        level: 2,
+        text: `标题 ${index + 1}`,
+        pos: index * 10,
+        nodeId: null,
+        id: `m-${index}`,
+      }),
+    );
+    act(() => {
+      useOutline.getState().publish("/test.md", { headings, activeIndex: 0 });
+    });
+    const first = Array.from(document.querySelectorAll(".outline-item"));
+    expect(first).toHaveLength(12);
+
+    act(() => {
+      useOutline.getState().publish("/test.md", { headings, activeIndex: 5 });
+    });
+    const second = Array.from(document.querySelectorAll(".outline-item"));
+    expect(second).toHaveLength(12);
+    second.forEach((el, i) => expect(el).toBe(first[i]));
+    expect(second[5].classList.contains("outline-item-active")).toBe(true);
+    expect(first[0].classList.contains("outline-item-active")).toBe(false);
   });
 
   it("靠近末尾时将目标位置钳制到底部", () => {
@@ -109,9 +158,8 @@ describe("OutlinePanel 自动跟随", () => {
         return rect(0, 0);
       });
 
-    const { container } = render(
-      <OutlinePanel getEditor={() => undefined} snapshot={snapshot(11)} />,
-    );
+    const { container } = renderPanel();
+    publish(11);
     const tree = container.querySelector<HTMLElement>(".outline-tree")!;
     Object.defineProperties(tree, {
       scrollTop: { value: 780, writable: true },

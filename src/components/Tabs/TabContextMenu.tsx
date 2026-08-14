@@ -4,6 +4,7 @@
 
 import { useEffect, useRef } from "react";
 import { useWorkspace, type OpenTab } from "../../store/workspace";
+import { flushAllMarkdownPublishers } from "../Editor/markdown-publisher";
 import { openInNewWindow } from "../../lib/newWindow";
 import "./TabContextMenu.css";
 
@@ -49,21 +50,30 @@ export function TabContextMenu({ tab, x, y, onClose }: TabContextMenuProps) {
     };
   }, [onClose]);
 
+  /** 关闭前先 flush 防抖窗口内的发布并读取最新 tab 状态，
+   *  否则窗口内关闭会静默丢弃未发布编辑（PR #34） */
+  const freshTabs = () => {
+    flushAllMarkdownPublishers();
+    return useWorkspace.getState().openTabs;
+  };
+
   /** 关闭单个，未保存时确认 */
   const handleClose = (t: OpenTab) => {
-    if (t.dirty) {
+    const fresh = freshTabs().find((x) => x.path === t.path) ?? t;
+    if (fresh.dirty) {
       const ok = window.confirm(
-        `「${baseName(t.path)}」有未保存的修改，确定关闭吗？`,
+        `「${baseName(fresh.path)}」有未保存的修改，确定关闭吗？`,
       );
       if (!ok) return;
     }
-    closeTab(t.path);
+    closeTab(fresh.path);
     onClose();
   };
 
   /** 关闭其他，未保存的逐个确认 */
   const handleCloseOthers = () => {
-    const others = openTabs.filter((t) => t.path !== tab.path);
+    const tabs = freshTabs();
+    const others = tabs.filter((t) => t.path !== tab.path);
     for (const t of others) {
       if (t.dirty) {
         const ok = window.confirm(
@@ -78,8 +88,9 @@ export function TabContextMenu({ tab, x, y, onClose }: TabContextMenuProps) {
 
   /** 关闭右侧，未保存的逐个确认 */
   const handleCloseToRight = () => {
-    const idx = openTabs.findIndex((t) => t.path === tab.path);
-    const rights = openTabs.slice(idx + 1);
+    const tabs = freshTabs();
+    const idx = tabs.findIndex((t) => t.path === tab.path);
+    const rights = tabs.slice(idx + 1);
     for (const t of rights) {
       if (t.dirty) {
         const ok = window.confirm(
@@ -94,7 +105,7 @@ export function TabContextMenu({ tab, x, y, onClose }: TabContextMenuProps) {
 
   /** 关闭全部，未保存的逐个确认 */
   const handleCloseAll = () => {
-    for (const t of openTabs) {
+    for (const t of freshTabs()) {
       if (t.dirty) {
         const ok = window.confirm(
           `「${baseName(t.path)}」有未保存的修改，确定关闭吗？`,
