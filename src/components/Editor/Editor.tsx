@@ -7,6 +7,7 @@ import {
   parserCtx,
   prosePluginsCtx,
   rootCtx,
+  serializerCtx,
 } from "@milkdown/kit/core";
 import { commonmark } from "@milkdown/kit/preset/commonmark";
 import {
@@ -14,7 +15,6 @@ import {
   columnResizingPlugin,
 } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
-import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { Plugin, PluginKey, TextSelection, AllSelection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { findParentNodeClosestToPos } from "@milkdown/kit/prose";
@@ -28,6 +28,10 @@ import { imageView } from "./image-node-view";
 import { imageUploadPlugin } from "./image-upload";
 import { linkClickPlugin } from "./link-click";
 import { outlineTrackerPlugin } from "./outline-tracker";
+import {
+  flushAllMarkdownPublishers,
+  markdownPublisherPlugin,
+} from "./markdown-publisher";
 import { formulaNumberingPlugin, formulaNumberingKey } from "./formula-numbering";
 import { editorModesPlugin } from "./editor-modes";
 import { blockDragPlugin } from "./block-drag";
@@ -142,15 +146,6 @@ function EditorInner({
           .config((ctx) => {
             ctx.set(rootCtx, container);
             ctx.set(defaultValueCtx, value);
-            // 监听 markdown 变更，精准回调
-            ctx.get(listenerCtx).markdownUpdated((_ctx, markdown) => {
-              if (sourceModeRef.current) return;
-              // 编辑器内部产生的变更才回调；外部 value 同步进来的不回调
-              if (markdown !== lastSyncedRef.current) {
-                lastSyncedRef.current = markdown;
-                onChangeRef.current?.(markdown);
-              }
-            });
             // 注入选区跟踪插件：光标进入/离开表格时更新 inTable 状态
             ctx.update(prosePluginsCtx, (ps) => [
               ...ps,
@@ -168,6 +163,16 @@ function EditorInner({
                     }
                   },
                 }),
+              }),
+              // Markdown 源码发布：全文序列化防抖 150ms，避免每次按键
+              // 都 O(n) 序列化整篇文档（万行文档输入掉帧的主因之一）
+              markdownPublisherPlugin({
+                serialize: (doc) => ctx.get(serializerCtx)(doc),
+                getLastSynced: () => lastSyncedRef.current,
+                setLastSynced: (md) => {
+                  lastSyncedRef.current = md;
+                },
+                onChange: (md) => onChangeRef.current?.(md),
               }),
               // 图片拖拽/粘贴上传：复制到当前文档的 assets/ 并插入相对路径
               imageUploadPlugin(filePath),
@@ -298,8 +303,7 @@ function EditorInner({
           .use(remarkCalloutPlugin)
           .use(calloutSchema)
           .use(calloutView)
-          .use(history)
-          .use(listener);
+          .use(history);
       } catch (e) {
         console.error("Milkdown 编辑器初始化失败：", e);
         return undefined;
@@ -356,13 +360,20 @@ function EditorInner({
 
       let cursor = 0;
       let scrollTop = 0;
+      // 先 flush 防抖窗口内的待发编辑（idle 编辑器自动跳过），store 内容即事实源。
+      // 不能无条件「当场序列化」：未编辑文档的序列化结果可能与原文有规范化
+      // 差异，会被误当编辑发布、标 dirty 并改写从未编辑的文件
+      flushAllMarkdownPublishers();
+      const fresh =
+        useWorkspace.getState().openTabs.find((t) => t.path === filePath)
+          ?.content ?? value;
       const editor = getEditor();
       if (editor) {
         editor.action((ctx) => {
           const view = ctx.get(editorViewCtx);
           const head = view.state.selection.head;
           const textBefore = view.state.doc.textBetween(0, head, "\n", "\n");
-          cursor = prosePosToMarkdownOffset(value, textBefore);
+          cursor = prosePosToMarkdownOffset(fresh, textBefore);
           const scrollEl =
             (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
             view.dom.closest(".editor-scroll");
@@ -370,7 +381,7 @@ function EditorInner({
         });
       }
       setEnterSnapshot({ cursor, scrollTop });
-      lastSyncedRef.current = value;
+      lastSyncedRef.current = fresh;
     }
 
     if (!sourceMode && prev) {

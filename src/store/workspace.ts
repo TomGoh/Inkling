@@ -197,9 +197,6 @@ interface WorkspaceState {
   splitClose: () => void;
   /** 在分屏面板与主面板之间交换文件（把当前主文件挪到分屏，分屏文件挪到主） */
   splitSwap: () => void;
-  /** 更新分屏面板内容（分屏编辑时调用），同步到对应 tab */
-  setSplitContent: (content: string) => void;
-
   /** 最近打开的文件路径列表（最多 10 个，最新在前） */
   recentFiles: string[];
 
@@ -256,6 +253,10 @@ interface WorkspaceState {
   reorderTabs: (fromPath: string, toPath: string) => void;
   /** 更新当前内容（编辑器变更时调用） */
   setContent: (content: string) => void;
+  /** 更新指定 tab 的内容（异步发布必须绑定文件，避免 tab 切换后串写，PR #34） */
+  setContentFor: (path: string, content: string) => void;
+  /** 更新指定分屏文件的内容（绑定文件，避免 swap/close 后串写，PR #34） */
+  setSplitContentFor: (path: string, content: string) => void;
   /** 保存当前文件到磁盘 */
   saveCurrent: () => Promise<void>;
   /** 设置当前光标所在标题 slug（编辑器选区变化时调用） */
@@ -662,14 +663,6 @@ export const useWorkspace = create<WorkspaceState>((set, get) => {
     set({ splitFile: currentFile, splitContent: mainTab.content });
   },
 
-  setSplitContent: (content) => {
-    const { splitFile, splitContent, openTabs } = get();
-    if (!splitFile || content === splitContent) return;
-    const nextTabs = openTabs.map((t) =>
-      t.path === splitFile ? { ...t, content, dirty: true } : t,
-    );
-    set({ openTabs: nextTabs, splitContent: content });
-  },
 
   switchTab: (filePath) => {
     const tab = get().openTabs.find((t) => t.path === filePath);
@@ -800,6 +793,33 @@ export const useWorkspace = create<WorkspaceState>((set, get) => {
     } else {
       set({ currentContent: content, dirty: true });
     }
+  },
+
+  setContentFor: (path, content) => {
+    const { activeTabPath, openTabs } = get();
+    const tab = openTabs.find((t) => t.path === path);
+    if (!tab || tab.content === content) return;
+    const nextTabs = openTabs.map((t) =>
+      t.path === path ? { ...t, content, dirty: true } : t,
+    );
+    // 同步所有当前拥有该 path 的镜像：活跃 tab 用 currentContent、
+    // 分屏用 splitContent。swap 后的迟到 flush 可能指向新主/新分屏文件，
+    // 只写 openTabs 会让另一侧编辑器拿到旧值并在下次编辑时覆盖（PR #34）
+    const patch: Partial<WorkspaceState> = { openTabs: nextTabs };
+    if (path === activeTabPath) {
+      patch.currentContent = content;
+      patch.dirty = true;
+    }
+    const { splitFile, splitContent } = get();
+    if (path === splitFile && content !== splitContent) {
+      patch.splitContent = content;
+    }
+    set(patch);
+  },
+
+
+  setSplitContentFor: (path, content) => {
+    get().setContentFor(path, content);
   },
 
   saveCurrent: async () => {

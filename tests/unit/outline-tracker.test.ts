@@ -143,3 +143,66 @@ describe("outlineTrackerPlugin 视口跟踪", () => {
     scroller.remove();
   });
 });
+
+describe("outlineTrackerPlugin 编辑防抖", () => {
+  function makeView(doc: ProseMirrorNode) {
+    const editorDom = document.createElement("div");
+    document.body.append(editorDom);
+    const view = {
+      dom: editorDom,
+      state: { doc, selection: { head: 1, eq: () => true } },
+    } as unknown as EditorView & {
+      state: { doc: ProseMirrorNode; selection: { head: number; eq: () => boolean } };
+    };
+    return { view, editorDom };
+  }
+
+  it("连续 doc 变更防抖 150ms 后只发布一次", () => {
+    vi.useFakeTimers();
+    const { view, editorDom } = makeView(mockDocument());
+    const onChange = vi.fn();
+    const plugin = outlineTrackerPlugin(onChange);
+    const pluginView = plugin.spec.view?.(view as unknown as EditorView);
+    onChange.mockClear();
+
+    // 连续三次 doc 变更：A→B→C，选区视为未变（eq 恒真）
+    const sel = { head: 250, eq: () => true };
+    const sA = view.state;
+    const sB = { doc: mockDocument(), selection: sel };
+    const sC = { doc: mockDocument(), selection: sel };
+    view.state = sB;
+    pluginView?.update?.(view as unknown as EditorView, sA as never);
+    view.state = sC;
+    pluginView?.update?.(view as unknown as EditorView, sB as never);
+    // 防抖窗口内不发布，避免每键全文遍历标题
+    expect(onChange).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(160);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeIndex: 2 }),
+    );
+
+    pluginView?.destroy?.();
+    vi.useRealTimers();
+    editorDom.remove();
+  });
+
+  it("销毁后不再发布待定提取", () => {
+    vi.useFakeTimers();
+    const { view, editorDom } = makeView(mockDocument());
+    const onChange = vi.fn();
+    const plugin = outlineTrackerPlugin(onChange);
+    const pluginView = plugin.spec.view?.(view as unknown as EditorView);
+    onChange.mockClear();
+
+    const prev = view.state;
+    view.state = { doc: mockDocument(), selection: { head: 1, eq: () => false } };
+    pluginView?.update?.(view as unknown as EditorView, prev as never);
+    pluginView?.destroy?.();
+    vi.advanceTimersByTime(300);
+    expect(onChange).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+    editorDom.remove();
+  });
+});
