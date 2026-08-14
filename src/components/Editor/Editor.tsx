@@ -193,37 +193,48 @@ function EditorInner({
               // 编辑位置记忆：选区/滚动变化时缓存到本地，
               // 防抖 300ms、失焦或销毁时再落 store，避免每次光标移动都
               // 写 openTabs 触发 TabsBar 等订阅组件重渲染。
+              // 落盘绑定 filePath：destroy flush 时 activeTabPath 可能已切
+              // 到新 tab，写活跃 tab 会把旧文件状态串写过去（issue #30）。
               new Plugin({
                 key: new PluginKey("inkling-cursor-saver"),
                 view: (view) => {
                   let lastPos = -1;
-                  let lastScroll = -1;
                   let timer: ReturnType<typeof setTimeout> | null = null;
+                  // scrollTop 用 passive 监听缓存：每个 transaction 直接读
+                  // scrollTop 会在万行文档下每次按键强制同步布局
+                  const scrollEl =
+                    (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
+                    view.dom.closest<HTMLElement>(".editor-scroll");
+                  let cachedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
                   const flush = () => {
                     if (timer) {
                       clearTimeout(timer);
                       timer = null;
                     }
                     if (lastPos < 0) return;
-                    saveCursorStateRef.current(lastPos, lastScroll);
+                    saveCursorStateRef.current(filePath, lastPos, cachedScrollTop);
                   };
-                  const schedule = (pos: number, scrollTop: number) => {
+                  const schedule = (pos: number) => {
                     lastPos = pos;
-                    lastScroll = scrollTop;
                     if (timer) clearTimeout(timer);
                     timer = setTimeout(flush, 300);
                   };
+                  const onScroll = () => {
+                    cachedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+                    // 纯滚动不产生 transaction，补记一次，
+                    // 否则滚动后切 tab 会丢失阅读进度
+                    schedule(view.state.selection.head);
+                  };
+                  scrollEl?.addEventListener("scroll", onScroll, { passive: true });
                   // 失焦立即落盘
                   view.dom.addEventListener("blur", flush);
                   return {
                     update: (nextView) => {
-                      const pos = nextView.state.selection.head;
-                      const scrollEl = (nextView as EditorView & { scrollDOM?: HTMLElement }).scrollDOM;
-                      const scrollTop = scrollEl ? scrollEl.scrollTop : 0;
-                      schedule(pos, scrollTop);
+                      schedule(nextView.state.selection.head);
                     },
                     destroy: () => {
                       flush();
+                      scrollEl?.removeEventListener("scroll", onScroll);
                       view.dom.removeEventListener("blur", flush);
                     },
                   };
@@ -559,16 +570,14 @@ function EditorInner({
     }
   }, [value, loading, getEditor, sourceMode]);
 
-  // 编辑位置记忆：value 变化（切 tab）后恢复光标和滚动位置
-  // 用 currentFile 作为依赖，而非 value，避免内容编辑时也触发恢复
-  const currentFile = useWorkspace((s) => s.currentFile);
-  const getActiveCursorState = useWorkspace((s) => s.getActiveCursorState);
+  // 编辑位置记忆：编辑器就绪后按 filePath 恢复光标和滚动位置。
+  // 必须按本实例的 filePath 读取，不能读 activeTabPath：切 tab 时它已指向新文件（issue #30）
+  const getCursorStateFor = useWorkspace((s) => s.getCursorStateFor);
   useEffect(() => {
     if (loading || sourceMode) return;
     const editor = getEditor();
     if (!editor) return;
-    const { pos, scrollTop } = getActiveCursorState();
-    if (pos == null && scrollTop == null) return;
+    const { pos, scrollTop } = getCursorStateFor(filePath);
     editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
       // 恢复光标位置，夹紧到文档有效范围
@@ -582,16 +591,21 @@ function EditorInner({
           // pos 无效时忽略
         }
       }
-      // 恢复滚动位置（下一帧执行，等文档渲染完）
-      const scrollEl = (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM;
-      if (scrollTop != null && scrollEl) {
-        requestAnimationFrame(() => {
-          const el = (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM;
-          if (el) el.scrollTop = scrollTop;
-        });
-      }
+      // 恢复滚动位置：无记忆值时归零。外层 .editor-scroll 跨 tab 复用，
+      // 残留上一文件的 scrollTop，显式重置避免新文件串用旧位置（issue #30）。
+      // 立即设置一次 + 下一帧重试：长文档首帧可能尚未排版出完整高度。
+      const scrollEl =
+        (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
+        view.dom.closest<HTMLElement>(".editor-scroll");
+      if (!scrollEl) return;
+      const target = scrollTop ?? 0;
+      const apply = () => {
+        if (scrollEl.isConnected) scrollEl.scrollTop = target;
+      };
+      apply();
+      requestAnimationFrame(apply);
     });
-  }, [currentFile, loading, getEditor, getActiveCursorState, sourceMode]);
+  }, [filePath, loading, getEditor, getCursorStateFor, sourceMode]);
 
   // 降级模式：Milkdown 初始化失败，显示只读 textarea 展示原始 markdown
   if (fallback) {
