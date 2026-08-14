@@ -410,10 +410,16 @@ function EditorInner({
             // 编辑开始。history 插件 key 是 "history$" 前缀且模块私有，
             // 通过插件实例拿到真实 key，setMeta 用同一字符串键才能被
             // prosemirror-history 的 applyTransaction 命中。
+            // 类型断言说明：@milkdown/kit 的 Plugin 类型未声明 key 字段
+            // （prosemirror 实际有），history 的 init() 不读入参。
+            type HistoryPlugin = Plugin & {
+              key: string;
+              spec: { state?: { init: () => unknown } };
+            };
             const historyPlugin = view.state.plugins.find((p) =>
-              p.key.startsWith("history"),
-            );
-            if (historyPlugin) {
+              (p as HistoryPlugin).key.startsWith("history"),
+            ) as HistoryPlugin | undefined;
+            if (historyPlugin?.spec.state) {
               tr = tr.setMeta(historyPlugin.key, {
                 historyState: historyPlugin.spec.state.init(),
               });
