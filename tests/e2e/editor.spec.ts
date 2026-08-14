@@ -3,7 +3,7 @@
 // 覆盖：应用启动、打开 mock 文件、编辑器渲染、输入内容、状态栏统计
 
 import { test, expect } from "@playwright/test";
-import { expandMockNotes, openFile, openMockWorkspace } from "./helpers";
+import { expandMockNotes, openFile, openMockWorkspace, moveCaretToDocEnd } from "./helpers";
 
 test.describe("编辑器核心流程", () => {
   test("应用启动后显示侧边栏与打开按钮", async ({ page }) => {
@@ -75,9 +75,9 @@ test.describe("编辑器核心流程", () => {
     await openMockWorkspace(page);
     await openFile(page, "readme.md");
     const initial = await page.locator(".status-bar").textContent();
-    // 在编辑器末尾输入
+    // 在编辑器末尾输入（平台自适应按键，mac 无 Ctrl+End 语义，issue #36）
     await page.locator(".ProseMirror").click();
-    await page.keyboard.press("Control+End");
+    await moveCaretToDocEnd(page);
     await page.keyboard.type("测试输入新内容");
     await expect(page.locator(".status-bar")).not.toHaveText(initial ?? "", { timeout: 5_000 });
   });
