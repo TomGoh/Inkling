@@ -26,6 +26,15 @@ export const markdownPublisherPlugin = (deps: MarkdownPublisherDeps) =>
     key: new PluginKey("inkling-markdown-publisher"),
     view: (view) => {
       let timer: ReturnType<typeof setTimeout> | null = null;
+      // 打开文件时以「解析后 doc 的实际序列化结果」为基线，而非原始文件内容。
+      // 否则编辑器初始化的首个 flush 会因序列化规范化差异（如末尾换行）把
+      // 从未编辑的文档误判为变更、经 onChange 标 dirty，导致关闭 tab 时
+      // 误弹未保存确认（E2E「关闭 tab」失败根因）。
+      try {
+        deps.setLastSynced(deps.serialize(view.state.doc));
+      } catch {
+        // 序列化失败保持原基线，flush 时再兜底
+      }
       const flush = () => {
         // 无待发编辑（timer 为 null）直接跳过：保存路径的 flush 不应
         // 对每个挂载编辑器重跑全文序列化（万行文档的大停顿，PR #34）。

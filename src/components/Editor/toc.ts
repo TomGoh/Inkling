@@ -35,8 +35,14 @@ export const tocSchema = $nodeSchema("toc", () => ({
   toMarkdown: {
     match: (node) => node.type.name === "toc",
     runner: (state, _node) => {
-      // 序列化回 `[TOC]` 占位段落，保持源码可移植
-      state.addNode("paragraph", undefined, "[TOC]");
+      // 序列化回 `[TOC]` 占位段落，保持源码可移植。
+      // addNode 的第 2 参是 children：段落不能把文本传到 value 位，
+      // 否则段落无子节点、字符串化后变空行，`[TOC]` 在保存时静默丢失
+      // （issue #25 round-trip 单测发现）。用与 callout 相同的
+      // openNode → text 子节点 → closeNode 写法。
+      state.openNode("paragraph");
+      state.addNode("text", undefined, "[TOC]");
+      state.closeNode();
     },
   },
 }));

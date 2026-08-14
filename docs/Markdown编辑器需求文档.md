@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v2.2.0
+> 文档版本：v2.3.0
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -256,9 +256,20 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.3 工作区 | 打开文件时保留侧边栏文件树 | ✅ | v2.1.0 | issue #12/PR #17：不再用全局加载态替换文件树，改为行内 spinner/错误图标局部提示并保留文件树 DOM 与滚动位置；文件读取去重、标签页/分屏/工作区上下文竞态处理，读取失败保留编辑器并允许重试 |
 | — | Release 增加 Linux amd64 构建 | ✅ | v2.1.0 | issue #13/PR #18：CI 由 `build-windows.yml` 整合为统一 `build.yml`（共享 test + build-windows + build-linux + 独立 release job），`v*` tag 同一 Release 同时发布 Windows 安装包/便携包与 amd64 AppImage + deb |
 | 3.2 编辑 | 源代码模式（整页 Markdown 源码编辑） | ✅ | v2.2.0 | issue #19：`SourceModeEditor.tsx` CodeMirror 6 + GFM 高亮 + 行号；顶栏按钮 + `Ctrl/Cmd+Alt+S` 可自定义；按标签页记忆；与专注/打字机互斥；WYSIWYG 隐藏不卸载 |
+| 3.2 编辑 | 源码模式查找替换 | ✅ | v2.3.0 | issue #29：`Ctrl/Cmd+F` / `Ctrl/Cmd+R` 在源码模式路由到 CM 内置查找/替换面板（`@codemirror/search`），替换框内建在面板中 |
+| 3.2 编辑 | 源代码模式光标/滚动映射增强 | ✅ | v2.3.0 | issue #26：`markdownOffsetToProsePos` 按源行权重（围栏代码块内部折权、空行归零）映射到 PM 位置，`prosePosToMarkdownOffset` 增加光标行片段匹配回退 |
+| 3.2 编辑 | Markdown 往返保真单测 | ✅ | v2.3.0 | issue #25：无头 Milkdown（同款 schema/remark 插件）驱动 parserCtx/serializerCtx，覆盖 callout/frontmatter/mermaid/math/toc/混合文档/GFM 基线共 9 用例；顺带发现并修复 toc 节点序列化静默丢失 `[TOC]` 的真 bug |
+| 3.2 编辑 | 退出源码模式重置撤销历史 | ✅ | v2.3.0 | issue #27：re-parse 整文档替换后灌入 history 插件初始空状态，避免 Ctrl+Z 退回与当前 markdown 不一致的旧文档 |
+| 3.2 编辑 | 源码模式可访问性 | ✅ | v2.3.0 | issue #28：源码编辑区补 `role="textbox"` / `aria-multiline` / `aria-label` 等 ARIA 属性 |
+| 3.6 辅助写作 | 打开文件不再误判 dirty | ✅ | v2.3.0 | `markdown-publisher` 以「解析后 doc 的序列化结果」为同步基线而非原始文件内容，消除序列化规范化差异导致的误脏、关闭 tab 误弹未保存确认 |
+| 3.3 工作区 | 多标签滚动/光标位置防串扰 | ✅ | v2.3.0 | issue #30/PR #35（@TomGoh）：滚动/光标位置按文件路径读写，切 tab 不再互相串扰 |
+| 3.3 工作区 | 自动保存链路稳健性 | ✅ | v2.3.0 | PR #34：保存路径 flush 跳过 idle 编辑器、防抖窗口内编辑到点先 flush 落盘、异步发布绑定文件路径修复 tab 切换串写、关闭/swap 路径先 flush、dirty 状态镜像同步 |
+| 3.6 辅助写作 | macOS E2E 平台按键兼容 | ✅ | v2.3.0 | issue #36/PR #37（@TomGoh）：光标到文档首/尾的 E2E 按键在 macOS 上改用 `Cmd+↑/↓` |
+| — | CI 测试增加 Linux runner | ✅ | v2.3.0 | `test` job 改为 windows-latest + ubuntu-latest 矩阵，Linux 下单独 `sudo` 装 Playwright 系统依赖 |
 
 ### 8.2 发布版本
 
+- **v2.3.0** 性能回退修复 + 源码模式增强 + 保存链路稳健性 + 社区修复：①issue #31 修复万行文档编辑/滚动掉帧（v2.2.0 性能回退，`markdown-publisher` 保存路径 flush 跳过 idle 编辑器，避免对每个挂载编辑器重复全文序列化）；②issue #29 源码模式查找替换——`Ctrl/Cmd+F` / `Ctrl/Cmd+R` 在源码模式路由到 CM 内置查找/替换面板（`@codemirror/search`，替换框内建在面板中），替代原先「提示退出源码模式」的 alert；③issue #26 光标/滚动映射增强——`markdownOffsetToProsePos` 按源行权重（围栏代码块内部行折权、空行归零）映射 PM 位置，`prosePosToMarkdownOffset` 增加光标行片段匹配回退；④issue #27 退出源码模式重置 PM 撤销历史——re-parse 整文档替换后灌入 history 插件初始空状态，避免 Ctrl+Z 退回与当前 markdown 不一致的旧文档；⑤issue #28 源码模式可访问性——`role="textbox"` / `aria-multiline` / `aria-label` 等 ARIA 属性；⑥打开文件不再误判 dirty——publisher 以「解析后 doc 的序列化结果」为同步基线，消除规范化差异导致的误脏、关闭 tab 误弹未保存确认；⑦issue #25 Markdown 往返保真单测——无头 Milkdown 驱动真实 parser/serializer 覆盖 callout/frontmatter/mermaid/math/toc 等自定义块，并据此修复 toc 节点序列化静默丢失 `[TOC]` 的真 bug；⑧PR #34 保存链路——异步发布绑定文件路径修复 tab 切换串写、防抖窗口内编辑到点先 flush 落盘、手动保存/关闭/swap 路径先 flush、dirty 状态镜像同步；⑨issue #30/PR #35（@TomGoh）多标签滚动/光标位置按文件路径读写防串扰；⑩issue #36/PR #37（@TomGoh）macOS E2E 平台按键兼容；⑪CI `test` job 改为 windows-latest + ubuntu-latest 矩阵，Linux 下单独 `sudo` 装 Playwright 系统依赖。单元/组件测试 367 + E2E 138 passed。详见 `docs/v2.3.0 设计文档.md`
 - **v2.2.0** 新增源代码模式（issue #19）：整页切换为 CodeMirror 6 编辑原始 Markdown（GFM 语法高亮 + 行号，主题/缩放与 WYSIWYG 一致）；顶栏 `</>` 按钮 + 默认 `Ctrl/Cmd+Alt+S` 快捷键（可在快捷键面板自定义）；按标签页独立记忆模式；进入时自动关闭专注/打字机模式；退出时 re-parse 回 ProseMirror；分屏面板独立切换；富文本导出/查找替换在源码模式下提示退出后再用。新增 `SourceModeEditor.tsx`、`codemirror-shared.ts`、`source-mode-cursor.ts` 及 E2E/单元测试。详见 `docs/v2.2.0 设计文档.md`
 - **v2.1.0** 合并社区贡献者 @TomGoh 的三项工作区/主题修复并新增 Linux 发行版：①issue #11/PR #15 大型工作区按需加载与文件树渲染——Rust `list_dir` 改为单层浅扫并迁入 `spawn_blocking` 线程池避免阻塞 Tauri 异步运行时，跳过隐藏项/依赖构建目录/目录符号链接，前端按需逐层加载 + 大目录窗口化渲染 + 工作区切换竞态/目录请求去重/局部刷新保留已加载子树，新增 `src/lib/fileTree.ts`；②issue #14/PR #16 同步原生控件与主题配色——为浅色/深色主题及代码块 `data-code-theme` 补 `color-scheme`，使原生控件跟随主题（修复 Linux 上原生控件不随主题切换）；③issue #12/PR #17 打开文件时保留侧边栏文件树——行内 spinner/错误图标局部提示并保留 DOM 与滚动位置，文件读取去重、标签页/分屏/工作区上下文竞态处理、读取失败保留编辑器可重试；④issue #13/PR #18 Release 增加 Linux amd64 构建——CI 整合为统一 `build.yml`（共享 test + build-windows + build-linux + 独立 release job），`v*` tag 同一 Release 同时发布 Windows 安装包/便携包与 amd64 AppImage + deb。单元/组件测试 299 passed。详见 `docs/v2.1.0 设计文档.md`
 - **v2.0.2** 补全 E2E 测试覆盖并修复测试驱动发现的三个生产 bug：①`auto-pair.ts` 无选区配对补全崩溃（`view.state.doc.resolve` 应为 `tr.doc.resolve`，Selection 指向旧文档触发 `RangeError`，输入任意括号即白屏）；②`callout.ts` 解析器不兼容 Obsidian 常见写法 `> [!NOTE]\n> 内容`（正则 `^\[!(\w+)\]$` 要求首段完全等于 `[!TYPE]`，改为 `^\[!(\w+)\]` 开头即匹配，后续文本作为内容保留）；③`frontmatter.ts` NodeView 漏设 `data-value` 属性。新增 8 个 E2E 测试文件 67 个用例（auto-pair/callout/editor-modes/frontmatter/link-follow/math/shortcuts-customize/toc），修复 4 个既有 flaky 测试，`fs.ts` mock 增强。全套 262 单元 + 127 E2E 测试通过。详见 `docs/v2.0.2 设计文档.md`

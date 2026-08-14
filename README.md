@@ -9,6 +9,7 @@
 
 ### 编辑器内核
 - 实时所见即所得渲染（基于 Milkdown / ProseMirror）
+- **源代码模式**：整页切换为 CodeMirror 6 编辑原始 Markdown（GFM 语法高亮 + 行号，`Ctrl/Cmd+Alt+S` 切换，按标签页记忆），内置查找/替换面板（`Ctrl/Cmd+F` / `Ctrl/Cmd+R`），退出时自动重置撤销历史并尽量保持光标/滚动位置
 - 支持标题、加粗、斜体、删除线、行内代码、引用块、分割线
 - 有序/无序/任务列表，多级嵌套（Tab/Shift+Tab 缩进）
 - GFM 表格，附表格工具栏（增删行列、对齐、快速插入）
@@ -45,7 +46,7 @@
 - 链接跟随：`Ctrl/Cmd+点击` 打开链接
 
 ### 搜索
-- **查找替换**（当前文件）：支持正则表达式、区分大小写、上一个/下一个导航
+- **查找替换**（当前文件）：支持正则表达式、区分大小写、上一个/下一个导航；源码模式下自动切换为 CodeMirror 内置查找/替换面板
 - **全局搜索**：跨工作区所有 `.md` 文件搜索（`Ctrl/Cmd+Shift+F`），按文件分组展示命中，点击跳转到对应行
 
 ### 导出与复制
@@ -180,6 +181,7 @@ pnpm e2e
 
 ## 版本记录
 
+- **v2.3.0** 性能回退修复 + 源码模式增强 + 保存链路稳健性 + 社区修复：①issue #31 修复万行文档编辑/滚动掉帧（保存路径 flush 跳过 idle 编辑器，避免重复全文序列化）；②issue #29 源码模式查找替换——`Ctrl/Cmd+F`/`Ctrl/Cmd+R` 在源码模式路由到 CodeMirror 内置查找/替换面板，替代原先「提示退出」的 alert；③issue #26 光标/滚动映射增强——按源行权重（围栏代码块内部折权、空行归零）映射 PM 位置 + 光标行片段匹配回退；④issue #27 退出源码模式重置撤销历史（re-parse 后灌入 history 初始空状态）；⑤issue #28 源码模式可访问性（`role="textbox"` 等 ARIA 属性）；⑥打开文件不再误判 dirty（publisher 以解析后 doc 序列化结果为同步基线，关闭 tab 不再误弹未保存确认）；⑦issue #25 Markdown 往返保真单测——无头 Milkdown 驱动真实 parser/serializer 覆盖 callout/frontmatter/mermaid/math/toc 等自定义块，并据此修复 toc 节点序列化静默丢失 `[TOC]` 的真 bug；⑧PR #34 保存链路——异步发布绑定文件路径修复 tab 切换串写、防抖窗口内编辑到点先 flush、手动保存/关闭/swap 先 flush、dirty 镜像同步；⑨issue #30/PR #35（@TomGoh）多标签滚动/光标位置按文件路径读写防串扰；⑩issue #36/PR #37（@TomGoh）macOS E2E 平台按键兼容；⑪CI `test` job 增加 ubuntu-latest runner 双平台矩阵。单元/组件测试 367 + E2E 138 全绿。详见 `docs/v2.3.0 设计文档.md`
 - **v2.2.0** 新增源代码模式（issue #19）：整页切换为 CodeMirror 6 编辑原始 Markdown（GFM 语法高亮 + 行号）；顶栏按钮 + 默认 `Ctrl/Cmd+Alt+S` 快捷键；按标签页记忆；与专注/打字机互斥；退出 re-parse 回 WYSIWYG；分屏独立切换。详见 `docs/v2.2.0 设计文档.md`
 - **v2.1.0** 合并社区贡献者 @TomGoh 的三项工作区/主题修复并新增 Linux 发行版：①issue #11/PR #15 大型工作区按需加载与文件树渲染——Rust `list_dir` 改为单层浅扫并迁入 `spawn_blocking` 线程池避免阻塞 Tauri 异步运行时，跳过隐藏项/依赖构建目录（node_modules、target、dist、build、out）/目录符号链接；前端目录树按需逐层加载（默认只展开根目录）、大目录窗口化渲染，工作区切换竞态/目录请求去重/局部刷新保留已加载子树，新增 `src/lib/fileTree.ts`；②issue #14/PR #16 同步原生控件与主题配色——为浅色/深色主题及代码块 `data-code-theme` 补 `color-scheme`，使下拉框/滚动条等原生控件跟随主题（修复 Linux 上原生控件不随主题切换）；③issue #12/PR #17 打开文件时保留侧边栏文件树——不再用全局加载态替换文件树，改为行内 spinner/错误图标局部提示并保留 DOM 与滚动位置，文件读取去重、标签页/分屏/工作区上下文竞态处理、读取失败保留编辑器可重试；④issue #13 Release 增加 Linux amd64 构建——CI 由 `build-windows.yml` 整合为统一 `build.yml`（共享 test + build-windows + build-linux + 独立 release job），`v*` tag 同一 Release 同时发布 Windows 安装包/便携包与 amd64 AppImage + deb。单元/组件测试 299 passed。详见 `docs/v2.1.0 设计文档.md`
 - **v2.0.2** 补全 E2E 测试覆盖并修复测试驱动发现的三个生产 bug：①[auto-pair.ts](src/components/Editor/auto-pair.ts) 无选区配对补全崩溃（`view.state.doc.resolve` 应为 `tr.doc.resolve`，Selection 指向旧文档触发 `RangeError`，输入任意括号即白屏）；②[callout.ts](src/components/Editor/callout.ts) 解析器不兼容 Obsidian 常见写法 `> [!NOTE]\n> 内容`（正则 `^\[!(\w+)\]$` 要求首段完全等于 `[!TYPE]`，改为 `^\[!(\w+)\]` 开头即匹配，后续文本作为内容保留）；③[frontmatter.ts](src/components/Editor/frontmatter.ts) NodeView 漏设 `data-value` 属性（toDOM 声明了但 NodeView 自建 dom 时遗漏）。新增 8 个 E2E 测试文件 67 个用例（auto-pair/callout/editor-modes/frontmatter/link-follow/math/shortcuts-customize/toc），修复 4 个既有 flaky 测试（export dialog 死锁、file-tree 定位冲突、outline 动态输入不稳、slash-menu Escape 不删触发字符），`fs.ts` mock 增强（rename/delete/create 同步更新目录树 + 5 个示例文件）。全套 262 单元 + 127 E2E 测试通过。详见 `docs/v2.0.2 设计文档.md`
@@ -222,7 +224,7 @@ pnpm e2e
 
 感谢以下小伙伴为本项目做出的贡献（按字母序）：
 
-- **Haoze Wu** ([@TomGoh](https://github.com/TomGoh)) — 修复本地图片相对路径解析（PR #8）、中文句号字形修复建议（issue #9）、大型工作区按需加载与文件树优化（PR #15）、主题原生控件配色同步（PR #16）、打开文件保留侧边栏文件树（PR #17）、Release 增加 Linux amd64 构建（issue #13/PR #18）
+- **Haoze Wu** ([@TomGoh](https://github.com/TomGoh)) — 修复本地图片相对路径解析（PR #8）、中文句号字形修复建议（issue #9）、大型工作区按需加载与文件树优化（PR #15）、主题原生控件配色同步（PR #16）、打开文件保留侧边栏文件树（PR #17）、Release 增加 Linux amd64 构建（issue #13/PR #18）、多标签滚动/光标位置防串扰（issue #30/PR #35）、macOS E2E 平台按键兼容（issue #36/PR #37）
 - **zhkp** ([@zhkp](https://github.com/zhkp)) — 项目作者，主要开发与维护
 
 欢迎更多朋友参与贡献，详见 [CONTRIBUTING.md](./CONTRIBUTING.md)。

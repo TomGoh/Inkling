@@ -34,6 +34,11 @@ function setup(options?: { initialSynced?: string }) {
     update: (next: never, prev: never) => void;
     destroy: () => void;
   };
+  // view 创建时插件会用「当前 doc 的序列化结果」初始化同步基线
+  // （修复 E2E 关 tab 误判 dirty 的改动）。这里清掉这次基线调用的计数，
+  // 并按测试意图复位 lastSynced，让后续断言聚焦 flush/防循环行为本身。
+  serialize.mockClear();
+  if (options?.initialSynced !== undefined) lastSynced = options.initialSynced;
   const bump = (id: number) => {
     // PM 约定：update(view, prevState)，prevState 为 EditorState（doc 在顶层）
     const prevState = { doc: view.state.doc };

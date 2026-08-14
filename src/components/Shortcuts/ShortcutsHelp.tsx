@@ -24,7 +24,7 @@ const SHIFT = MAC ? "⇧" : "Shift";
 
 // 应用级快捷键 ID → 描述（用于从 store 取动态绑定）
 const APP_SHORTCUT_DESC: Record<ShortcutId, string> = {
-  find: "查找替换",
+  find: "查找替换（源码模式下用编辑器内置查找）",
   toggleSidebar: "切换侧边栏",
   toggleOutline: "切换大纲面板",
   showShortcuts: "显示快捷键帮助",
@@ -67,6 +67,7 @@ const STATIC_GROUPS: ShortcutGroup[] = [
     items: [
       { keys: `${MOD}+S`, desc: "保存当前文件" },
       { keys: `${MOD}+F`, desc: "查找替换（当前文件）" },
+      { keys: `${MOD}+R`, desc: "替换（当前文件）" },
       { keys: `${MOD}+${SHIFT}+F`, desc: "全局搜索（工作区所有文件）" },
       { keys: `${MOD}+Z`, desc: "撤销" },
       { keys: `${MOD}+${SHIFT}+Z`, desc: "重做" },

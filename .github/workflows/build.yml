@@ -13,9 +13,14 @@ permissions:
 
 jobs:
   # 共享测试 job：单元/组件测试 + Playwright E2E
-  # 平台无关（浏览器 mock 模式 + 纯函数单测），Windows/Linux 构建均依赖此 job 通过
+  # 平台无关（浏览器 mock 模式 + 纯函数单测），在 Windows + Linux 双平台矩阵上跑，
+  # 防止只在某一平台通过；Windows/Linux 构建均依赖此 job 通过
   test:
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -38,7 +43,13 @@ jobs:
         run: pnpm test
 
       - name: Install Playwright browsers
-        run: pnpm e2e:install
+        run: pnpm exec playwright install chromium
+
+      # Linux 下 --with-deps 需 root，单独用 sudo 装系统依赖
+      - name: Install Playwright system deps (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo pnpm exec playwright install-deps chromium
 
       - name: Run E2E tests
         run: pnpm e2e
@@ -47,7 +58,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.os }}
           path: playwright-report/
           retention-days: 7
 

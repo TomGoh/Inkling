@@ -111,6 +111,10 @@ function EditorInner({
   } | null>(sourceMode ? { cursor: 0, scrollTop: 0 } : null);
   // 记录最近一次同步进编辑器的 value，避免 onChange 回写的值又触发覆盖，造成循环
   const lastSyncedRef = useRef(value);
+  // 标记初始 value 是否已完成同步。publisher 在 view 创建时会把 lastSynced
+  // 基线重置为「解析后 doc 的序列化结果」，与原始 value 存在规范化差异，
+  // 若不跳过，外部同步 effect 会在每次挂载时把 doc 冗余重灌一遍。
+  const initialSyncDoneRef = useRef(false);
   // onChange 用 ref 持有，避免它变化导致编辑器重建
   const onChangeRef = useRef(onChange);
   useEffect(() => {
@@ -395,9 +399,26 @@ function EditorInner({
             const view = ctx.get(editorViewCtx);
             const parser = ctx.get(parserCtx);
             const newDoc = parser(value);
-            view.dispatch(
-              view.state.tr.replaceWith(0, view.state.doc.content.size, newDoc.content),
+            let tr = view.state.tr.replaceWith(
+              0,
+              view.state.doc.content.size,
+              newDoc.content,
             );
+            // 重置撤销历史（issue #27）：整文档替换后旧 PM undo 步骤指向
+            // 切换前的快照，Ctrl+Z 会退回与当前 markdown 不一致的旧文档。
+            // 取 history 插件初始空状态灌入，让撤销从退出源码模式后的首次
+            // 编辑开始。history 插件 key 是 "history$" 前缀且模块私有，
+            // 通过插件实例拿到真实 key，setMeta 用同一字符串键才能被
+            // prosemirror-history 的 applyTransaction 命中。
+            const historyPlugin = view.state.plugins.find((p) =>
+              p.key.startsWith("history"),
+            );
+            if (historyPlugin) {
+              tr = tr.setMeta(historyPlugin.key, {
+                historyState: historyPlugin.spec.state.init(),
+              });
+            }
+            view.dispatch(tr);
           });
           lastSyncedRef.current = value;
           parseOk = true;
@@ -548,6 +569,11 @@ function EditorInner({
   // 外部 value 变化时，覆盖编辑器内容（仅当与上次同步值不同时）
   useEffect(() => {
     if (loading || sourceMode) return;
+    if (!initialSyncDoneRef.current) {
+      // 编辑器刚以当前 value 完成初始化，跳过外部同步（避免冗余重灌 doc）
+      initialSyncDoneRef.current = true;
+      return;
+    }
     if (value === lastSyncedRef.current) return;
     const editor = getEditor();
     if (!editor) return;
@@ -649,6 +675,7 @@ function EditorInner({
       </div>
       {sourceMode && enterSnapshot && (
         <SourceModeEditor
+          filePath={filePath}
           value={value}
           onChange={(md) => {
             lastSyncedRef.current = md;

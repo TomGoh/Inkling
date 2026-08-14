@@ -19,6 +19,7 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import { oneDark } from "@codemirror/theme-one-dark";
+import { replaceNext, search, searchKeymap } from "@codemirror/search";
 import type { CodeBlockTheme } from "../store/settings";
 
 /** CodeMirror 基础主题：编辑器外观、行号、字体 */
@@ -92,6 +93,12 @@ export function createSourceModeExtensions(opts: SourceModeExtensionOpts): Exten
     indentOnInput(),
     history(),
     keymap.of([...historyKeymap, indentWithTab]),
+    // 内置查找替换（issue #29）：源码模式下 Ctrl+F / Ctrl+R 使用 CM 面板，
+    // 与 WYSIWYG 的 SearchPanel 互斥（App.tsx 在源码模式把快捷键路由到这里）。
+    // 新版 @codemirror/search 已把替换框内建进搜索面板，Mod-r 用 replaceNext
+    // （未选中匹配时打开面板，选中匹配时逐个替换）。
+    search({ top: true }),
+    keymap.of([...searchKeymap, { key: "Mod-r", run: replaceNext }]),
     sharedCodeMirrorBaseTheme,
     createMarkdownLanguageSupport(),
     EditorView.lineWrapping,

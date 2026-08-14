@@ -20,6 +20,7 @@ import { useShortcuts, matchBinding, type ShortcutId } from "./store/shortcuts";
 import { useAutoSave } from "./lib/useAutoSave";
 import { useFileWatcher } from "./lib/useFileWatcher";
 import { useCtrlWheelZoom } from "./lib/useCtrlWheelZoom";
+import { runSourceModeSearch } from "./lib/source-mode-search";
 import { exportHTML, exportPDF, exportDocx, exportPNG, exportOutline, copyMarkdown, copyRichText } from "./lib/exporter";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -245,7 +246,8 @@ function App() {
         e.preventDefault();
         const tabPath = useWorkspace.getState().activeTabPath;
         if (tabPath && useWorkspace.getState().getTabSourceMode(tabPath)) {
-          alert("源代码模式下请退出后再使用查找替换；可直接在源码编辑器中编辑文本。");
+          // 源码模式：打开 CM 内置替换面板（issue #29）
+          runSourceModeSearch(tabPath, { replace: true });
           return;
         }
         setSearchShowReplace(true);
@@ -316,7 +318,8 @@ function App() {
         e.preventDefault();
         const tabPath = useWorkspace.getState().activeTabPath;
         if (tabPath && useWorkspace.getState().getTabSourceMode(tabPath)) {
-          alert("源代码模式下请退出后再使用查找替换；可直接在源码编辑器中编辑文本。");
+          // 源码模式：打开 CM 内置查找面板（issue #29）
+          runSourceModeSearch(tabPath, { replace: false });
           return;
         }
         setSearchOpen(true);

@@ -3,7 +3,12 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { openSearchPanel, replaceNext } from "@codemirror/search";
 import { createSourceModeExtensions } from "../../lib/codemirror-shared";
+import {
+  registerSourceModeSearch,
+  unregisterSourceModeSearch,
+} from "../../lib/source-mode-search";
 import { useSettings } from "../../store/settings";
 
 export interface SourceModeSnapshot {
@@ -12,6 +17,8 @@ export interface SourceModeSnapshot {
 }
 
 export interface SourceModeEditorProps {
+  /** 当前文件完整路径，用于查找命令路由（issue #29） */
+  filePath: string;
   value: string;
   onChange: (markdown: string) => void;
   /** 进入源码模式时的初始光标（markdown 字符串 offset） */
@@ -24,6 +31,7 @@ export interface SourceModeEditorProps {
 }
 
 export function SourceModeEditor({
+  filePath,
   value,
   onChange,
   initialCursor = 0,
@@ -63,12 +71,23 @@ export function SourceModeEditor({
     });
     const view = new EditorView({ state, parent: hostRef.current });
     viewRef.current = view;
+    // 注册查找命令路由：全局 Ctrl+F/Ctrl+R 在源码模式打开 CM 内置面板（issue #29）
+    registerSourceModeSearch(filePath, (opts) => {
+      const v = viewRef.current;
+      if (!v) return;
+      // 新版 @codemirror/search 无独立 replace 命令：替换框内建在搜索面板里。
+      // replace 模式用 replaceNext（未选中匹配时打开面板，否则逐个替换）。
+      const cmd = opts.replace ? replaceNext : openSearchPanel;
+      cmd(v);
+      v.focus();
+    });
     if (initialScrollTop > 0) {
       view.scrollDOM.scrollTop = initialScrollTop;
     }
     requestAnimationFrame(() => view.focus());
 
     return () => {
+      unregisterSourceModeSearch(filePath);
       onUnmountRef.current?.({
         cursor: view.state.selection.main.head,
         scrollTop: view.scrollDOM.scrollTop,
@@ -77,7 +96,7 @@ export function SourceModeEditor({
       viewRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- CM 实例只在挂载时创建一次
-  }, []);
+  }, [filePath]);
 
   // 外部 value 变化（切 tab、file watcher）同步到 CM
   useEffect(() => {
@@ -107,6 +126,10 @@ export function SourceModeEditor({
       className="source-mode-editor"
       spellCheck={spellcheck}
       data-testid="source-mode-editor"
+      // a11y（issue #28）：声明文本编辑语义与模式上下文，屏幕阅读器可感知
+      role="textbox"
+      aria-multiline="true"
+      aria-label="Markdown 源代码编辑器"
     >
       <div ref={hostRef} className="source-mode-cm-host" />
     </div>
