@@ -6,7 +6,7 @@
 // 若前置操作可能关闭了面板，用 ensureOutlineVisible 兜底。
 
 import { test, expect, type Page } from "@playwright/test";
-import { openMockWorkspace, openFile, MOD } from "./helpers";
+import { openMockWorkspace, openFile, moveCaretToDocEnd, MOD } from "./helpers";
 
 async function ensureOutlineVisible(page: Page) {
   const visible = await page.locator(".outline-panel").isVisible().catch(() => false);
@@ -50,7 +50,7 @@ test.describe("大纲面板", () => {
   test("O3 点击大纲项滚动并高亮", async ({ page }) => {
     // 追加多标题
     await page.locator(".ProseMirror").click();
-    await page.keyboard.press("Control+End");
+    await moveCaretToDocEnd(page);
     await page.keyboard.press("Enter");
     await page.keyboard.type("## 第二段");
     await page.keyboard.press("Enter");
@@ -98,7 +98,9 @@ test.describe("大纲面板", () => {
 
     // 先把光标和大纲恢复到文档顶部，再只滚动正文容器；纯滚动不会
     // 产生 ProseMirror transaction，必须由视口跟踪监听器更新章节。
-    await page.keyboard.press("Control+Home");
+    // 用点击首个标题定位（平台无关）：macOS 上 Ctrl+Home 无移动光标
+    // 语义（issue #36），且点击标题能同时把大纲切到第一章。
+    await editor.locator("h1, h2, h3, h4, h5, h6").first().click();
     await expect(page.locator(".outline-item-active")).toContainText(
       "自动跟随 1",
     );

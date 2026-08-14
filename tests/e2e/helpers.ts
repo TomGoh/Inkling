@@ -35,8 +35,23 @@ export async function openFile(page: Page, fileName: string) {
 // 在编辑器末尾追加内容并保证落在可编辑段落
 export async function appendToEditor(page: Page, text: string) {
   await page.locator(".ProseMirror").click();
-  await page.keyboard.press("Control+End");
+  await moveCaretToDocEnd(page);
   await page.keyboard.type(text);
+}
+
+// 光标移到文档首/尾的平台自适应按键（issue #36）：
+// macOS 上 Ctrl+Home/Ctrl+End 无移动光标语义（Chromium 实测），
+// 用 Cmd+↑/Cmd+↓ 代替；其他平台保留原快捷键。
+export async function moveCaretToDocStart(page: Page) {
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+ArrowUp" : "Control+Home",
+  );
+}
+
+export async function moveCaretToDocEnd(page: Page) {
+  await page.keyboard.press(
+    process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End",
+  );
 }
 
 // v2.0.1 回归 fixture：用户报告出现裁切的原样流程图代码
