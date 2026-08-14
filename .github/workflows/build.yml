@@ -45,11 +45,12 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium
 
-      # Linux 下 --with-deps 需 root，单独用 sudo 装系统依赖
+      # Linux 下装系统依赖需 root；sudo 会重置 PATH 找不到 pnpm，
+      # 用 sudo env 透传当前 PATH（否则 "sudo: pnpm: command not found"）
       - name: Install Playwright system deps (Linux)
         if: runner.os == 'Linux'
         shell: bash
-        run: sudo pnpm exec playwright install-deps chromium
+        run: sudo env "PATH=$PATH" pnpm exec playwright install-deps chromium
 
       - name: Run E2E tests
         run: pnpm e2e
