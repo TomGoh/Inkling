@@ -180,6 +180,19 @@ describe("TabsBar", () => {
     expect(closeTab).toHaveBeenCalledWith("/test.md");
   });
 
+  it("滚轮按 deltaMode 归一化后横向滚动 tab 条", () => {
+    useWorkspace.setState({
+      openTabs: [makeTab({ path: "/a.md" })],
+      activeTabPath: "/a.md",
+    });
+    const { container } = render(<TabsBar />);
+    const bar = container.querySelector(".tabs-bar") as HTMLElement;
+    fireEvent.wheel(bar, { deltaY: 3, deltaMode: 1 });
+    expect(bar.scrollLeft).toBe(96);
+    fireEvent.wheel(bar, { deltaY: 100, deltaMode: 0 });
+    expect(bar.scrollLeft).toBe(196);
+  });
+
   it("当前激活 tab 有 tab-active 类", () => {
     useWorkspace.setState({
       openTabs: [makeTab({ path: "/a.md" }), makeTab({ path: "/b.md" })],
