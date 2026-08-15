@@ -81,6 +81,7 @@
 - **cursor-saver 防抖**：光标位置本地缓存 + 300ms 防抖落 store，避免每次移动触发 TabsBar / useAutoSave 全局重渲染
 - **精准订阅**：TabsBar / useAutoSave 改为订阅派生快照，打字时 UI 不重渲染
 - **代码块懒挂载**：CodeMirror 实例延迟到代码块进入视口（200px 预加载）时才创建，大量代码块文档首屏开销显著下降
+- **Mermaid 视口懒渲染**：图表延迟到进入视口（300px 预载边距）时才渲染，万行多图文档打开时长任务从 ~7s 降至 ~2s，滚动无长冻结
 - **查找面板防抖**：查找词 120ms 防抖，连续输入只触发一次全文匹配
 - **滚轮监听器按需挂载**：`Ctrl/Cmd+滚轮` 缩放的 `passive:false` 监听器仅在 Ctrl/Cmd 按下时挂载，普通滚动时 window 上无任何 wheel 监听器走浏览器合成线程快速路径，修复万行文档滚轮失效问题（`useCtrlWheelZoom` hook）
 
@@ -181,6 +182,7 @@ pnpm e2e
 
 ## 版本记录
 
+- **v2.3.1** 万行多图文档打开卡顿修复：用户对比 v2.1.0 反馈打开万行复杂文档（60 张 Mermaid 图 + 170 代码块 + 455 行内公式，398KB）明显更卡。经 git worktree 双版本基准 + Chrome DevTools 长任务剖析定位：核心引擎（parse ~750ms / serialize ~200ms）两版本无差异，打字路径 v2.3.0 反而更优（publisher 防抖后 1 个 220ms 长任务 vs v2.1.0 的 68 个 5.2s），真正瓶颈是 Mermaid 图表自 v1.x 起打开即同步渲染全部图表——每张 ~150ms 阻塞主线程，60 张合计 ~9s 长任务、滚动/输入全程冻结，v2.3.0 因 publisher 基线序列化等叠加冻结窗口更长故体感更差。修复：`mermaid-view.ts` 图表改为 IntersectionObserver 视口懒渲染（300px 预载边距），视口外仅保留占位容器（与代码块懒挂载同模式），`update` 在进入视口前跳过渲染、`destroy` 断开观察；单测补 happy-dom 下 IO stub（`observe` 即进入视口）。实测打开时长任务 6.5~7.4s（49~51 个）→ 1.9s（4 个），打开时预渲染图表 60/60 → 0/60，全文滚动最长单任务 2s+ → 179ms。详见 `docs/v2.3.1 设计文档.md`
 - **v2.3.0** 性能回退修复 + 源码模式增强 + 保存链路稳健性 + 社区修复：①issue #31 修复万行文档编辑/滚动掉帧（保存路径 flush 跳过 idle 编辑器，避免重复全文序列化）；②issue #29 源码模式查找替换——`Ctrl/Cmd+F`/`Ctrl/Cmd+R` 在源码模式路由到 CodeMirror 内置查找/替换面板，替代原先「提示退出」的 alert；③issue #26 光标/滚动映射增强——按源行权重（围栏代码块内部折权、空行归零）映射 PM 位置 + 光标行片段匹配回退；④issue #27 退出源码模式重置撤销历史（re-parse 后灌入 history 初始空状态）；⑤issue #28 源码模式可访问性（`role="textbox"` 等 ARIA 属性）；⑥打开文件不再误判 dirty（publisher 以解析后 doc 序列化结果为同步基线，关闭 tab 不再误弹未保存确认）；⑦issue #25 Markdown 往返保真单测——无头 Milkdown 驱动真实 parser/serializer 覆盖 callout/frontmatter/mermaid/math/toc 等自定义块，并据此修复 toc 节点序列化静默丢失 `[TOC]` 的真 bug；⑧PR #34 保存链路——异步发布绑定文件路径修复 tab 切换串写、防抖窗口内编辑到点先 flush、手动保存/关闭/swap 先 flush、dirty 镜像同步；⑨issue #30/PR #35（@TomGoh）多标签滚动/光标位置按文件路径读写防串扰；⑩issue #36/PR #37（@TomGoh）macOS E2E 平台按键兼容；⑪CI `test` job 增加 ubuntu-latest runner 双平台矩阵。单元/组件测试 367 + E2E 138 全绿。详见 `docs/v2.3.0 设计文档.md`
 - **v2.2.0** 新增源代码模式（issue #19）：整页切换为 CodeMirror 6 编辑原始 Markdown（GFM 语法高亮 + 行号）；顶栏按钮 + 默认 `Ctrl/Cmd+Alt+S` 快捷键；按标签页记忆；与专注/打字机互斥；退出 re-parse 回 WYSIWYG；分屏独立切换。详见 `docs/v2.2.0 设计文档.md`
 - **v2.1.0** 合并社区贡献者 @TomGoh 的三项工作区/主题修复并新增 Linux 发行版：①issue #11/PR #15 大型工作区按需加载与文件树渲染——Rust `list_dir` 改为单层浅扫并迁入 `spawn_blocking` 线程池避免阻塞 Tauri 异步运行时，跳过隐藏项/依赖构建目录（node_modules、target、dist、build、out）/目录符号链接；前端目录树按需逐层加载（默认只展开根目录）、大目录窗口化渲染，工作区切换竞态/目录请求去重/局部刷新保留已加载子树，新增 `src/lib/fileTree.ts`；②issue #14/PR #16 同步原生控件与主题配色——为浅色/深色主题及代码块 `data-code-theme` 补 `color-scheme`，使下拉框/滚动条等原生控件跟随主题（修复 Linux 上原生控件不随主题切换）；③issue #12/PR #17 打开文件时保留侧边栏文件树——不再用全局加载态替换文件树，改为行内 spinner/错误图标局部提示并保留 DOM 与滚动位置，文件读取去重、标签页/分屏/工作区上下文竞态处理、读取失败保留编辑器可重试；④issue #13 Release 增加 Linux amd64 构建——CI 由 `build-windows.yml` 整合为统一 `build.yml`（共享 test + build-windows + build-linux + 独立 release job），`v*` tag 同一 Release 同时发布 Windows 安装包/便携包与 amd64 AppImage + deb。单元/组件测试 299 passed。详见 `docs/v2.1.0 设计文档.md`

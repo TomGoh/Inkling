@@ -30,6 +30,14 @@ vi.mock("@tauri-apps/api/core", () => ({
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn() }));
 vi.mock("../../lib/fs", () => ({ writeBinaryFile: vi.fn() }));
 
+// v2.3.1 起 mermaid 图表改为视口懒渲染；happy-dom 的 IntersectionObserver
+// 不会触发回调，stub 为「observe 即进入视口」，保持创建即渲染的测试契约
+(globalThis as any).IntersectionObserver = vi.fn((cb: (entries: any[]) => void) => ({
+  observe: (target: Element) => cb([{ isIntersecting: true, target }]),
+  disconnect: vi.fn(),
+  unobserve: vi.fn(),
+}));
+
 // 构造假 ProseMirror Node
 function makeFakeNode(textContent = "graph TD; A-->B"): Node {
   return {

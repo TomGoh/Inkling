@@ -9,6 +9,10 @@
 // 下载：点击「下载」按钮导出 SVG 文件（桌面端弹保存对话框，浏览器端直接下载）。
 // 缩放：鼠标悬停图表时 Ctrl/Cmd+滚轮缩放 SVG（0.5~3x），不触发文档缩放。
 // 平移：缩放大于 100% 时，按住鼠标拖动平移图表查看各区域；双击重置缩放与平移。
+//
+// 性能（v2.3.1）：图表延迟到进入视口（含 300px 预载边距）时才渲染。
+// 万行文档可含数十张图，打开即全量渲染会让主线程连续阻塞近 10 秒
+// （每张 ~150ms），期间滚动/输入全部冻结；视口外仅保留占位容器。
 
 import type { NodeView } from "@milkdown/kit/prose/view";
 import type { Node } from "@milkdown/kit/prose/model";
@@ -188,7 +192,24 @@ export function createMermaidView(
     }
   };
 
-  void render(current.textContent);
+  // 视口懒渲染：io 非空表示尚未首次渲染（进入视口前保持占位容器）。
+  // IntersectionObserver 不可用（如 jsdom 单测环境）时退回立即渲染。
+  let io: IntersectionObserver | null = null;
+  if (typeof IntersectionObserver === "undefined") {
+    void render(current.textContent);
+  } else {
+    io = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        io?.disconnect();
+        io = null;
+        // 用最新节点内容渲染（视口外内容变更只更新 current，不渲染）
+        void render(current.textContent);
+      },
+      { rootMargin: "300px" },
+    );
+    io.observe(container);
+  }
 
   const enterEdit = () => {
     if (editing) return;
@@ -342,8 +363,9 @@ export function createMermaidView(
       if (next.type !== current.type) return false;
       if (next.attrs.language !== "mermaid") return false;
       current = next;
-      // 编辑中不覆盖编辑器内容，避免打断输入
-      if (!editing) void render(next.textContent);
+      // 编辑中不覆盖编辑器内容，避免打断输入；
+      // 尚未进入视口（io 未清空）时也不渲染，待可见后以最新内容首次渲染
+      if (!editing && !io) void render(next.textContent);
       return true;
     },
     // 仅编辑模式下拦截事件（避免 ProseMirror 抢 textarea 焦点）；
@@ -351,7 +373,9 @@ export function createMermaidView(
     stopEvent: () => editing,
     ignoreMutation: () => true,
     destroy: () => {
-      // 清理 window 上的拖动监听器，避免内存泄漏
+      // 断开视口观察，清理 window 上的拖动监听器，避免内存泄漏
+      io?.disconnect();
+      io = null;
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     },

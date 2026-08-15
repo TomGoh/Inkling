@@ -30,6 +30,14 @@ vi.mock("@tauri-apps/api/core", () => ({ isTauri: () => false }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ save: vi.fn() }));
 vi.mock("../../lib/fs", () => ({ writeBinaryFile: vi.fn() }));
 
+// v2.3.1 起 mermaid 图表改为视口懒渲染；happy-dom 的 IntersectionObserver
+// 不会触发回调，stub 为「observe 即进入视口」，保持创建即渲染的测试契约
+(globalThis as any).IntersectionObserver = vi.fn((cb: (entries: any[]) => void) => ({
+  observe: (target: Element) => cb([{ isIntersecting: true, target }]),
+  disconnect: vi.fn(),
+  unobserve: vi.fn(),
+}));
+
 // 用户报告出现裁切的原始流程图代码（保留 <br/> 多行 + style 加粗边框）
 const MULTI_LINE_FLOWCHART = `flowchart TB
     A["① 请求进入<br/>A2A Task / 调试界面"] --> B["② 加载 Agent Definition<br/>prompt + 工具列表 + 知识库列表"]
