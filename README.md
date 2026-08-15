@@ -81,7 +81,7 @@
 - **cursor-saver 防抖**：光标位置本地缓存 + 300ms 防抖落 store，避免每次移动触发 TabsBar / useAutoSave 全局重渲染
 - **精准订阅**：TabsBar / useAutoSave 改为订阅派生快照，打字时 UI 不重渲染
 - **代码块懒挂载**：CodeMirror 实例延迟到代码块进入视口（200px 预加载）时才创建，大量代码块文档首屏开销显著下降
-- **Mermaid 视口懒渲染**：图表延迟到进入视口（300px 预载边距）时才渲染，万行多图文档打开时长任务从 ~7s 降至 ~2s，滚动无长冻结
+- **Mermaid 视口懒渲染 + 空闲预渲染**：打开时只渲染视口内图表（300px 预载边距），视口外图表由 requestIdleCallback 在空闲时段按文档顺序逐张后台预渲染（滚动中自动暂停），打开时长任务从 ~7s 降至 ~2s，且滚动到图表处通常已预渲染完毕，不再逐张卡顿
 - **查找面板防抖**：查找词 120ms 防抖，连续输入只触发一次全文匹配
 - **滚轮监听器按需挂载**：`Ctrl/Cmd+滚轮` 缩放的 `passive:false` 监听器仅在 Ctrl/Cmd 按下时挂载，普通滚动时 window 上无任何 wheel 监听器走浏览器合成线程快速路径，修复万行文档滚轮失效问题（`useCtrlWheelZoom` hook）
 
@@ -182,6 +182,7 @@ pnpm e2e
 
 ## 版本记录
 
+- **v2.3.2** 万行多图文档滚动掉帧修复：v2.3.1 的视口懒渲染把渲染开销从"打开时"转移到"滚动时"——滚到未渲染图表处逐张 ~150ms 卡顿，而 v2.1.0 打开时全量渲染（冻结 ~10s）后滚动反而顺。Chrome DevTools trace 确认滚动期强制回流大头全是 Mermaid 渲染内部（addHtmlSpan 933ms/drawText 257ms 等），纯文本区滚动实测 0 长任务（outline 自动跟随的 posAtCoords 开销可忽略，非元凶）。修复：`mermaid-view.ts` 新增空闲预渲染队列——打开后视口外图表按文档顺序排入队列，`requestIdleCallback` 每个空闲槽渲染一张，滚动停歇 250ms 内自动暂停避免争抢主线程，滚得快落在未预渲染图表时仍由视口即时渲染兜底。实测：静止 16s 后 59/60 张后台渲染完成；全文滚动 51 长任务/4.2s → 27 长任务/2.8s（90fps，剩余为代码块懒挂载，v2.1 同有）；快速滚动多图区 1 长任务/50ms。详见 `docs/v2.3.2 设计文档.md`
 - **v2.3.1** 万行多图文档打开卡顿修复：用户对比 v2.1.0 反馈打开万行复杂文档（60 张 Mermaid 图 + 170 代码块 + 455 行内公式，398KB）明显更卡。经 git worktree 双版本基准 + Chrome DevTools 长任务剖析定位：核心引擎（parse ~750ms / serialize ~200ms）两版本无差异，打字路径 v2.3.0 反而更优（publisher 防抖后 1 个 220ms 长任务 vs v2.1.0 的 68 个 5.2s），真正瓶颈是 Mermaid 图表自 v1.x 起打开即同步渲染全部图表——每张 ~150ms 阻塞主线程，60 张合计 ~9s 长任务、滚动/输入全程冻结，v2.3.0 因 publisher 基线序列化等叠加冻结窗口更长故体感更差。修复：`mermaid-view.ts` 图表改为 IntersectionObserver 视口懒渲染（300px 预载边距），视口外仅保留占位容器（与代码块懒挂载同模式），`update` 在进入视口前跳过渲染、`destroy` 断开观察；单测补 happy-dom 下 IO stub（`observe` 即进入视口）。实测打开时长任务 6.5~7.4s（49~51 个）→ 1.9s（4 个），打开时预渲染图表 60/60 → 0/60，全文滚动最长单任务 2s+ → 179ms。详见 `docs/v2.3.1 设计文档.md`
 - **v2.3.0** 性能回退修复 + 源码模式增强 + 保存链路稳健性 + 社区修复：①issue #31 修复万行文档编辑/滚动掉帧（保存路径 flush 跳过 idle 编辑器，避免重复全文序列化）；②issue #29 源码模式查找替换——`Ctrl/Cmd+F`/`Ctrl/Cmd+R` 在源码模式路由到 CodeMirror 内置查找/替换面板，替代原先「提示退出」的 alert；③issue #26 光标/滚动映射增强——按源行权重（围栏代码块内部折权、空行归零）映射 PM 位置 + 光标行片段匹配回退；④issue #27 退出源码模式重置撤销历史（re-parse 后灌入 history 初始空状态）；⑤issue #28 源码模式可访问性（`role="textbox"` 等 ARIA 属性）；⑥打开文件不再误判 dirty（publisher 以解析后 doc 序列化结果为同步基线，关闭 tab 不再误弹未保存确认）；⑦issue #25 Markdown 往返保真单测——无头 Milkdown 驱动真实 parser/serializer 覆盖 callout/frontmatter/mermaid/math/toc 等自定义块，并据此修复 toc 节点序列化静默丢失 `[TOC]` 的真 bug；⑧PR #34 保存链路——异步发布绑定文件路径修复 tab 切换串写、防抖窗口内编辑到点先 flush、手动保存/关闭/swap 先 flush、dirty 镜像同步；⑨issue #30/PR #35（@TomGoh）多标签滚动/光标位置按文件路径读写防串扰；⑩issue #36/PR #37（@TomGoh）macOS E2E 平台按键兼容；⑪CI `test` job 增加 ubuntu-latest runner 双平台矩阵。单元/组件测试 367 + E2E 138 全绿。详见 `docs/v2.3.0 设计文档.md`
 - **v2.2.0** 新增源代码模式（issue #19）：整页切换为 CodeMirror 6 编辑原始 Markdown（GFM 语法高亮 + 行号）；顶栏按钮 + 默认 `Ctrl/Cmd+Alt+S` 快捷键；按标签页记忆；与专注/打字机互斥；退出 re-parse 回 WYSIWYG；分屏独立切换。详见 `docs/v2.2.0 设计文档.md`

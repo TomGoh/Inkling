@@ -13,6 +13,11 @@
 // 性能（v2.3.1）：图表延迟到进入视口（含 300px 预载边距）时才渲染。
 // 万行文档可含数十张图，打开即全量渲染会让主线程连续阻塞近 10 秒
 // （每张 ~150ms），期间滚动/输入全部冻结；视口外仅保留占位容器。
+//
+// 性能（v2.3.2）：仅懒渲染会把渲染开销转移到滚动时（滚到未渲染图表
+// 处逐张 ~150ms 卡顿）。新增空闲预渲染：打开文档后视口外的图表按
+// 文档顺序排入队列，requestIdleCallback 空闲时段逐张后台渲染——
+// 打开快、滚动也顺（通常滚到前已预渲染完），滚得快时仍即时渲染兜底。
 
 import type { NodeView } from "@milkdown/kit/prose/view";
 import type { Node } from "@milkdown/kit/prose/model";
@@ -54,6 +59,53 @@ function ensureInit() {
 
 /** 递增的图表 id，保证多图表互不冲突 */
 let diagramSeq = 0;
+
+/**
+ * 空闲预渲染队列（v2.3.2）：视口外图表按创建（文档）顺序排队，
+ * requestIdleCallback 逐张后台渲染，每张渲染 ~150ms 超出单帧预算，
+ * 每个空闲槽只渲染一张，避免连续阻塞。
+ */
+const idleRenderQueue: Array<() => void> = [];
+let idlePumpScheduled = false;
+/** 最近一次滚动时间：滚动进行中暂停后台预渲染，避免与滚动争抢主线程 */
+let lastScrollAt = 0;
+let scrollMarkInstalled = false;
+function ensureScrollMark(): void {
+  if (scrollMarkInstalled) return;
+  scrollMarkInstalled = true;
+  document.addEventListener(
+    "scroll",
+    () => {
+      lastScrollAt = performance.now();
+    },
+    { passive: true, capture: true },
+  );
+}
+function pumpIdleRenderQueue(): void {
+  if (idlePumpScheduled) return;
+  idlePumpScheduled = true;
+  const run = () => {
+    idlePumpScheduled = false;
+    const task = idleRenderQueue.shift();
+    if (!task) return;
+    task();
+    if (idleRenderQueue.length) pumpIdleRenderQueue();
+  };
+  const schedule = () => {
+    // 滚动停歇 250ms 后才继续预渲染，滚动中只让位给视口即时渲染
+    if (performance.now() - lastScrollAt < 250 && idleRenderQueue.length) {
+      setTimeout(schedule, 250);
+      return;
+    }
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(run);
+    } else {
+      setTimeout(run, 64);
+    }
+  };
+  ensureScrollMark();
+  schedule();
+}
 
 /** Mermaid 缩放范围与步进 */
 const MERMAID_ZOOM_MIN = 0.5;
@@ -192,23 +244,37 @@ export function createMermaidView(
     }
   };
 
-  // 视口懒渲染：io 非空表示尚未首次渲染（进入视口前保持占位容器）。
-  // IntersectionObserver 不可用（如 jsdom 单测环境）时退回立即渲染。
+  // 视口懒渲染 + 空闲预渲染（v2.3.2）：
+  // - 进入视口（含 300px 预载边距）→ 立即渲染，保证滚到即见；
+  // - 视口外 → 排入空闲队列后台逐张预渲染，避免滚动到时才渲染卡顿；
+  // - IntersectionObserver 不可用（如 jsdom 单测环境）时退回立即渲染。
+  let firstRenderDone = false;
+  const renderFirst = () => {
+    if (firstRenderDone) return;
+    firstRenderDone = true;
+    io?.disconnect();
+    io = null;
+    // 用最新节点内容渲染（视口外内容变更只更新 current，不渲染）
+    void render(current.textContent);
+  };
   let io: IntersectionObserver | null = null;
   if (typeof IntersectionObserver === "undefined") {
-    void render(current.textContent);
+    renderFirst();
   } else {
     io = new IntersectionObserver(
       (entries) => {
         if (!entries.some((e) => e.isIntersecting)) return;
-        io?.disconnect();
-        io = null;
-        // 用最新节点内容渲染（视口外内容变更只更新 current，不渲染）
-        void render(current.textContent);
+        renderFirst();
       },
       { rootMargin: "300px" },
     );
     io.observe(container);
+    // 尚未进入视口：排入空闲预渲染队列（按文档顺序），后台逐张渲染。
+    // 已被视口路径渲染过或容器已销毁（切文档）时自动跳过。
+    idleRenderQueue.push(() => {
+      if (!firstRenderDone && container.isConnected) renderFirst();
+    });
+    pumpIdleRenderQueue();
   }
 
   const enterEdit = () => {
