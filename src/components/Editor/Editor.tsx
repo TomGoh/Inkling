@@ -646,7 +646,17 @@ function EditorInner({
         if (scrollEl.isConnected) scrollEl.scrollTop = target;
       };
       apply();
-      requestAnimationFrame(apply);
+      // 大文档打开瞬间代码块/图表尚为占位高度，scrollHeight 可能不足，
+      // scrollTop 被钳制在 maxScroll。逐帧重试直到占位撑开、位置到位
+      // （30 帧上限；占位高度 v2.3.4 起接近最终值，通常 1-2 帧收敛）
+      let frames = 0;
+      const settle = () => {
+        if (!scrollEl.isConnected) return;
+        if (Math.abs(scrollEl.scrollTop - target) < 1 || ++frames > 30) return;
+        apply();
+        requestAnimationFrame(settle);
+      };
+      requestAnimationFrame(settle);
     });
   }, [filePath, loading, getEditor, getCursorStateFor, sourceMode]);
 

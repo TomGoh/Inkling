@@ -204,6 +204,40 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
     harness.scroller.remove();
   });
 
+  it("切 tab 重灌文档：防抖窗口内采样跳过，重算后按 scrollTop 定位（v2.3.4）", () => {
+    vi.useFakeTimers();
+    const harness = makeHarness();
+    const { view } = makeView(harness);
+    const onChange = vi.fn();
+    const plugin = outlineTrackerPlugin(onChange);
+    const pluginView = plugin.spec.view?.(view);
+    onChange.mockClear();
+
+    // 模拟切 tab：doc 重灌（选区钳到文档头）+ 滚动位置恢复到 650。
+    // scroll 事件落在防抖窗口内——旧文档的标题集/位置缓存不可用，
+    // 采样必须被跳过（stale），不能发布错误高亮
+    const prev = view.state;
+    view.state = {
+      doc: mockDocument(),
+      selection: { head: 1, eq: () => true },
+    };
+    pluginView?.update?.(view, prev as never);
+    harness.setScrollTop(650);
+    harness.scroller.dispatchEvent(new Event("scroll"));
+    expect(onChange).not.toHaveBeenCalled();
+
+    // 防抖结束后重算 + 按当前 scrollTop=650 定位（probe 662 ≥ 第三
+    // 个标题位置 600），不依赖被钳到文档头的选区
+    vi.advanceTimersByTime(160);
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeIndex: 2 }),
+    );
+
+    pluginView?.destroy?.();
+    vi.useRealTimers();
+    harness.scroller.remove();
+  });
+
   it("按动画帧合并正文滚动，并在销毁时移除监听", () => {
     const harness = makeHarness();
     const { view } = makeView(harness);
@@ -224,19 +258,19 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
 
     harness.scroller.dispatchEvent(new Event("scroll"));
     harness.scroller.dispatchEvent(new Event("scroll"));
-    // 同帧多次 scroll 只请求一个动画帧
-    expect(requestFrame).toHaveBeenCalledTimes(1);
+    // 同帧多次 scroll 只请求一个动画帧（另一次为创建时的初始采样）
+    expect(requestFrame).toHaveBeenCalledTimes(2);
     expect(onChange).not.toHaveBeenCalled();
 
     pendingFrame?.(0);
     expect(onChange).not.toHaveBeenCalled(); // 顶部仍在标题 1 内
 
     harness.scroller.dispatchEvent(new Event("scroll"));
-    expect(requestFrame).toHaveBeenCalledTimes(2);
+    expect(requestFrame).toHaveBeenCalledTimes(3);
     pluginView?.destroy?.();
     expect(cancelFrame).toHaveBeenCalledWith(17);
     harness.scroller.dispatchEvent(new Event("scroll"));
-    expect(requestFrame).toHaveBeenCalledTimes(2);
+    expect(requestFrame).toHaveBeenCalledTimes(3);
     vi.restoreAllMocks();
     harness.scroller.remove();
   });

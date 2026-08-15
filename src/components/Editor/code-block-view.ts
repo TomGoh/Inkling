@@ -88,6 +88,11 @@ export class CodeBlockNodeView implements NodeView {
   private io: IntersectionObserver | null = null;
   private cmHost: HTMLElement;
   private select: HTMLSelectElement;
+  // 懒挂载占位（v2.3.4）：CodeMirror 创建前用纯文本 <pre> 占位，
+  // 与 CM 同字体/行高/最大高度（见 App.css .code-block-placeholder），
+  // 挂载前后高度差接近 0——此前挂载前 cmHost 为空（高度≈0），
+  // 挂载后撑开数百 px，打开大文档时首屏逐块挂载产生连续布局跳变（窗口抖动）
+  private placeholder: HTMLPreElement;
 
   constructor(node: Node, view: PMView, getPos: () => number | undefined) {
     this.node = node;
@@ -115,6 +120,12 @@ export class CodeBlockNodeView implements NodeView {
     this.cmHost = document.createElement("div");
     this.cmHost.className = "code-block-cm";
     this.dom.appendChild(this.cmHost);
+
+    // 纯文本占位：保证未挂载时高度即接近最终高度
+    this.placeholder = document.createElement("pre");
+    this.placeholder.className = "code-block-placeholder";
+    this.placeholder.textContent = node.textContent;
+    this.cmHost.appendChild(this.placeholder);
 
     // 视口懒挂载：先尝试同步创建（若已在视口或 IO 不可用），
     // 否则注册 IntersectionObserver，进入视口时再创建。
@@ -170,6 +181,8 @@ export class CodeBlockNodeView implements NodeView {
       ],
     });
     this.cmHost.appendChild(this.cm.dom);
+    // 高度已由 CM 精确接管，移除占位
+    this.placeholder.remove();
     this.updateLanguage(this.node.attrs.language ?? "");
   }
 
@@ -271,8 +284,12 @@ export class CodeBlockNodeView implements NodeView {
   update(node: Node): boolean {
     if (node.type !== this.node.type) return false;
     this.node = node;
-    // CodeMirror 未创建（视口外）：仅更新 node 引用，待进入视口创建时从 node 取最新内容
-    if (!this.cm) return true;
+    // CodeMirror 未创建（视口外）：同步占位文本保证高度正确，待进入
+    // 视口创建时从 node 取最新内容
+    if (!this.cm) {
+      this.placeholder.textContent = node.textContent;
+      return true;
+    }
     if (this.updating) return true;
     // 同步语言
     const lang = node.attrs.language ?? "";

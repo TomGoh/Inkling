@@ -246,6 +246,10 @@ export function createMermaidView(
   let lastValue = "__init__";
   let lastSvg = ""; // 缓存最近一次成功渲染的 SVG 字符串，供下载使用
   let editing = false;
+  // 是否尚未完成首次渲染：首渲染占位高度（粗估/缓存）只增不减——
+  // 实测偏矮时保持占位高度，注入瞬间零布局跳变；编辑重渲染则用实测
+  // 高度（源码可能改小图表，旧占位不再有效）
+  let firstRender = true;
   let zoom = MERMAID_ZOOM_DEFAULT; // 当前缩放倍率
   let panX = 0; // 平移 X（像素，缩放后坐标系）
   let panY = 0; // 平移 Y
@@ -289,12 +293,16 @@ export function createMermaidView(
       diagram.innerHTML = svg;
       lastSvg = svg;
       // 实测渲染高度写回缓存并锁定本实例 min-height：
-      // 同源码后续实例创建即预留精确高度，重渲染也不收缩跳变
+      // 同源码后续实例创建即预留精确高度，重渲染也不收缩跳变。
+      // 首渲染取 max(占位, 实测)：占位偏大时保持不缩，注入零跳变
       const height = diagram.offsetHeight;
       const hit = cacheGet(value);
       if (hit) hit.height = height;
       else cachePut(value, { svg, height });
-      diagram.style.minHeight = `${height}px`;
+      const reserved = parseFloat(diagram.style.minHeight) || 0;
+      const nextMin = firstRender ? Math.max(reserved, height) : height;
+      firstRender = false;
+      diagram.style.minHeight = `${nextMin}px`;
       // 重新渲染后重置平移（图表尺寸变了，旧平移量无意义），保留缩放
       panX = 0;
       panY = 0;

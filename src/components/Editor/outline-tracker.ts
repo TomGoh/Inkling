@@ -8,6 +8,11 @@
 // 滚动采样只做 scrollTop 与缓存数组的二分比较，纯数值运算微秒级。
 // 缓存在文档变更后防抖重建；采样时若滚动总高/宽度变化（图表渲染、
 // 窗口缩放、布局切换）也会触发重建。
+//
+// 修复（v2.3.4）：切 tab 重灌文档后大纲高亮停在顶部、需手动滚动才
+// 恢复。根因：重算回调按选区推导当前章节，而整文档替换后选区被钳
+// 到文档头。改为重算完成后按当前 scrollTop 采样定位；防抖窗口内
+// （stale）跳过采样与选区推导，避免旧文档标题集产出错误高亮。
 
 import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
 import {
@@ -36,6 +41,11 @@ export const outlineTrackerPlugin = (
       let scrollFrame: number | null = null;
       let sampleTimer: ReturnType<typeof setTimeout> | null = null;
       let lastSampleAt = 0;
+      // doc 变更防抖窗口内的采样会用到旧文档的标题集/位置缓存（切 tab
+      // 重灌文档时旧数据完全错误），窗口内跳过采样，重算后按当前
+      // scrollTop 一次性定位（v2.3.4：修复切 tab 后大纲高亮停在顶部、
+      // 需手动滚动才恢复——此前重算按选区计算，重灌后选区被钳到文档头）
+      let stale = false;
       // 编辑时全文遍历提取标题开销大（万行文档每键 O(n)），防抖到输入停顿后
       let extractTimer: ReturnType<typeof setTimeout> | null = null;
       const scroller = view.dom.closest<HTMLElement>(".editor-scroll");
@@ -70,6 +80,8 @@ export const outlineTrackerPlugin = (
       onChange({ headings, activeIndex });
 
       const sampleViewport = () => {
+        // 防抖窗口内旧文档的标题集/位置缓存不可用，跳过（见 stale 声明）
+        if (stale) return;
         lastSampleAt = performance.now();
         if (!view.dom.isConnected || !scroller) return;
         // 缓存失效检测：文档变更重建后数量不一致，或滚动总高/宽度变化
@@ -126,6 +138,9 @@ export const outlineTrackerPlugin = (
         });
       };
       scroller?.addEventListener("scroll", handleScroll, { passive: true });
+      // 初始按当前滚动位置采样一次（打开文件恢复 scrollTop=0 时无
+      // scroll 事件可触发，靠这里兜底首帧高亮）
+      requestAnimationFrame(() => sampleViewport());
 
       return {
         update: (nextView, previousState) => {
@@ -135,23 +150,34 @@ export const outlineTrackerPlugin = (
           );
 
           if (docChanged) {
-            // 标题集合防抖重算；重算时顺带按最新选区校正当前章节并重建位置缓存
+            // 标题集合防抖重算；窗口内采样跳过（stale），重算完成后
+            // 重建位置缓存并按当前 scrollTop 定位当前章节
+            stale = true;
             if (extractTimer) clearTimeout(extractTimer);
             extractTimer = setTimeout(() => {
               extractTimer = null;
-              if (!view.dom.isConnected) return;
+              if (!view.dom.isConnected) {
+                stale = false;
+                return;
+              }
               headings = extractEditorOutline(view.state.doc);
               activeIndex = findActiveHeadingIndex(
                 headings,
                 view.state.selection.head,
               );
               rebuildHeadingTops();
+              stale = false;
               onChange({ headings, activeIndex });
+              // 按滚动位置覆盖选区推导的初值：切 tab 重灌文档后选区被
+              // 钳到文档头，阅读位置（已恢复的 scrollTop）才是大纲
+              // 高亮的正确语义（v2.3.4）
+              sampleViewport();
             }, 150);
             return;
           }
 
           if (selectionChanged) {
+            if (stale) return; // 旧标题集上推导无意义，等重算后按滚动定位
             const nextActiveIndex = findActiveHeadingIndex(
               headings,
               nextView.state.selection.head,
