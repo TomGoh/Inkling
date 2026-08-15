@@ -142,12 +142,32 @@ describe("多行流程图渲染（用户报告的裁切场景）", () => {
   });
 
   it("mermaid.render 收到原始流程图代码（含 <br/> 与 style 不被篡改）", async () => {
-    const node = makeFakeNode(MULTI_LINE_FLOWCHART);
+    // v2.3.3 起同源码命中渲染缓存不再调用 mermaid.render，
+    // 用未渲染过的唯一源码验证透传契约
+    const uniqueSource = `${MULTI_LINE_FLOWCHART}\n    %% case-render-passes-code`;
+    const node = makeFakeNode(uniqueSource);
     const nv: NodeView = createMermaidView(node, makeFakeView(), () => 0);
     await new Promise((r) => setTimeout(r, 0));
     const renderCalls = (mermaid.render as ReturnType<typeof vi.fn>).mock.calls;
     const lastCodeArg = renderCalls[renderCalls.length - 1]?.[1];
-    expect(lastCodeArg).toBe(MULTI_LINE_FLOWCHART);
+    expect(lastCodeArg).toBe(uniqueSource);
     nv.destroy?.();
+  });
+
+  it("v2.3.3 渲染缓存：同源码的第二个实例不再触发 mermaid.render", async () => {
+    const source = `flowchart TB\n    A[cache test ${Date.now()}] --> B`;
+    const renderMock = mermaid.render as ReturnType<typeof vi.fn>;
+    const before = renderMock.mock.calls.length;
+    const nv1: NodeView = createMermaidView(makeFakeNode(source), makeFakeView(), () => 0);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(renderMock.mock.calls.length).toBe(before + 1);
+    const nv2: NodeView = createMermaidView(makeFakeNode(source), makeFakeView(), () => 0);
+    await new Promise((r) => setTimeout(r, 0));
+    // 命中缓存：mermaid.render 不再被调用，但 SVG 仍注入第二个实例
+    expect(renderMock.mock.calls.length).toBe(before + 1);
+    const diagram2 = (nv2.dom as HTMLElement).querySelector(".mermaid-render")!;
+    expect(diagram2.querySelector("svg")).toBeTruthy();
+    nv1.destroy?.();
+    nv2.destroy?.();
   });
 });

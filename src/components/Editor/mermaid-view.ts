@@ -18,6 +18,17 @@
 // 处逐张 ~150ms 卡顿）。新增空闲预渲染：打开文档后视口外的图表按
 // 文档顺序排入队列，requestIdleCallback 空闲时段逐张后台渲染——
 // 打开快、滚动也顺（通常滚到前已预渲染完），滚得快时仍即时渲染兜底。
+//
+// 性能（v2.3.3）：v2.3.2 打开大文档后仍有两个问题——
+// 1) 窗口抖动：视口上方的图表后台渲染后变高，浏览器滚动锚定为保持
+//    可见内容稳定反复补偿 scrollTop，表现为持续跳动。修复：空闲队列
+//    执行时跳过整体位于视口上方的图表（交给视口路径滚到再渲染），
+//    上方布局不再变化，锚定补偿随之消失。
+// 2) 滚动掉帧：重复图表（同一文档粘贴多处，压测文件 60 张仅 8 种源码）
+//    每张仍花 ~150ms 全量渲染，打开后 ~9s 的预渲染风暴与滚轮操作撞车。
+//    修复：按源码缓存渲染结果（SVG + 实测高度），重复图表命中缓存
+//    仅做 DOM 注入（~2ms）；创建时先按缓存高度预留占位高度，
+//    占位 → 渲染的高度跳变接近 0，后台渲染不再引起布局位移。
 
 import type { NodeView } from "@milkdown/kit/prose/view";
 import type { Node } from "@milkdown/kit/prose/model";
@@ -59,6 +70,47 @@ function ensureInit() {
 
 /** 递增的图表 id，保证多图表互不冲突 */
 let diagramSeq = 0;
+
+/**
+ * 渲染结果缓存（v2.3.3）：按源码缓存 SVG 字符串与实测渲染高度。
+ * 同一文档常有多处粘贴同一图表（压测文件 60 张仅 8 种源码），
+ * 命中缓存时跳过 mermaid.parse/layout（每张 ~150ms），仅做 DOM 注入；
+ * 缓存高度同时用于创建时预留占位高度，占位 → 渲染高度跳变接近 0。
+ */
+interface MermaidCacheEntry {
+  svg: string;
+  height: number;
+}
+const svgCache = new Map<string, MermaidCacheEntry>();
+const SVG_CACHE_MAX = 32;
+function cacheGet(src: string): MermaidCacheEntry | undefined {
+  const hit = svgCache.get(src);
+  if (hit) {
+    // LRU 触碰：移到末尾，淘汰时从最旧端删除
+    svgCache.delete(src);
+    svgCache.set(src, hit);
+  }
+  return hit;
+}
+function cachePut(src: string, entry: MermaidCacheEntry): void {
+  if (svgCache.has(src)) svgCache.delete(src);
+  svgCache.set(src, entry);
+  if (svgCache.size > SVG_CACHE_MAX) {
+    const oldest = svgCache.keys().next().value;
+    if (oldest !== undefined) svgCache.delete(oldest);
+  }
+}
+
+/**
+ * 创建时的占位高度：命中缓存用实测高度（跳变为 0），
+ * 未见过的源码按行数粗估，仅为缩小首次渲染的布局位移。
+ */
+function estimateRenderHeight(src: string): number {
+  const cached = cacheGet(src);
+  if (cached) return cached.height;
+  const lines = src.split("\n").length;
+  return Math.min(640, Math.max(96, lines * 44 + 56));
+}
 
 /**
  * 空闲预渲染队列（v2.3.2）：视口外图表按创建（文档）顺序排队，
@@ -159,6 +211,8 @@ export function createMermaidView(
 
   const diagram = document.createElement("div");
   diagram.className = "mermaid-render";
+  // 创建即预留占位高度：命中缓存为精确高度，后台/滚入渲染时布局不再跳变
+  diagram.style.minHeight = `${estimateRenderHeight(node.textContent)}px`;
   container.appendChild(diagram);
 
   // 工具栏：编辑 + 下载按钮（hover 显现）
@@ -226,10 +280,21 @@ export function createMermaidView(
       return;
     }
     try {
-      const id = `mermaid-svg-${diagramSeq++}`;
-      const { svg } = await mermaid.render(id, value);
+      // v2.3.3：同源码直接复用缓存的 SVG（重复图表免 ~150ms 全量渲染）
+      let svg = cacheGet(value)?.svg;
+      if (!svg) {
+        const id = `mermaid-svg-${diagramSeq++}`;
+        svg = (await mermaid.render(id, value)).svg;
+      }
       diagram.innerHTML = svg;
       lastSvg = svg;
+      // 实测渲染高度写回缓存并锁定本实例 min-height：
+      // 同源码后续实例创建即预留精确高度，重渲染也不收缩跳变
+      const height = diagram.offsetHeight;
+      const hit = cacheGet(value);
+      if (hit) hit.height = height;
+      else cachePut(value, { svg, height });
+      diagram.style.minHeight = `${height}px`;
       // 重新渲染后重置平移（图表尺寸变了，旧平移量无意义），保留缩放
       panX = 0;
       panY = 0;
@@ -272,7 +337,13 @@ export function createMermaidView(
     // 尚未进入视口：排入空闲预渲染队列（按文档顺序），后台逐张渲染。
     // 已被视口路径渲染过或容器已销毁（切文档）时自动跳过。
     idleRenderQueue.push(() => {
-      if (!firstRenderDone && container.isConnected) renderFirst();
+      if (firstRenderDone || !container.isConnected) return;
+      // v2.3.3：整体位于视口上方的图表不预渲染——上方内容渲染后变高，
+      // 浏览器滚动锚定会反复补偿 scrollTop，表现为窗口持续抖动；
+      // 这类图表交给视口路径（滚回到 300px 边距内）时再渲染。
+      const rect = container.getBoundingClientRect();
+      if (rect.bottom < 0) return;
+      renderFirst();
     });
     pumpIdleRenderQueue();
   }
