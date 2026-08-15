@@ -238,6 +238,46 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
     harness.scroller.remove();
   });
 
+  it("文档顶部采样点在首标题之上时归到首标题，不清空高亮", async () => {
+    const harness = makeHarness();
+    const { view } = makeView(harness);
+    const onChange = vi.fn();
+    const plugin = outlineTrackerPlugin(onChange);
+
+    let pendingFrame: FrameRequestCallback | null = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      pendingFrame = callback;
+      return 17;
+    });
+    plugin.spec.view?.(view);
+    onChange.mockClear();
+
+    // 首标题位于滚动坐标 56（模拟 .milkdown 2.5rem 顶部 padding +
+    // h2 margin-top），未挂载占位/前言段落都在它之上
+    harness.setHeadingPos(0, 56);
+    // 滚到深处：probe=662 落在第三个标题（600）→ activeIndex 2
+    harness.setScrollTop(650);
+    harness.scroller.dispatchEvent(new Event("scroll"));
+    pendingFrame?.(0);
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeIndex: 2 }),
+    );
+    onChange.mockClear();
+
+    // 让出 120ms 节流窗口后回到顶部：probe = 4 + 12 = 16 < 56，
+    // 二分找不到标题时必须归到首标题（0），不能发布 null 清空高亮
+    await new Promise((r) => setTimeout(r, 160));
+    harness.setScrollTop(4);
+    harness.scroller.dispatchEvent(new Event("scroll"));
+    pendingFrame?.(1);
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ activeIndex: 0 }),
+    );
+
+    vi.restoreAllMocks();
+    harness.scroller.remove();
+  });
+
   it("按动画帧合并正文滚动，并在销毁时移除监听", () => {
     const harness = makeHarness();
     const { view } = makeView(harness);

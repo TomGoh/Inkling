@@ -108,7 +108,11 @@ export const outlineTrackerPlugin = (
             hi = mid - 1;
           }
         }
-        const next = idx >= 0 ? headings[idx].index : null;
+        // probe 在首个标题之上（文档顶部 padding/前言区，.milkdown 有
+        // 2.5rem 顶部内边距 + 标题自身 margin）：归到首标题而非清成
+        // null——清空会让顶部小幅滚动时高亮消失又恢复（闪烁），且此时
+        // 首标题通常就在视口内，保持高亮才是正确语义
+        const next = headings[idx >= 0 ? idx : 0].index;
         if (next === activeIndex) return;
         activeIndex = next;
         onChange({ headings, activeIndex });
