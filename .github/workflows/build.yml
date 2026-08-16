@@ -44,6 +44,20 @@ jobs:
 
       # Rust 单测：commands 与 lib 的 #[cfg(test)] 模块（#47/#48 新增覆盖）
       # 平台无关，随 test job 矩阵在 Windows + Linux 双平台跑
+      - name: Install Tauri Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 

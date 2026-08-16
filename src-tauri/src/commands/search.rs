@@ -8,7 +8,7 @@ use std::path::Path;
 use regex::Regex;
 
 /// 单条命中
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct SearchHit {
     /// 文件完整路径
     pub path: String,
