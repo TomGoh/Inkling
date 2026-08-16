@@ -276,6 +276,8 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.2 其他 | 全局搜索 Rust 单测 | ✅ | v2.3.5 | issue #47：为 `search.rs` 的 `search_in_workspace` 补 10 个单测（空查询/工作区不存在/大小写/非法正则/跨文件行号与路径/隐藏目录/非 UTF-8 跳过/UTF-8 列号/元字符转义/超大文件跳过），复用既有临时目录模式 |
 | 3.2 其他 | Pandoc 导出 Rust 单测 | ✅ | v2.3.5 | issue #48：`pandoc.rs` 拆「参数拼装与执行」并补 6 个单测，注入假脚本覆盖 `--resource-path` 追加/非目录忽略/pandoc 缺失/非零退出码/成功分支，无需 CI 装 pandoc |
 | — | 版本号同步 | ✅ | v2.3.5 | 同步 Cargo.toml/Cargo.lock 至 2.3.5，与 package.json/tauri.conf.json 一致（此前 Cargo 滞后在 2.2.0）；CI `test` job 增加 Rust `cargo test` 步骤 |
+| — | workspace store 领域拆分 | ✅ | v2.3.6（未发布） | issue #49：1025 行 `workspace.ts` 拆为 `src/store/workspace/` 下 4 个 Zustand slice——fileTree（工作区/目录树/按需加载）、tabs（标签页/保存/分屏/位置记忆）、bookmarks、recents，共享工具收进 shared.ts/types.ts，`workspace.ts` 仅保留 slice 组合导出，对外 API 不变 |
+| — | 巨型组件拆分 | ✅ | v2.3.6（未发布） | issue #50：Sidebar 912→128 行（抽出 WorkspaceFileTree/FileTreeNode/TreeContextMenu/RecentFiles/Bookmarks/FileOpenStatus + useRename/useNewItem/treeShared）；Editor 741→472 行（抽出 cursor-saver/table-tracker/select-all 插件 + useSourceModeTransition + editor-root-click）；App 734→281 行（抽出 Topbar/EditorTopbar/ExportMenu/ThemeMenu/SaveIndicator + SplitPane + useGlobalShortcuts/useStartupFile） |
 
 ### 8.2 发布版本
 

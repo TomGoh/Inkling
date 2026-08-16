@@ -15,9 +15,6 @@ import {
   columnResizingPlugin,
 } from "@milkdown/kit/preset/gfm";
 import { history } from "@milkdown/kit/plugin/history";
-import { Plugin, PluginKey, TextSelection, AllSelection } from "@milkdown/kit/prose/state";
-import type { EditorView } from "@milkdown/kit/prose/view";
-import { findParentNodeClosestToPos } from "@milkdown/kit/prose";
 import { nord } from "@milkdown/theme-nord";
 import "@milkdown/kit/prose/view/style/prosemirror.css";
 import "@milkdown/kit/prose/tables/style/tables.css";
@@ -28,14 +25,16 @@ import { imageView } from "./image-node-view";
 import { imageUploadPlugin } from "./image-upload";
 import { linkClickPlugin } from "./link-click";
 import { outlineTrackerPlugin } from "./outline-tracker";
-import {
-  flushAllMarkdownPublishers,
-  markdownPublisherPlugin,
-} from "./markdown-publisher";
+import { markdownPublisherPlugin } from "./markdown-publisher";
 import { formulaNumberingPlugin, formulaNumberingKey } from "./formula-numbering";
 import { editorModesPlugin } from "./editor-modes";
 import { blockDragPlugin } from "./block-drag";
 import { searchPlugin } from "./search";
+import { cursorSaverPlugin } from "./cursor-saver";
+import { tableTrackerPlugin } from "./table-tracker";
+import { selectAllPlugin } from "./select-all";
+import { useSourceModeTransition } from "./useSourceModeTransition";
+import { placeCursorForRootClick } from "./editor-root-click";
 import { useSettings } from "../../store/settings";
 import { useWorkspace } from "../../store/workspace";
 import type { EditorOutlineSnapshot } from "../../lib/outline";
@@ -62,10 +61,8 @@ import {
 import { slashMenuPlugin } from "./slash-menu";
 import { autoPairPlugin } from "./auto-pair";
 import { SourceModeEditor } from "./SourceModeEditor";
-import {
-  markdownOffsetToProsePos,
-  prosePosToMarkdownOffset,
-} from "../../lib/source-mode-cursor";
+import type { EditorView } from "@milkdown/kit/prose/view";
+import { TextSelection } from "@milkdown/kit/prose/state";
 
 interface EditorProps {
   /** 当前 Markdown 文件完整路径，用于解析相对图片路径 */
@@ -101,14 +98,6 @@ function EditorInner({
   onInTableChange,
   sourceMode = false,
 }: EditorProps) {
-  const sourceModeRef = useRef(sourceMode);
-  sourceModeRef.current = sourceMode;
-  const prevSourceModeRef = useRef(sourceMode);
-  const exitSnapshotRef = useRef<{ cursor: number; scrollTop: number } | null>(null);
-  const [enterSnapshot, setEnterSnapshot] = useState<{
-    cursor: number;
-    scrollTop: number;
-  } | null>(sourceMode ? { cursor: 0, scrollTop: 0 } : null);
   // 记录最近一次同步进编辑器的 value，避免 onChange 回写的值又触发覆盖，造成循环
   const lastSyncedRef = useRef(value);
   // 标记初始 value 是否已完成同步。publisher 在 view 创建时会把 lastSynced
@@ -150,24 +139,10 @@ function EditorInner({
           .config((ctx) => {
             ctx.set(rootCtx, container);
             ctx.set(defaultValueCtx, value);
-            // 注入选区跟踪插件：光标进入/离开表格时更新 inTable 状态
             ctx.update(prosePluginsCtx, (ps) => [
               ...ps,
-              new Plugin({
-                key: new PluginKey("inkling-table-tracker"),
-                view: () => ({
-                  update: (view) => {
-                    const found = findParentNodeClosestToPos(
-                      (n) => n.type.name === "table",
-                    )(view.state.selection.$head);
-                    const next = !!found;
-                    if (next !== inTableRef.current) {
-                      inTableRef.current = next;
-                      setInTable(next);
-                    }
-                  },
-                }),
-              }),
+              // 注入选区跟踪插件：光标进入/离开表格时更新 inTable 状态
+              tableTrackerPlugin(inTableRef, (next) => setInTable(next)),
               // Markdown 源码发布：全文序列化防抖 150ms，避免每次按键
               // 都 O(n) 序列化整篇文档（万行文档输入掉帧的主因之一）
               markdownPublisherPlugin({
@@ -199,79 +174,14 @@ function EditorInner({
               searchPlugin(),
               // [TOC] 目录自动生成：根据文档标题实时生成目录
               tocPlugin(),
-              // 编辑位置记忆：选区/滚动变化时缓存到本地，
-              // 防抖 300ms、失焦或销毁时再落 store，避免每次光标移动都
-              // 写 openTabs 触发 TabsBar 等订阅组件重渲染。
-              // 落盘绑定 filePath：destroy flush 时 activeTabPath 可能已切
-              // 到新 tab，写活跃 tab 会把旧文件状态串写过去（issue #30）。
-              new Plugin({
-                key: new PluginKey("inkling-cursor-saver"),
-                view: (view) => {
-                  let lastPos = -1;
-                  let timer: ReturnType<typeof setTimeout> | null = null;
-                  // scrollTop 用 passive 监听缓存：每个 transaction 直接读
-                  // scrollTop 会在万行文档下每次按键强制同步布局
-                  const scrollEl =
-                    (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
-                    view.dom.closest<HTMLElement>(".editor-scroll");
-                  let cachedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
-                  const flush = () => {
-                    if (timer) {
-                      clearTimeout(timer);
-                      timer = null;
-                    }
-                    if (lastPos < 0) return;
-                    saveCursorStateRef.current(filePath, lastPos, cachedScrollTop);
-                  };
-                  const schedule = (pos: number) => {
-                    lastPos = pos;
-                    if (timer) clearTimeout(timer);
-                    timer = setTimeout(flush, 300);
-                  };
-                  const onScroll = () => {
-                    cachedScrollTop = scrollEl ? scrollEl.scrollTop : 0;
-                    // 纯滚动不产生 transaction，补记一次，
-                    // 否则滚动后切 tab 会丢失阅读进度
-                    schedule(view.state.selection.head);
-                  };
-                  scrollEl?.addEventListener("scroll", onScroll, { passive: true });
-                  // 失焦立即落盘
-                  view.dom.addEventListener("blur", flush);
-                  return {
-                    update: (nextView) => {
-                      schedule(nextView.state.selection.head);
-                    },
-                    destroy: () => {
-                      flush();
-                      scrollEl?.removeEventListener("scroll", onScroll);
-                      view.dom.removeEventListener("blur", flush);
-                    },
-                  };
-                },
-              }),
+              // 编辑位置记忆：选区/滚动变化时缓存到本地
+              cursorSaverPlugin(filePath, () => saveCursorStateRef.current),
               // 斜杠菜单：输入 `/` 弹出块类型选择菜单
               slashMenuPlugin(),
               // 自动配对补全：输入括号/引号自动配对
               autoPairPlugin(),
-              // Ctrl/Cmd+A 全选整个文档（ProseMirror 默认 Mod-a 只选当前块文本）
-              new Plugin({
-                key: new PluginKey("inkling-select-all"),
-                props: {
-                  handleKeyDown: (_view, event) => {
-                    const mod = event.ctrlKey || event.metaKey;
-                    if (!mod || event.shiftKey || event.altKey) return false;
-                    if (event.key.toLowerCase() !== "a") return false;
-                    const view = _view;
-                    const { state } = view;
-                    const sel = new AllSelection(state.doc);
-                    if (!state.selection.eq(sel)) {
-                      view.dispatch(state.tr.setSelection(sel).scrollIntoView());
-                    }
-                    event.preventDefault();
-                    return true;
-                  },
-                },
-              }),
+              // Ctrl/Cmd+A 全选整个文档
+              selectAllPlugin(),
             ]);
             // 注入主题
             nord(ctx);
@@ -354,201 +264,21 @@ function EditorInner({
     }
   }, [sourceMode]);
 
-  // 进入/退出源码模式：采集光标、互斥专注/打字机、退出时灌回 PM
-  useLayoutEffect(() => {
-    const prev = prevSourceModeRef.current;
-    if (sourceMode && !prev) {
-      const settings = useSettings.getState();
-      if (settings.focusMode) settings.setFocusMode(false);
-      if (settings.typewriterMode) settings.setTypewriterMode(false);
+  // 进入/退出源代码模式：采集光标、互斥专注/打字机、退出时灌回 PM
+  const { enterSnapshot, exitSnapshotRef } = useSourceModeTransition({
+    sourceMode,
+    filePath,
+    value,
+    getEditor,
+    lastSyncedRef,
+  });
 
-      let cursor = 0;
-      let scrollTop = 0;
-      // 先 flush 防抖窗口内的待发编辑（idle 编辑器自动跳过），store 内容即事实源。
-      // 不能无条件「当场序列化」：未编辑文档的序列化结果可能与原文有规范化
-      // 差异，会被误当编辑发布、标 dirty 并改写从未编辑的文件
-      flushAllMarkdownPublishers();
-      const fresh =
-        useWorkspace.getState().openTabs.find((t) => t.path === filePath)
-          ?.content ?? value;
-      const editor = getEditor();
-      if (editor) {
-        editor.action((ctx) => {
-          const view = ctx.get(editorViewCtx);
-          const head = view.state.selection.head;
-          const textBefore = view.state.doc.textBetween(0, head, "\n", "\n");
-          cursor = prosePosToMarkdownOffset(fresh, textBefore);
-          const scrollEl =
-            (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
-            view.dom.closest(".editor-scroll");
-          scrollTop = scrollEl instanceof HTMLElement ? scrollEl.scrollTop : 0;
-        });
-      }
-      setEnterSnapshot({ cursor, scrollTop });
-      lastSyncedRef.current = fresh;
-    }
-
-    if (!sourceMode && prev) {
-      const snap = exitSnapshotRef.current;
-      exitSnapshotRef.current = null;
-      const editor = getEditor();
-      if (editor) {
-        let parseOk = false;
-        try {
-          editor.action((ctx) => {
-            const view = ctx.get(editorViewCtx);
-            const parser = ctx.get(parserCtx);
-            const newDoc = parser(value);
-            let tr = view.state.tr.replaceWith(
-              0,
-              view.state.doc.content.size,
-              newDoc.content,
-            );
-            // 重置撤销历史（issue #27）：整文档替换后旧 PM undo 步骤指向
-            // 切换前的快照，Ctrl+Z 会退回与当前 markdown 不一致的旧文档。
-            // 取 history 插件初始空状态灌入，让撤销从退出源码模式后的首次
-            // 编辑开始。history 插件 key 是 "history$" 前缀且模块私有，
-            // 通过插件实例拿到真实 key，setMeta 用同一字符串键才能被
-            // prosemirror-history 的 applyTransaction 命中。
-            // 类型断言说明：@milkdown/kit 的 Plugin 类型未声明 key 字段
-            // （prosemirror 实际有），history 的 init() 不读入参。
-            type HistoryPlugin = Plugin & {
-              key: string;
-              spec: { state?: { init: () => unknown } };
-            };
-            const historyPlugin = view.state.plugins.find((p) =>
-              (p as HistoryPlugin).key.startsWith("history"),
-            ) as HistoryPlugin | undefined;
-            if (historyPlugin?.spec.state) {
-              tr = tr.setMeta(historyPlugin.key, {
-                historyState: historyPlugin.spec.state.init(),
-              });
-            }
-            view.dispatch(tr);
-          });
-          lastSyncedRef.current = value;
-          parseOk = true;
-        } catch (e) {
-          console.error("退出源码模式时解析失败：", e);
-          void navigator.clipboard.writeText(value).catch(() => {});
-          alert(
-            "解析失败：无法切换回渲染视图。当前 Markdown 仍保留在编辑器中，并已尝试复制到剪贴板。请检查源码语法后重试。",
-          );
-          // 保留快照以便 SourceModeEditor 重新挂载（enterSnapshot 为 null 会空白）
-          setEnterSnapshot({
-            cursor: snap?.cursor ?? 0,
-            scrollTop: snap?.scrollTop ?? 0,
-          });
-          useWorkspace.getState().setTabSourceMode(true, filePath);
-          prevSourceModeRef.current = true;
-          return;
-        }
-        setEnterSnapshot(null);
-        if (parseOk && snap) {
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              const ed = getEditorRef.current();
-              if (!ed) return;
-              ed.action((ctx) => {
-                const view = ctx.get(editorViewCtx);
-                const docSize = view.state.doc.content.size;
-                const pos = markdownOffsetToProsePos(docSize, value, snap.cursor);
-                try {
-                  const sel = TextSelection.near(
-                    view.state.doc.resolve(Math.max(1, Math.min(pos, docSize - 1))),
-                    -1,
-                  );
-                  view.dispatch(view.state.tr.setSelection(sel));
-                } catch {
-                  try {
-                    view.dispatch(
-                      view.state.tr.setSelection(
-                        TextSelection.near(view.state.doc.resolve(1), 1),
-                      ),
-                    );
-                  } catch {
-                    // pos 无效时忽略
-                  }
-                }
-                const scrollEl =
-                  (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
-                  view.dom.closest(".editor-scroll");
-                if (scrollEl instanceof HTMLElement) {
-                  scrollEl.scrollTop = snap.scrollTop;
-                }
-              });
-            });
-          });
-        }
-      }
-    }
-
-    prevSourceModeRef.current = sourceMode;
-  }, [sourceMode, getEditor, value]);
-
-  /**
-   * 点击编辑器空白区域（右侧 padding / 文档下方空白）时的光标定位：
-   * - 点击落在有效内容节点上：交给 ProseMirror 自行处理
-   * - 点击落在内容区之外（右侧 padding 等）：把 x 夹到编辑器内容区内再查一次
-   *   posAtCoords，让光标落在点击 y 对应的行附近，而不是直接跳到文档最底部
-   * - 点击 y 超出所有内容（真正的文档下方空白）：在末尾追加空段落并聚焦
-   */
+  // 点击编辑器空白区域时的光标定位（详见 editor-root-click.ts）
   const handleRootMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const editor = getEditorRef.current();
-    if (!editor) return;
-    editor.action((ctx) => {
-      const view = ctx.get(editorViewCtx);
-      // 原始坐标落在可编辑内容上：交给 ProseMirror 自行处理光标定位
-      const direct = view.posAtCoords({ left: e.clientX, top: e.clientY });
-      if (direct != null) return;
-
-      // 原始坐标落在内容区之外：把 x 夹到 view.dom 内再查一次
-      let fallbackPos: number | null = null;
-      const domRect = view.dom.getBoundingClientRect();
-      if (domRect.width > 0) {
-        const clampedX = Math.max(
-          domRect.left + 1,
-          Math.min(e.clientX, domRect.right - 1),
-        );
-        const hit = view.posAtCoords({ left: clampedX, top: e.clientY });
-        if (hit != null) fallbackPos = hit.pos;
-      }
-
-      e.preventDefault();
-
-      if (fallbackPos != null) {
-        // 点击 y 对应到某一行：把光标放到该位置附近
-        try {
-          const $pos = view.state.doc.resolve(fallbackPos);
-          const sel = TextSelection.near($pos);
-          view.dispatch(view.state.tr.setSelection(sel).scrollIntoView());
-          view.focus();
-        } catch {
-          // 忽略无效位置
-        }
-        return;
-      }
-
-      // 点击 y 超出所有内容（真正的文档下方空白）：在末尾追加空段落
-      const { state } = view;
-      const doc = state.doc;
-      const lastChild = doc.lastChild;
-      let tr = state.tr;
-      let focusPos: number;
-      if (!lastChild || lastChild.type.name !== "paragraph") {
-        const para = state.schema.nodes.paragraph.create();
-        const end = doc.content.size;
-        tr = tr.insert(end, para);
-        focusPos = end + 1; // 段落内容起始
-      } else {
-        focusPos = doc.content.size - 1; // 末尾段落内末尾
-      }
-      const sel = TextSelection.near(tr.doc.resolve(focusPos), -1);
-      tr = tr.setSelection(sel).scrollIntoView();
-      view.dispatch(tr);
-      view.focus();
-    });
+    if (editor) placeCursorForRootClick(editor, e);
   };
+
   useEffect(() => {
     let lastFormula = useSettings.getState().formulaAutoNumber;
     let lastFocus = useSettings.getState().focusMode;

@@ -1,8 +1,10 @@
 import { useCallback, useRef, useState, useEffect } from "react";
-import { editorViewCtx, type Editor } from "@milkdown/kit/core";
+import type { Editor } from "@milkdown/kit/core";
+import { editorViewCtx } from "@milkdown/kit/core";
 import { MarkdownEditor } from "./components/Editor/Editor";
 import { TableToolbar } from "./components/Editor/TableToolbar";
 import { SearchPanel } from "./components/Editor/SearchPanel";
+import { SplitPane } from "./components/Editor/SplitPane";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { StatusBar } from "./components/StatusBar/StatusBar";
 import { OutlinePanel } from "./components/Outline/OutlinePanel";
@@ -12,54 +14,19 @@ import { ShortcutsHelp } from "./components/Shortcuts/ShortcutsHelp";
 import { GlobalSearchPanel } from "./components/GlobalSearch/GlobalSearchPanel";
 import { EditorErrorBoundary } from "./components/Editor/EditorErrorBoundary";
 import { ShortcutsCustomize } from "./components/Shortcuts/ShortcutsCustomize";
+import { EditorTopbar } from "./components/Topbar/EditorTopbar";
 import { useWorkspace } from "./store/workspace";
-import { useTheme } from "./store/theme";
 import { useUI } from "./store/ui";
 import { useSettings } from "./store/settings";
-import { useShortcuts, matchBinding, type ShortcutId } from "./store/shortcuts";
 import { useAutoSave } from "./lib/useAutoSave";
 import { useFileWatcher } from "./lib/useFileWatcher";
 import { useCtrlWheelZoom } from "./lib/useCtrlWheelZoom";
-import { runSourceModeSearch } from "./lib/source-mode-search";
-import { exportHTML, exportPDF, exportDocx, exportPNG, exportOutline, copyMarkdown, copyRichText } from "./lib/exporter";
-import { invoke, isTauri } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { getNewWindowFilePath } from "./lib/newWindow";
+import { useGlobalShortcuts } from "./lib/useGlobalShortcuts";
+import { useStartupFile } from "./lib/useStartupFile";
 import { type EditorOutlineSnapshot } from "./lib/outline";
 import { useOutline } from "./store/outline";
-import {
-  IconMaximize,
-  IconPanelLeft,
-  IconSettings,
-  IconHelpCircle,
-  IconDownload,
-  IconChevronDown,
-  IconSun,
-  IconMoon,
-  IconPalette,
-  IconX,
-  IconArrowLeftRight,
-  IconCode,
-} from "./components/icons";
+import { IconPanelLeft } from "./components/icons";
 import "./App.css";
-
-function SaveIndicator() {
-  const dirty = useWorkspace((s) => s.dirty);
-  const saving = useWorkspace((s) => s.saving);
-  const saveError = useWorkspace((s) => s.saveError);
-  const lastSavedAt = useWorkspace((s) => s.lastSavedAt);
-
-  if (saveError) {
-    return <span className="save-indicator save-error">保存失败：{saveError}</span>;
-  }
-  if (saving) return <span className="save-indicator">保存中…</span>;
-  if (dirty) return <span className="save-indicator">未保存</span>;
-  if (lastSavedAt) {
-    const t = new Date(lastSavedAt).toLocaleTimeString();
-    return <span className="save-indicator save-ok">已保存 {t}</span>;
-  }
-  return <span className="save-indicator" />;
-}
 
 function App() {
   const currentFile = useWorkspace((s) => s.currentFile);
@@ -67,8 +34,6 @@ function App() {
   // 分屏：右侧第二面板
   const splitFile = useWorkspace((s) => s.splitFile);
   const splitContent = useWorkspace((s) => s.splitContent);
-  const splitClose = useWorkspace((s) => s.splitClose);
-  const splitSwap = useWorkspace((s) => s.splitSwap);
   const toggleTabSourceMode = useWorkspace((s) => s.toggleTabSourceMode);
   const mainSourceMode = useWorkspace((s) => {
     if (!s.activeTabPath) return false;
@@ -122,10 +87,6 @@ function App() {
     [],
   );
 
-  // 导出菜单展开状态
-  const [exportOpen, setExportOpen] = useState(false);
-  // 主题菜单展开状态
-  const [themeOpen, setThemeOpen] = useState(false);
   // 偏好设置面板展开状态
   const [settingsOpen, setSettingsOpen] = useState(false);
   // 查找替换面板展开状态
@@ -139,21 +100,12 @@ function App() {
   // 快捷键自定义面板展开状态
   const [customizeOpen, setCustomizeOpen] = useState(false);
 
-  // 主题状态
-  const themeMode = useTheme((s) => s.mode);
-  const setThemeMode = useTheme((s) => s.setMode);
-  const loadCustomCSS = useTheme((s) => s.loadCustomCSS);
-  const clearCustomCSS = useTheme((s) => s.clearCustomCSS);
-  const customCSSPath = useTheme((s) => s.customCSSPath);
-
   // UI 可见性状态
   const sidebarVisible = useUI((s) => s.sidebarVisible);
   const outlineVisible = useUI((s) => s.outlineVisible);
   const toggleSidebar = useUI((s) => s.toggleSidebar);
-  const toggleOutline = useUI((s) => s.toggleOutline);
   const zenMode = useUI((s) => s.zenMode);
   const toggleZenMode = useUI((s) => s.toggleZenMode);
-  const setZenMode = useUI((s) => s.setZenMode);
 
   // 编辑器缩放倍率（Ctrl/Cmd + 滚轮调整，Ctrl/Cmd+0 重置）
   const editorZoom = useSettings((s) => s.editorZoom);
@@ -177,175 +129,27 @@ function App() {
   useAutoSave();
   // 启用外部文件修改监听（仅桌面端）
   useFileWatcher();
-
-  // 启动时打开目标文件，三种来源：
-  // 1. 多窗口派生：URL 查询参数 inklingFile（由「在新窗口打开」创建的窗口）
-  // 2. 文件关联双击（首次启动）：Rust 端从 argv 提取，前端就绪后 take_pending_file 拉取
-  // 3. 单实例转发（程序已运行时双击 .md）：Rust 端 emit open-file 事件，定向到主窗口
-  useEffect(() => {
-    if (!isTauri()) return;
-    const open = useWorkspace.getState().openFileStandalone;
-
-    // 派生窗口只处理自身的派生目标，不参与 pending / 单实例（避免与主窗口重复打开）
-    const winTarget = getNewWindowFilePath();
-    if (winTarget) {
-      void open(winTarget).catch(() => {});
-      return;
-    }
-
-    // 主窗口：拉取首次启动的待打开文件
-    let cancelled = false;
-    invoke<string | null>("take_pending_file").then((p) => {
-      if (!cancelled && p) void open(p).catch(() => {});
-    });
-
-    // 主窗口：监听单实例转发的双击打开事件
-    const unlisten = listen<string>("open-file", (e) => {
-      if (!cancelled) void open(e.payload).catch(() => {});
-    });
-
-    return () => {
-      cancelled = true;
-      void unlisten.then((fn) => fn());
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // 全局快捷键：通过 useShortcuts store 读取用户自定义绑定
-  // 编辑器内 Milkdown 预设的快捷键（加粗等）不在自定义范围
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      // F11 切换禅模式（非修饰键，独立处理）
-      if (e.key === "F11") {
-        e.preventDefault();
-        toggleZenMode();
-        return;
-      }
-      // 禅模式下 Esc 退出
-      if (e.key === "Escape" && useUI.getState().zenMode) {
-        setZenMode(false);
-        return;
-      }
-      const mod = e.ctrlKey || e.metaKey;
-      if (!mod) return;
-      // Ctrl/Cmd+N 新建未命名草稿（不关联磁盘文件，Ctrl+S 时另存为）
-      if (!e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") {
-        e.preventDefault();
-        pendingFocusRef.current = true;
-        useWorkspace.getState().newTab();
-        return;
-      }
-      // Ctrl/Cmd+Shift+F 全局搜索（优先于当前文件查找）
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "f") {
-        e.preventDefault();
-        setGlobalSearchOpen(true);
-        return;
-      }
-      // Ctrl/Cmd+R 打开替换面板（Typora 标准：展开替换框，可逐个或全部替换）
-      if (!e.shiftKey && !e.altKey && e.key.toLowerCase() === "r") {
-        e.preventDefault();
-        const tabPath = useWorkspace.getState().activeTabPath;
-        if (tabPath && useWorkspace.getState().getTabSourceMode(tabPath)) {
-          // 源码模式：打开 CM 内置替换面板（issue #29）
-          runSourceModeSearch(tabPath, { replace: true });
-          return;
-        }
-        setSearchShowReplace(true);
-        setSearchOpen(true);
-        return;
-      }
-      // Ctrl/Cmd+K 插入链接（Typora 标准）：选中文本加 link mark，无选中则插入 [文本](url)
-      if (!e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        const tabPath = useWorkspace.getState().activeTabPath;
-        if (tabPath && useWorkspace.getState().getTabSourceMode(tabPath)) {
-          return;
-        }
-        const editor = getEditorRef.current?.();
-        if (editor) {
-          editor.action((ctx) => {
-            const view = ctx.get(editorViewCtx);
-            const { state } = view;
-            const { from, to, empty } = state.selection;
-            const linkMark = state.schema.marks.link;
-            if (!linkMark) return;
-            const url = window.prompt("输入链接地址：", "https://");
-            if (!url) return;
-            if (empty) {
-              const text = window.prompt("输入链接文本（可留空）：", url) ?? url;
-              const node = state.schema.text(text || url, [linkMark.create({ href: url })]);
-              view.dispatch(state.tr.replaceSelectionWith(node));
-            } else {
-              view.dispatch(state.tr.addMark(from, to, linkMark.create({ href: url })));
-            }
-            view.focus();
-          });
-        }
-        return;
-      }
-      // Ctrl/Cmd+Alt+0 转普通段落（Typora 标准：清除块格式，标题/引用/列表等转回段落）
-      if (e.altKey && !e.shiftKey && e.key === "0") {
-        e.preventDefault();
-        const tabPath = useWorkspace.getState().activeTabPath;
-        if (tabPath && useWorkspace.getState().getTabSourceMode(tabPath)) {
-          return;
-        }
-        const editor = getEditorRef.current?.();
-        if (editor) {
-          editor.action((ctx) => {
-            const view = ctx.get(editorViewCtx);
-            const { state } = view;
-            const para = state.schema.nodes.paragraph;
-            if (!para) return;
-            const { $from, $to } = state.selection;
-            const range = $from.blockRange($to);
-            if (!range) return;
-            view.dispatch(state.tr.setBlockType(range.start, range.end, para).scrollIntoView());
-            view.focus();
-          });
-        }
-        return;
-      }
-      // Ctrl/Cmd+0 重置编辑器缩放到 100%（浏览器/Typora 标准）
-      if (!e.shiftKey && !e.altKey && e.key === "0") {
-        e.preventDefault();
-        useSettings.getState().resetEditorZoom();
-        return;
-      }
-      const store = useShortcuts.getState();
-      const tryMatch = (id: ShortcutId) => matchBinding(store.getBinding(id), e);
-      if (tryMatch("find")) {
-        e.preventDefault();
-        const tabPath = useWorkspace.getState().activeTabPath;
-        if (tabPath && useWorkspace.getState().getTabSourceMode(tabPath)) {
-          // 源码模式：打开 CM 内置查找面板（issue #29）
-          runSourceModeSearch(tabPath, { replace: false });
-          return;
-        }
-        setSearchOpen(true);
-      } else if (tryMatch("toggleSidebar")) {
-        e.preventDefault();
-        toggleSidebar();
-      } else if (tryMatch("toggleOutline")) {
-        e.preventDefault();
-        toggleOutline();
-      } else if (tryMatch("showShortcuts")) {
-        e.preventDefault();
-        setShortcutsOpen((v) => !v);
-      } else if (tryMatch("openSettings")) {
-        e.preventDefault();
-        setSettingsOpen(true);
-      } else if (tryMatch("toggleSourceMode")) {
-        e.preventDefault();
-        toggleTabSourceMode();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [toggleSidebar, toggleOutline, toggleZenMode, setZenMode, toggleTabSourceMode]);
+  // 启动时打开目标文件（派生窗口 / 文件关联 / 单实例转发）
+  useStartupFile();
 
   // 稳定引用：避免 OutlinePanel 列表项 memo 因 getEditor 身份变化失效
   const getEditor = useCallback(() => getEditorRef.current?.(), []);
+
+  // 全局快捷键（自定义绑定经 useShortcuts store 生效）
+  useGlobalShortcuts({
+    onNewTab: () => {
+      pendingFocusRef.current = true;
+      useWorkspace.getState().newTab();
+    },
+    openGlobalSearch: () => setGlobalSearchOpen(true),
+    openFindPanel: (showReplace) => {
+      setSearchShowReplace(showReplace);
+      setSearchOpen(true);
+    },
+    toggleShortcutsHelp: () => setShortcutsOpen((v) => !v),
+    openSettings: () => setSettingsOpen(true),
+    getEditor,
+  });
 
   // 禅模式：仅渲染编辑器，隐藏所有 UI（侧边栏/大纲/标签页/工具栏/状态栏）
   if (zenMode && currentFile) {
@@ -380,235 +184,16 @@ function App() {
         {currentFile ? (
           <>
             <TabsBar />
-            <div className="editor-topbar">
-              <span className="topbar-file" title={currentFile.startsWith("untitled-") ? "未命名草稿（Ctrl+S 另存为）" : currentFile}>
-                {currentFile.startsWith("untitled-") ? "未命名" : currentFile.split(/[\\/]/).pop()}
-              </span>
-              <div className="topbar-actions">
-                <SaveIndicator />
-                <button
-                  className={`topbar-btn${mainSourceMode ? " topbar-btn-active" : ""}`}
-                  onClick={() => toggleTabSourceMode()}
-                  title="源代码模式 (Ctrl/Cmd+Alt+S)"
-                  aria-pressed={mainSourceMode}
-                >
-                  <IconCode />
-                </button>
-                <button
-                  className="topbar-btn"
-                  onClick={toggleZenMode}
-                  title="禅模式 (F11)"
-                >
-                  <IconMaximize />
-                </button>
-                <button
-                  className="topbar-btn"
-                  onClick={toggleSidebar}
-                  title="切换侧边栏 (Ctrl/Cmd+\\)"
-                >
-                  <IconPanelLeft />
-                </button>
-                <div className="export-menu">
-                  <button
-                    className="topbar-btn topbar-btn-label"
-                    onClick={() => {
-                      setExportOpen((v) => !v);
-                      setThemeOpen(false);
-                    }}
-                    title="导出"
-                  >
-                    <IconDownload size={15} />
-                    导出
-                    <IconChevronDown size={13} />
-                  </button>
-                  {exportOpen && (
-                    <>
-                      <div
-                        className="export-backdrop"
-                        onClick={() => setExportOpen(false)}
-                      />
-                      <div className="export-dropdown">
-                        <button
-                          className="export-item"
-                          onClick={() => {
-                            setExportOpen(false);
-                            if (mainSourceMode) {
-                              alert("请先退出源代码模式再导出富文本格式");
-                              return;
-                            }
-                            void copyRichText(getEditor).then((ok) => {
-                              if (!ok) alert("复制失败，请检查浏览器剪贴板权限");
-                            });
-                          }}
-                        >
-                          复制为富文本
-                        </button>
-                        <button
-                          className="export-item"
-                          onClick={() => {
-                            setExportOpen(false);
-                            void copyMarkdown().then((ok) => {
-                              if (!ok) alert("复制失败，请检查浏览器剪贴板权限");
-                            });
-                          }}
-                        >
-                          复制为 Markdown
-                        </button>
-                        <div className="export-sep" />
-                        <button
-                          className="export-item"
-                          onClick={() => {
-                            setExportOpen(false);
-                            if (mainSourceMode) {
-                              alert("请先退出源代码模式再导出富文本格式");
-                              return;
-                            }
-                            void exportHTML(getEditor);
-                          }}
-                        >
-                          导出 HTML
-                        </button>
-                        <button
-                          className="export-item"
-                          onClick={() => {
-                            setExportOpen(false);
-                            if (mainSourceMode) {
-                              alert("请先退出源代码模式再导出富文本格式");
-                              return;
-                            }
-                            void exportDocx().then((r) => {
-                              if (!r.ok && r.error) alert(r.error);
-                            });
-                          }}
-                        >
-                          导出 Word（.docx，Pandoc）
-                        </button>
-                        <button
-                          className="export-item"
-                          onClick={() => {
-                            setExportOpen(false);
-                            if (mainSourceMode) {
-                              alert("请先退出源代码模式再导出富文本格式");
-                              return;
-                            }
-                            void exportPDF(getEditor);
-                          }}
-                        >
-                          导出 PDF（打印）
-                        </button>
-                        <button
-                          className="export-item"
-                          onClick={() => {
-                            setExportOpen(false);
-                            if (mainSourceMode) {
-                              alert("请先退出源代码模式再导出富文本格式");
-                              return;
-                            }
-                            void exportPNG(getEditor);
-                          }}
-                        >
-                          导出长图（PNG）
-                        </button>
-                        <button
-                          className="export-item"
-                          onClick={() => {
-                            setExportOpen(false);
-                            void exportOutline();
-                          }}
-                        >
-                          导出大纲（仅标题）
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-                <div className="export-menu">
-                  <button
-                    className="topbar-btn topbar-btn-label"
-                    onClick={() => {
-                      setThemeOpen((v) => !v);
-                      setExportOpen(false);
-                    }}
-                    title="主题"
-                  >
-                    {themeMode === "dark" ? (
-                      <IconMoon size={15} />
-                    ) : (
-                      <IconSun size={15} />
-                    )}
-                    {themeMode === "dark" ? "深色" : "浅色"}
-                    <IconChevronDown size={13} />
-                  </button>
-                  {themeOpen && (
-                    <>
-                      <div
-                        className="export-backdrop"
-                        onClick={() => setThemeOpen(false)}
-                      />
-                      <div className="export-dropdown">
-                        <button
-                          className={`export-item${themeMode === "light" ? " export-item-active" : ""}`}
-                          onClick={() => {
-                            setThemeMode("light");
-                            setThemeOpen(false);
-                          }}
-                        >
-                          <IconSun size={14} />
-                          浅色
-                        </button>
-                        <button
-                          className={`export-item${themeMode === "dark" ? " export-item-active" : ""}`}
-                          onClick={() => {
-                            setThemeMode("dark");
-                            setThemeOpen(false);
-                          }}
-                        >
-                          <IconMoon size={14} />
-                          深色
-                        </button>
-                        <div className="export-sep" />
-                        <button
-                          className="export-item"
-                          onClick={() => {
-                            setThemeOpen(false);
-                            void loadCustomCSS();
-                          }}
-                        >
-                          <IconPalette size={14} />
-                          加载自定义 CSS…
-                        </button>
-                        {customCSSPath && (
-                          <button
-                            className="export-item export-item-muted"
-                            onClick={() => {
-                              clearCustomCSS();
-                              setThemeOpen(false);
-                            }}
-                          >
-                            <IconX size={14} />
-                            清除自定义 CSS
-                          </button>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-                <button
-                  className="topbar-btn"
-                  onClick={() => setShortcutsOpen(true)}
-                  title="快捷键 (Ctrl/Cmd+/)"
-                >
-                  <IconHelpCircle />
-                </button>
-                <button
-                  className="topbar-btn"
-                  onClick={() => setSettingsOpen(true)}
-                  title="偏好设置 (Ctrl/Cmd+,)"
-                >
-                  <IconSettings />
-                </button>
-              </div>
-            </div>
+            <EditorTopbar
+              currentFile={currentFile}
+              sourceMode={mainSourceMode}
+              onToggleSourceMode={() => toggleTabSourceMode()}
+              onToggleZenMode={toggleZenMode}
+              onToggleSidebar={toggleSidebar}
+              onOpenShortcuts={() => setShortcutsOpen(true)}
+              onOpenSettings={() => setSettingsOpen(true)}
+              getEditor={getEditor}
+            />
             {!mainSourceMode && (
               <TableToolbar getEditor={getEditor} inTable={mainInTable} />
             )}
@@ -638,53 +223,14 @@ function App() {
                 </EditorErrorBoundary>
               </div>
               {splitFile && (
-                <div className="split-pane">
-                  <div className="split-pane-header">
-                    <span className="topbar-file" title={splitFile}>
-                      {splitFile.split(/[\\/]/).pop()}
-                    </span>
-                    <div className="topbar-actions">
-                      <button
-                        className={`topbar-btn${splitSourceMode ? " topbar-btn-active" : ""}`}
-                        onClick={() => toggleTabSourceMode(splitFile)}
-                        title="源代码模式 (Ctrl/Cmd+Alt+S)"
-                        aria-pressed={splitSourceMode}
-                      >
-                        <IconCode />
-                      </button>
-                      <button
-                        className="topbar-btn"
-                        onClick={splitSwap}
-                        title="左右交换"
-                      >
-                        <IconArrowLeftRight />
-                      </button>
-                      <button
-                        className="topbar-btn"
-                        onClick={splitClose}
-                        title="关闭分屏"
-                      >
-                        <IconX />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="editor-scroll editor-scroll-split-pane" style={{ zoom: editorZoom }}>
-                    <EditorErrorBoundary fileName={splitFile}>
-                      <MarkdownEditor
-                        key={splitFile}
-                        filePath={splitFile}
-                        value={splitContent}
-                        onChange={(md) =>
-                          useWorkspace
-                            .getState()
-                            .setSplitContentFor(splitFile, md)
-                        }
-                        onReady={handleSplitEditorReady}
-                        sourceMode={splitSourceMode}
-                      />
-                    </EditorErrorBoundary>
-                  </div>
-                </div>
+                <SplitPane
+                  file={splitFile}
+                  content={splitContent}
+                  sourceMode={splitSourceMode}
+                  editorZoom={editorZoom}
+                  onToggleSourceMode={() => toggleTabSourceMode(splitFile)}
+                  onReady={handleSplitEditorReady}
+                />
               )}
             </div>
           </>

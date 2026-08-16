@@ -1,0 +1,187 @@
+// 进入/退出源码模式的双向切换逻辑：
+// - 进入：采集 WYSIWYG 光标与滚动位置，互斥专注/打字机模式
+// - 退出：把源码灌回 ProseMirror，重置撤销历史，恢复光标与滚动位置
+// - 解析失败：回退源码模式并把内容复制到剪贴板，避免白屏
+import { useLayoutEffect, useRef, useState } from "react";
+import type { Editor } from "@milkdown/kit/core";
+import { editorViewCtx, parserCtx } from "@milkdown/kit/core";
+import { TextSelection } from "@milkdown/kit/prose/state";
+import type { Plugin } from "@milkdown/kit/prose/state";
+import type { EditorView } from "@milkdown/kit/prose/view";
+import {
+  flushAllMarkdownPublishers,
+} from "./markdown-publisher";
+import { useSettings } from "../../store/settings";
+import { useWorkspace } from "../../store/workspace";
+import {
+  markdownOffsetToProsePos,
+  prosePosToMarkdownOffset,
+} from "../../lib/source-mode-cursor";
+
+export interface CursorScrollSnapshot {
+  cursor: number;
+  scrollTop: number;
+}
+
+interface SourceModeTransitionOptions {
+  sourceMode: boolean;
+  filePath: string;
+  value: string;
+  getEditor: () => Editor | undefined;
+  /** 与编辑器 publisher 共享的最近同步值 ref */
+  lastSyncedRef: { current: string };
+}
+
+/**
+ * 管理源码模式的进入/退出过渡。
+ * 返回 enterSnapshot（供 SourceModeEditor 挂载时恢复光标）
+ * 与 exitSnapshotRef（供其卸载时回写退出快照）。
+ */
+export function useSourceModeTransition({
+  sourceMode,
+  filePath,
+  value,
+  getEditor,
+  lastSyncedRef,
+}: SourceModeTransitionOptions) {
+  const prevSourceModeRef = useRef(sourceMode);
+  const exitSnapshotRef = useRef<CursorScrollSnapshot | null>(null);
+  const [enterSnapshot, setEnterSnapshot] = useState<CursorScrollSnapshot | null>(
+    sourceMode ? { cursor: 0, scrollTop: 0 } : null,
+  );
+  const getEditorRef = useRef(getEditor);
+  getEditorRef.current = getEditor;
+
+  useLayoutEffect(() => {
+    const prev = prevSourceModeRef.current;
+    if (sourceMode && !prev) {
+      const settings = useSettings.getState();
+      if (settings.focusMode) settings.setFocusMode(false);
+      if (settings.typewriterMode) settings.setTypewriterMode(false);
+
+      let cursor = 0;
+      let scrollTop = 0;
+      // 先 flush 防抖窗口内的待发编辑（idle 编辑器自动跳过），store 内容即事实源。
+      // 不能无条件「当场序列化」：未编辑文档的序列化结果可能与原文有规范化
+      // 差异，会被误当编辑发布、标 dirty 并改写从未编辑的文件
+      flushAllMarkdownPublishers();
+      const fresh =
+        useWorkspace.getState().openTabs.find((t) => t.path === filePath)
+          ?.content ?? value;
+      const editor = getEditor();
+      if (editor) {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const head = view.state.selection.head;
+          const textBefore = view.state.doc.textBetween(0, head, "\n", "\n");
+          cursor = prosePosToMarkdownOffset(fresh, textBefore);
+          const scrollEl =
+            (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
+            view.dom.closest(".editor-scroll");
+          scrollTop = scrollEl instanceof HTMLElement ? scrollEl.scrollTop : 0;
+        });
+      }
+      setEnterSnapshot({ cursor, scrollTop });
+      lastSyncedRef.current = fresh;
+    }
+
+    if (!sourceMode && prev) {
+      const snap = exitSnapshotRef.current;
+      exitSnapshotRef.current = null;
+      const editor = getEditor();
+      if (editor) {
+        let parseOk = false;
+        try {
+          editor.action((ctx) => {
+            const view = ctx.get(editorViewCtx);
+            const parser = ctx.get(parserCtx);
+            const newDoc = parser(value);
+            let tr = view.state.tr.replaceWith(
+              0,
+              view.state.doc.content.size,
+              newDoc.content,
+            );
+            // 重置撤销历史（issue #27）：整文档替换后旧 PM undo 步骤指向
+            // 切换前的快照，Ctrl+Z 会退回与当前 markdown 不一致的旧文档。
+            // 取 history 插件初始空状态灌入，让撤销从退出源码模式后的首次
+            // 编辑开始。history 插件 key 是 "history$" 前缀且模块私有，
+            // 通过插件实例拿到真实 key，setMeta 用同一字符串键才能被
+            // prosemirror-history 的 applyTransaction 命中。
+            // 类型断言说明：@milkdown/kit 的 Plugin 类型未声明 key 字段
+            // （prosemirror 实际有），history 的 init() 不读入参。
+            type HistoryPlugin = Plugin & {
+              key: string;
+              spec: { state?: { init: () => unknown } };
+            };
+            const historyPlugin = view.state.plugins.find((p) =>
+              (p as HistoryPlugin).key.startsWith("history"),
+            ) as HistoryPlugin | undefined;
+            if (historyPlugin?.spec.state) {
+              tr = tr.setMeta(historyPlugin.key, {
+                historyState: historyPlugin.spec.state.init(),
+              });
+            }
+            view.dispatch(tr);
+          });
+          lastSyncedRef.current = value;
+          parseOk = true;
+        } catch (e) {
+          console.error("退出源码模式时解析失败：", e);
+          void navigator.clipboard.writeText(value).catch(() => {});
+          alert(
+            "解析失败：无法切换回渲染视图。当前 Markdown 仍保留在编辑器中，并已尝试复制到剪贴板。请检查源码语法后重试。",
+          );
+          // 保留快照以便 SourceModeEditor 重新挂载（enterSnapshot 为 null 会空白）
+          setEnterSnapshot({
+            cursor: snap?.cursor ?? 0,
+            scrollTop: snap?.scrollTop ?? 0,
+          });
+          useWorkspace.getState().setTabSourceMode(true, filePath);
+          prevSourceModeRef.current = true;
+          return;
+        }
+        setEnterSnapshot(null);
+        if (parseOk && snap) {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              const ed = getEditorRef.current();
+              if (!ed) return;
+              ed.action((ctx) => {
+                const view = ctx.get(editorViewCtx);
+                const docSize = view.state.doc.content.size;
+                const pos = markdownOffsetToProsePos(docSize, value, snap.cursor);
+                try {
+                  const sel = TextSelection.near(
+                    view.state.doc.resolve(Math.max(1, Math.min(pos, docSize - 1))),
+                    -1,
+                  );
+                  view.dispatch(view.state.tr.setSelection(sel));
+                } catch {
+                  try {
+                    view.dispatch(
+                      view.state.tr.setSelection(
+                        TextSelection.near(view.state.doc.resolve(1), 1),
+                      ),
+                    );
+                  } catch {
+                    // pos 无效时忽略
+                  }
+                }
+                const scrollEl =
+                  (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
+                  view.dom.closest(".editor-scroll");
+                if (scrollEl instanceof HTMLElement) {
+                  scrollEl.scrollTop = snap.scrollTop;
+                }
+              });
+            });
+          });
+        }
+      }
+    }
+
+    prevSourceModeRef.current = sourceMode;
+  }, [sourceMode, getEditor, value, filePath, lastSyncedRef]);
+
+  return { enterSnapshot, exitSnapshotRef };
+}
