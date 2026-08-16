@@ -217,11 +217,43 @@ jobs:
           path: linux-installers
           if-no-files-found: error
 
+  # 发版前置校验：仅 tag 推送时执行，拦截「忘更文档 / 版本号不同步」的发版
+  # 平时 push main / PR 不跑，不影响日常开发提交
+  release-guard:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history + tags)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      # 校验 package.json / tauri.conf.json / Cargo.toml / Cargo.lock 四处版本一致，
+      # 且 tag 名与代码版本一致
+      - name: Check version consistency
+        run: node scripts/check-version.mjs --tag=${{ github.ref_name }}
+
+      # 校验自上一个 tag 以来的变更：有代码变更则 CHANGELOG/README/docs 至少一处已更新
+      - name: Check docs updated since last release
+        run: |
+          PREV_TAG=$(git tag --sort=-v:refname --list 'v*' | grep -v "^${{ github.ref_name }}$" | head -n 1 || true)
+          if [ -z "$PREV_TAG" ]; then
+            echo "无历史 tag，跳过文档同步校验"
+          else
+            echo "上一个 tag：$PREV_TAG"
+            node scripts/check-docs-updated.mjs --base="$PREV_TAG" --head=HEAD
+          fi
+
   # 发布：tag 推送时下载 Windows + Linux 全部产物，附加到同一个 GitHub Release
   # 独立 job 避免两个 build job 并发创建 Release 的竞争
   release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-windows, build-linux]
+    needs: [build-windows, build-linux, release-guard]
     runs-on: ubuntu-latest
     steps:
       - name: Download all build artifacts

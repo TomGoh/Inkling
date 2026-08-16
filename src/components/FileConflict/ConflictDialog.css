@@ -1,0 +1,232 @@
+/* 外部文件变动冲突对话框（issue #58） */
+
+.conflict-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(31, 35, 40, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 110; /* 高于设置面板等普通模态 */
+  animation: conflict-backdrop-in 0.15s var(--ease, ease);
+}
+
+@keyframes conflict-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.conflict-dialog {
+  width: 460px;
+  max-width: 92vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated, #ffffff);
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: var(--radius-lg, 10px);
+  box-shadow: var(--shadow-lg, 0 8px 28px rgba(0, 0, 0, 0.2));
+  overflow: hidden;
+  animation: conflict-modal-in 0.18s var(--ease, ease);
+}
+
+@keyframes conflict-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.conflict-dialog-diff {
+  width: 720px;
+  height: 70vh;
+}
+
+.conflict-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border, #d0d7de);
+  font-weight: 600;
+}
+
+.conflict-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent, #0969da);
+}
+
+.conflict-body {
+  padding: 14px 16px 6px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text, #1f2328);
+}
+
+.conflict-body strong {
+  color: var(--danger, #cf222e);
+}
+
+.conflict-hint {
+  color: var(--text-muted, #656d76);
+  font-size: 12px;
+}
+
+.conflict-error {
+  margin: 0 16px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md, 6px);
+  background: rgba(207, 34, 46, 0.08);
+  color: var(--danger, #cf222e);
+  font-size: 12px;
+}
+
+.conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px 16px;
+}
+
+.conflict-btn {
+  flex: 1 1 auto;
+  min-width: 140px;
+  padding: 7px 14px;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: var(--radius-md, 6px);
+  background: var(--bg, #ffffff);
+  color: var(--text, #1f2328);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.12s var(--ease, ease), border-color 0.12s var(--ease, ease);
+}
+
+.conflict-btn:hover:not(:disabled) {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+  border-color: var(--accent, #0969da);
+}
+
+.conflict-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.conflict-btn-primary {
+  background: var(--accent, #0969da);
+  border-color: var(--accent, #0969da);
+  color: #ffffff;
+}
+
+.conflict-btn-primary:hover:not(:disabled) {
+  background: var(--accent-strong, #0757b5);
+  border-color: var(--accent-strong, #0757b5);
+}
+
+.conflict-btn-muted {
+  color: var(--text-muted, #656d76);
+}
+
+/* 差异对比视图 */
+.conflict-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border, #d0d7de);
+  font-size: 12px;
+}
+
+.conflict-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted, #656d76);
+}
+
+.conflict-legend::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.conflict-legend-local::before {
+  background: rgba(207, 34, 46, 0.25);
+  border: 1px solid rgba(207, 34, 46, 0.5);
+}
+
+.conflict-legend-disk::before {
+  background: rgba(26, 127, 55, 0.25);
+  border: 1px solid rgba(26, 127, 55, 0.5);
+}
+
+.conflict-changed-count {
+  margin-left: auto;
+  color: var(--text-muted, #656d76);
+}
+
+.conflict-diff-body {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 0;
+  font-family: var(--font-mono, ui-monospace, "Cascadia Code", Consolas, monospace);
+  font-size: 12px;
+  line-height: 1.6;
+  background: var(--bg-inset, rgba(129, 139, 152, 0.06));
+}
+
+.conflict-diff-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted, #656d76);
+}
+
+.conflict-diff-line {
+  display: flex;
+  align-items: flex-start;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 0 12px;
+}
+
+.conflict-diff-sign {
+  flex: 0 0 auto;
+  width: 18px;
+  user-select: none;
+  font-weight: 700;
+}
+
+.conflict-diff-text {
+  flex: 1;
+}
+
+.conflict-diff-remove {
+  background: rgba(207, 34, 46, 0.12);
+  color: var(--danger, #cf222e);
+}
+
+.conflict-diff-add {
+  background: rgba(26, 127, 55, 0.12);
+  color: var(--success, #1a7f37);
+}
+
+/* 深色主题微调 */
+[data-theme="dark"] .conflict-diff-remove {
+  color: #f4a3ab;
+}
+
+[data-theme="dark"] .conflict-diff-add {
+  color: #7ee29b;
+}

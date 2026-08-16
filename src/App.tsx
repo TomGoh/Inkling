@@ -13,6 +13,7 @@ import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import { ShortcutsHelp } from "./components/Shortcuts/ShortcutsHelp";
 import { GlobalSearchPanel } from "./components/GlobalSearch/GlobalSearchPanel";
 import { EditorErrorBoundary } from "./components/Editor/EditorErrorBoundary";
+import { ConflictDialog } from "./components/FileConflict/ConflictDialog";
 import { ShortcutsCustomize } from "./components/Shortcuts/ShortcutsCustomize";
 import { EditorTopbar } from "./components/Topbar/EditorTopbar";
 import { useWorkspace } from "./store/workspace";
@@ -273,6 +274,7 @@ function App() {
           onClose={() => setGlobalSearchOpen(false)}
         />
       )}
+      <ConflictDialog />
     </main>
   );
 }

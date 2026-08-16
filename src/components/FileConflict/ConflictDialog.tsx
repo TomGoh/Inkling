@@ -1,0 +1,171 @@
+// 外部文件变动冲突对话框
+// 场景：useFileWatcher 检测到磁盘文件被外部修改（Git 切分支/网盘同步等），
+// 且本地有未保存修改。直接 confirm 二选一太简陋：
+// - 选「取消」后继续保存会静默覆盖外部修改，无备份无感知
+// 本组件提供三选项（对齐 issue #58 建议）：
+// 1. 保留本地并另存副本 → 本地内容写入 *.backup.md，编辑器重载磁盘最新
+// 2. 丢弃本地修改 → 直接重载磁盘最新
+// 3. 查看差异 → 行级 Diff 视图，知情后再决定（另存副本/用本地覆盖磁盘/继续编辑）
+import { useMemo, useState } from "react";
+import { useConflict } from "../../store/conflict";
+import { useWorkspace } from "../../store/workspace";
+import { writeTextFile, listDir } from "../../lib/fs";
+import { diffLines, nextBackupPath } from "../../lib/diff";
+import { IconAlertTriangle, IconX } from "../icons";
+import "./ConflictDialog.css";
+
+function baseName(path: string): string {
+  return path.split(/[\\/]/).pop() || path;
+}
+
+/** 把本地内容另存为同目录副本文件，返回副本路径 */
+async function saveLocalBackup(
+  filePath: string,
+  localContent: string,
+): Promise<string> {
+  // 列出同目录已有文件，生成不冲突的 backup 路径（一次 IO 拿全量判断）
+  const dir = filePath.replace(/[\\/][^\\/]+$/, "");
+  const existing = new Set<string>();
+  try {
+    const node = await listDir(dir);
+    for (const child of node.children) existing.add(child.path.toLowerCase());
+  } catch {
+    // 列目录失败（如单文件模式目录已移除）：退化为无冲突检测的直接命名
+  }
+  const backupPath = nextBackupPath(filePath, existing);
+  await writeTextFile(backupPath, localContent);
+  return backupPath;
+}
+
+export function ConflictDialog() {
+  const conflict = useConflict((s) => s.conflict);
+  const dismiss = useConflict((s) => s.dismiss);
+  const openFile = useWorkspace((s) => s.openFile);
+  const [showDiff, setShowDiff] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const diff = useMemo(() => {
+    if (!conflict || !showDiff) return null;
+    return diffLines(conflict.localContent, conflict.diskContent);
+  }, [conflict, showDiff]);
+
+  if (!conflict) return null;
+  const { filePath, localContent } = conflict;
+
+  const wrap = (fn: () => Promise<void>) => async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+      dismiss();
+      setShowDiff(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  /** 选项 1：本地内容另存副本，编辑器重载磁盘最新 */
+  const handleBackup = wrap(async () => {
+    const backupPath = await saveLocalBackup(filePath, localContent);
+    await openFile(filePath);
+    alert(`本地修改已另存为副本：\n${backupPath}\n\n编辑器已重载磁盘最新版本。`);
+  });
+
+  /** 选项 2：丢弃本地修改，重载磁盘最新 */
+  const handleReload = wrap(async () => {
+    await openFile(filePath);
+  });
+
+  if (showDiff && diff) {
+    const changed = diff.filter((l) => l.op !== "equal");
+    return (
+      <div className="conflict-overlay" role="dialog" aria-modal="true" aria-label="文件冲突差异对比">
+        <div className="conflict-dialog conflict-dialog-diff">
+          <div className="conflict-header">
+            <span className="conflict-title">
+              <IconAlertTriangle size={16} />
+              差异对比 — {baseName(filePath)}
+            </span>
+            <button className="topbar-btn" onClick={() => setShowDiff(false)} title="返回选项" aria-label="返回选项">
+              <IconX />
+            </button>
+          </div>
+          <div className="conflict-meta">
+            <span className="conflict-legend conflict-legend-local">− 本地（未保存）</span>
+            <span className="conflict-legend conflict-legend-disk">+ 磁盘（外部修改）</span>
+            <span className="conflict-changed-count">{changed.length} 行差异</span>
+          </div>
+          <div className="conflict-diff-body">
+            {changed.length === 0 ? (
+              <div className="conflict-diff-empty">内容一致（仅换行符或末尾空行差异）</div>
+            ) : (
+              diff.map((line, idx) => {
+                if (line.op === "equal") return null;
+                const text = line.op === "remove" ? line.local : line.disk;
+                return (
+                  <div key={idx} className={`conflict-diff-line conflict-diff-${line.op}`}>
+                    <span className="conflict-diff-sign">{line.op === "remove" ? "−" : "+"}</span>
+                    <span className="conflict-diff-text">{text === "" ? " " : text}</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          {error && <div className="conflict-error">{error}</div>}
+          <div className="conflict-actions">
+            <button className="conflict-btn conflict-btn-primary" onClick={handleBackup} disabled={busy}>
+              保留本地并另存副本
+            </button>
+            <button className="conflict-btn" onClick={handleReload} disabled={busy}>
+              丢弃本地修改，重载磁盘
+            </button>
+            <button className="conflict-btn" onClick={dismiss} disabled={busy}>
+              继续编辑（稍后自行保存会覆盖磁盘）
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="conflict-overlay" role="dialog" aria-modal="true" aria-label="文件冲突">
+      <div className="conflict-dialog">
+        <div className="conflict-header">
+          <span className="conflict-title">
+            <IconAlertTriangle size={16} />
+            文件已被外部修改
+          </span>
+        </div>
+        <div className="conflict-body">
+          <p>
+            「{baseName(filePath)}」在磁盘上被其他程序修改（如 Git 切换分支、网盘同步），
+            且当前编辑器中有<strong>未保存的修改</strong>。
+          </p>
+          <p className="conflict-hint">
+            直接保存会覆盖磁盘上的外部修改；丢弃重载会丢失本地修改。
+            建议先另存副本或查看差异。
+          </p>
+        </div>
+        {error && <div className="conflict-error">{error}</div>}
+        <div className="conflict-actions">
+          <button className="conflict-btn conflict-btn-primary" onClick={handleBackup} disabled={busy}>
+            保留本地并另存副本（.backup.md）
+          </button>
+          <button className="conflict-btn" onClick={() => setShowDiff(true)}>
+            查看差异对比
+          </button>
+          <button className="conflict-btn" onClick={handleReload} disabled={busy}>
+            丢弃本地修改，重载磁盘
+          </button>
+          <button className="conflict-btn conflict-btn-muted" onClick={dismiss} disabled={busy}>
+            继续编辑（稍后保存将覆盖磁盘）
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

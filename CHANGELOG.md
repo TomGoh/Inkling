@@ -2,6 +2,16 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.3.7] - 2026-08-16
+
+### 新增
+
+- **外部文件变动冲突对话框**（#58）：本地有未保存修改且磁盘文件被外部修改（Git 切分支/网盘同步）时，不再用 confirm 二选一，改为冲突对话框提供四选项——①保留本地并另存副本（`*.backup.md`，已占用自动递增编号，存后重载磁盘最新）②查看差异对比（自研行级 LCS diff，公共前后缀修剪 + 大差异降级，unified 视图标注「本地未保存 / 磁盘外部修改」两侧）③丢弃本地修改重载磁盘 ④继续编辑（明示稍后保存将覆盖磁盘）。修复原先「取消后直接保存会静默覆盖外部修改，无备份无感知」的数据丢失风险。非脏状态保持原有 confirm 重载询问。
+
+### 工程化
+
+- **发版前置校验（CI release-guard）**：仅 `v*` tag 触发，平时提交不受影响。校验①`package.json`/`tauri.conf.json`/`Cargo.toml`/`Cargo.lock` 四处版本号一致且与 tag 名一致（`scripts/check-version.mjs`）；②自上一 tag 以来有代码变更时 `CHANGELOG.md`/`README.md`/`docs/` 至少一处已更新（`scripts/check-docs-updated.mjs`）。任一失败则阻止 Release 发布。
+
 ## [2.3.6] - 2026-08-16
 
 ### 重构
