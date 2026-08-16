@@ -42,6 +42,19 @@ jobs:
       - name: Run unit & component tests
         run: pnpm test
 
+      # Rust 单测：commands 与 lib 的 #[cfg(test)] 模块（#47/#48 新增覆盖）
+      # 平台无关，随 test job 矩阵在 Windows + Linux 双平台跑
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Run Rust unit tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium
 
