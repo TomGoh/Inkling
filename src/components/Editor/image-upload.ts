@@ -27,8 +27,29 @@ function genImageName(file: File): string {
   return `${ts}-${rand}${ext}`;
 }
 
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * 是否为无法落盘的虚拟路径（未保存草稿）。
+ * 草稿 tab 的 path 形如 "untitled-N"（见 tabs.ts newTab），并非空字符串，
+ * 仅判空会漏掉草稿场景，导致 resolvePathFromDocument 按 CWD 解析出错误路径。
+ */
+function isUntitledPath(documentPath: string): boolean {
+  const p = documentPath.trim();
+  return !p || p.startsWith("untitled-");
+}
+
 /**
  * 将图片文件写入当前 Markdown 同目录的 assets/ 并在编辑器中插入图片节点。
+ * 未保存草稿（documentPath 为空或 untitled-N 虚拟路径）直接以 Data URL 形式内联插入，
+ * 避免对虚拟路径做目录解析触发写入失败。
  * @param files 图片文件列表
  * @param view ProseMirror 编辑器视图
  * @param pos 插入位置（drop 时由坐标计算，paste 时为 null 用当前选区）
@@ -47,17 +68,24 @@ async function insertImages(
 
   for (const file of imageFiles) {
     try {
-      const buf = await file.arrayBuffer();
-      const name = genImageName(file);
-      const fullPath = await resolvePathFromDocument(
-        documentPath,
-        "assets",
-        name,
-      );
-      await writeBinaryFile(fullPath, new Uint8Array(buf));
+      let relSrc: string;
+      if (!isUntitledPath(documentPath)) {
+        const buf = await file.arrayBuffer();
+        const name = genImageName(file);
+        const fullPath = await resolvePathFromDocument(
+          documentPath,
+          "assets",
+          name,
+        );
+        await writeBinaryFile(fullPath, new Uint8Array(buf));
+        // markdown 中用正斜杠相对路径（跨平台兼容）
+        relSrc = `assets/${name}`;
+      } else {
+        // 未命名草稿（untitled-N 虚拟路径）没有可解析的本地目录，转 Data URL 内联插入；
+        // 草稿另存到任意目录后图片依然随文档自带，不会产生失效的相对路径
+        relSrc = await fileToDataUrl(file);
+      }
 
-      // markdown 中用正斜杠相对路径（跨平台兼容）
-      const relSrc = `assets/${name}`;
       const alt = file.name.replace(/\.[^.]+$/, "") || "image";
       const node = view.state.schema.nodes.image.create({ src: relSrc, alt });
 

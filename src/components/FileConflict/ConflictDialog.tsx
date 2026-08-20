@@ -40,7 +40,7 @@ async function saveLocalBackup(
 export function ConflictDialog() {
   const conflict = useConflict((s) => s.conflict);
   const dismiss = useConflict((s) => s.dismiss);
-  const openFile = useWorkspace((s) => s.openFile);
+  const reloadFile = useWorkspace((s) => s.reloadFile);
   const [showDiff, setShowDiff] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,13 +70,14 @@ export function ConflictDialog() {
   /** 选项 1：本地内容另存副本，编辑器重载磁盘最新 */
   const handleBackup = wrap(async () => {
     const backupPath = await saveLocalBackup(filePath, localContent);
-    await openFile(filePath);
+    // reloadFile 强制从磁盘重读（openFile 对已打开 tab 只切缓存，不会真正重载）
+    await reloadFile(filePath);
     alert(`本地修改已另存为副本：\n${backupPath}\n\n编辑器已重载磁盘最新版本。`);
   });
 
   /** 选项 2：丢弃本地修改，重载磁盘最新 */
   const handleReload = wrap(async () => {
-    await openFile(filePath);
+    await reloadFile(filePath);
   });
 
   if (showDiff && diff) {

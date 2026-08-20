@@ -2,7 +2,7 @@
 mod commands;
 
 use commands::{
-    create_dir, create_file, delete_path, file_mtime, list_dir, pandoc_check,
+    allow_asset_dir, create_dir, create_file, delete_path, file_mtime, list_dir, pandoc_check,
     pandoc_export_docx, read_text_file, rename_path, search_in_workspace, write_binary_file,
     write_text_file,
 };
@@ -86,6 +86,7 @@ pub fn run() {
             create_file,
             create_dir,
             search_in_workspace,
+            allow_asset_dir,
             take_pending_file
         ])
         .run(tauri::generate_context!())

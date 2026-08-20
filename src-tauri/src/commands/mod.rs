@@ -5,7 +5,7 @@ pub mod pandoc;
 pub use pandoc::{pandoc_check, pandoc_export_docx};
 
 pub mod search;
-pub use search::{search_in_workspace, SearchHit};
+pub use search::search_in_workspace;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -398,4 +398,20 @@ pub fn create_dir(dir_path: String) -> Result<(), String> {
         return Err(format!("目录已存在: {}", dir_path));
     }
     fs::create_dir_all(path).map_err(|e| format!("创建目录失败: {}", e))
+}
+
+/// 把目录加入 asset 协议运行时白名单（递归）
+/// tauri.conf.json 的静态 scope 只覆盖用户目录；工作区/文档位于其他磁盘分区
+/// （如 Windows 的 E:\code\...）时，图片经 convertFileSrc 加载会被 asset 协议拒绝。
+/// 前端在解析图片路径时对文档所在目录调用本命令动态放行，仅放行用户实际打开的目录。
+#[tauri::command]
+pub fn allow_asset_dir(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    use tauri::Manager;
+    let dir = Path::new(&path);
+    if !dir.is_dir() {
+        return Err(format!("不是目录: {}", path));
+    }
+    app.asset_protocol_scope()
+        .allow_directory(dir, true)
+        .map_err(|e| format!("放行目录失败: {}", e))
 }

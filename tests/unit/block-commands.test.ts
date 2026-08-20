@@ -328,6 +328,109 @@ describe("deleteCurrentBlock", () => {
   });
 });
 
+// v2.3.8 修复 #65：多级嵌套列表中删除块应删当前 list_item，而非整个顶级列表
+describe("deleteCurrentBlock 列表子项精准删除（#65）", () => {
+  // 支持嵌套列表的 schema：list_item 允许 段落 + 子列表
+  function makeNestedSchema() {
+    return new Schema({
+      nodes: {
+        doc: { content: "(paragraph | bullet_list | ordered_list)*" },
+        paragraph: {
+          group: "block",
+          content: "text*",
+          toDOM: () => ["p", 0],
+          parseDOM: [{ tag: "p" }],
+        },
+        text: { group: "inline" },
+        bullet_list: {
+          group: "block",
+          content: "list_item+",
+          toDOM: () => ["ul", 0],
+          parseDOM: [{ tag: "ul" }],
+        },
+        ordered_list: {
+          group: "block",
+          content: "list_item+",
+          toDOM: () => ["ol", 0],
+          parseDOM: [{ tag: "ol" }],
+        },
+        list_item: {
+          content: "paragraph (bullet_list | ordered_list)*",
+          toDOM: () => ["li", 0],
+          parseDOM: [{ tag: "li" }],
+        },
+      },
+    });
+  }
+
+  it("多项列表中删除当前子项，不删整个列表", () => {
+    const schema = makeNestedSchema();
+    const liA = schema.nodes.list_item.create(null, [
+      schema.nodes.paragraph.create(null, [schema.text("A")]),
+    ]);
+    const liB = schema.nodes.list_item.create(null, [
+      schema.nodes.paragraph.create(null, [schema.text("B")]),
+    ]);
+    const ul = schema.nodes.bullet_list.create(null, [liA, liB]);
+    // doc: ul(0) > liA(1)>para(2)>"A"(3), liB(6)>para(7)>"B"(8)
+    const { view } = makeView(schema, [ul], { from: 8 });
+    deleteCurrentBlock(view);
+    const doc = view.state.doc;
+    expect(doc.childCount).toBe(1);
+    expect(doc.firstChild?.type.name).toBe("bullet_list");
+    expect(doc.firstChild?.childCount).toBe(1);
+    expect(doc.firstChild?.firstChild?.textContent).toBe("A");
+    view.destroy();
+  });
+
+  it("父列表只有当前一个子项时删除整个列表（不留空列表）", () => {
+    const schema = makeNestedSchema();
+    const li = schema.nodes.list_item.create(null, [
+      schema.nodes.paragraph.create(null, [schema.text("only")]),
+    ]);
+    const ul = schema.nodes.bullet_list.create(null, [li]);
+    const after = schema.nodes.paragraph.create(null, [schema.text("after")]);
+    const { view } = makeView(schema, [ul, after], { from: 3 });
+    deleteCurrentBlock(view);
+    const doc = view.state.doc;
+    expect(doc.childCount).toBe(1);
+    expect(doc.firstChild?.type.name).toBe("paragraph");
+    expect(doc.firstChild?.textContent).toBe("after");
+    view.destroy();
+  });
+
+  it("嵌套列表中删除子项：只删子项所在的嵌套列表，顶级列表与其他项保留", () => {
+    const schema = makeNestedSchema();
+    // ul > liA[para "A", ul[liA1[para "A1"]]], liB[para "B"]
+    const nestedLi = schema.nodes.list_item.create(null, [
+      schema.nodes.paragraph.create(null, [schema.text("A1")]),
+    ]);
+    const nestedUl = schema.nodes.bullet_list.create(null, [nestedLi]);
+    const liA = schema.nodes.list_item.create(null, [
+      schema.nodes.paragraph.create(null, [schema.text("A")]),
+      nestedUl,
+    ]);
+    const liB = schema.nodes.list_item.create(null, [
+      schema.nodes.paragraph.create(null, [schema.text("B")]),
+    ]);
+    const ul = schema.nodes.bullet_list.create(null, [liA, liB]);
+    // doc: ul(0) > liA(1)>para(2)>"A"(3..4)、nestedUl(5)>li(6)>para(7)>"A1"(8..10)
+    // liA 之后 liB(14)>para(15)>"B"(16)
+    const { view } = makeView(schema, [ul], { from: 8 });
+    deleteCurrentBlock(view);
+    const doc = view.state.doc;
+    expect(doc.childCount).toBe(1);
+    expect(doc.firstChild?.type.name).toBe("bullet_list");
+    // 顶级列表仍含 A、B 两项
+    expect(doc.firstChild?.childCount).toBe(2);
+    // A 项只剩段落，嵌套子列表被删除
+    const firstLi = doc.firstChild?.firstChild!;
+    expect(firstLi.childCount).toBe(1);
+    expect(firstLi.firstChild?.textContent).toBe("A");
+    view.destroy();
+  });
+});
+
 describe("wrapListBlock / wrapBlockquote 边界修复", () => {
   it("在普通段落 wrap 无序列表", () => {
     const schema = makeSchema();

@@ -350,10 +350,36 @@ export async function resolvePathFromDocument(
   return resolvePath(documentPath, "..", ...paths);
 }
 
+/** 已通过 allow_asset_dir 放行的目录（避免重复 IPC） */
+const allowedAssetDirs = new Set<string>();
+
+/**
+ * 把目录加入 asset 协议运行时白名单（仅桌面端）。
+ * tauri.conf.json 的静态 scope 只覆盖用户目录，工作区/文档在其他磁盘分区
+ * （如 Windows 的 E:\code\...）时必须先放行再 convertFileSrc，否则图片加载被拒。
+ */
+async function allowAssetDir(dir: string): Promise<void> {
+  if (!isTauri() || !dir || allowedAssetDirs.has(dir)) return;
+  allowedAssetDirs.add(dir);
+  try {
+    await invoke("allow_asset_dir", { path: dir });
+  } catch {
+    // 放行失败不阻断渲染：目录恰好落在静态白名单内时仍可加载
+    allowedAssetDirs.delete(dir);
+  }
+}
+
+/** 取路径的父目录（兼容 / 与 \ 分隔符；无分隔符时原样返回） */
+function dirNameOf(p: string): string {
+  const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+  return idx > 0 ? p.slice(0, idx) : p;
+}
+
 /**
  * 把 markdown 中的图片 src 解析为 WebView 可加载的 URL。
  * - http(s)/data/blob/asset 协议：原样返回
  * - 本地路径：以当前 Markdown 文件所在目录为基准解析并正规化，再用 convertFileSrc 转换
+ *   （转换前先把图片所在目录加入 asset 协议运行时白名单，覆盖非用户目录的工作区）
  * - 浏览器环境：原样返回（无法访问本地文件）
  */
 export async function resolveImageSrc(
@@ -387,5 +413,7 @@ export async function resolveImageSrc(
     // 保留未经编码的普通文件路径
   }
   const abs = await resolvePathFromDocument(documentPath, localPath);
+  // 静态 scope 之外的目录（其他磁盘分区等）先动态放行，再转 asset 协议 URL
+  await allowAssetDir(dirNameOf(abs));
   return convertFileSrc(abs);
 }

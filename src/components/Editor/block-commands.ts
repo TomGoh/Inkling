@@ -327,13 +327,14 @@ function atomNodeFromDom(
 }
 
 /**
- * 删除光标所在的顶层块节点（引用/代码块/Mermaid/提示框/元数据/列表/公式/TOC/分割线等）。
+ * 删除光标所在的块节点（引用/代码块/Mermaid/提示框/元数据/列表子项/公式/TOC/分割线等）。
  *
  * 定位逻辑（按优先级）：
  * 1. NodeSelection：直接拿选中的节点和位置（atom 节点如 frontmatter/toc/hr/math 被点击选中时）
  * 2. DOM 焦点回退：CodeMirror 等子编辑器获得焦点时，selection 可能不是 NodeSelection，
  *    读 document.activeElement 反查所属 atom 顶层块
- * 3. TextSelection：用 $head.before(depth) 找顶层块（depth=1 的父节点）
+ * 3. 列表子项（list_item）精准删除：如果光标在 list_item 内，只删除当前 list_item（如果父列表只有这一项则删除父列表）
+ * 4. TextSelection：用 $head.before(depth) 找顶层块（depth=1 的父节点）
  *
  * 删除后：
  * - 文档变空时补一个空段落
@@ -341,13 +342,13 @@ function atomNodeFromDom(
  */
 export function deleteCurrentBlock(view: EditorView): void {
   const { state } = view;
-  let topPos = 0;
-  let topNode: Node | null | undefined;
+  let targetPos = 0;
+  let targetNode: Node | null | undefined;
 
   if (state.selection instanceof NodeSelection) {
     // atom 节点被选中（frontmatter/toc/hr/math_display 等）
-    topPos = state.selection.from;
-    topNode = state.doc.nodeAt(topPos);
+    targetPos = state.selection.from;
+    targetNode = state.doc.nodeAt(targetPos);
   } else {
     // DOM 焦点回退：frontmatter 的 CodeMirror 获得焦点时，ProseMirror 的
     // selection 可能仍是旧位置（被 cm.focus()/setNodeAttribute 事务冲掉），
@@ -356,29 +357,63 @@ export function deleteCurrentBlock(view: EditorView): void {
     if (active && view.dom.contains(active)) {
       const hit = atomNodeFromDom(view, active);
       if (hit) {
-        topPos = hit.pos;
-        topNode = hit.node;
+        targetPos = hit.pos;
+        targetNode = hit.node;
       }
     }
-    if (topNode == null) {
+    if (targetNode == null) {
       const { $head } = state.selection;
       if ($head.depth === 0) {
         // 光标在文档顶层（极少见），无法定位块
         return;
       }
-      // before(1) 返回当前所在顶层块的位置
-      try {
-        topPos = $head.before(1);
-      } catch {
-        return;
+
+      // 检查光标是否在 list_item 内（多级嵌套列表中精准删除当前 item，而非直接删掉顶级 bullet_list/ordered_list）
+      let listItemDepth = -1;
+      for (let d = $head.depth; d > 0; d--) {
+        if ($head.node(d).type.name === "list_item") {
+          listItemDepth = d;
+          break;
+        }
       }
-      topNode = state.doc.nodeAt(topPos);
+
+      if (listItemDepth > 0) {
+        const parentList = $head.node(listItemDepth - 1);
+        // 如果父列表只有这 1 个 item，则直接删掉该列表（避免留下空列表）
+        if (
+          parentList &&
+          (parentList.type.name === "bullet_list" || parentList.type.name === "ordered_list") &&
+          parentList.childCount <= 1
+        ) {
+          try {
+            targetPos = $head.before(listItemDepth - 1);
+            targetNode = parentList;
+          } catch {
+            return;
+          }
+        } else {
+          try {
+            targetPos = $head.before(listItemDepth);
+            targetNode = $head.node(listItemDepth);
+          } catch {
+            return;
+          }
+        }
+      } else {
+        // before(1) 返回当前所在顶层块的位置
+        try {
+          targetPos = $head.before(1);
+        } catch {
+          return;
+        }
+        targetNode = state.doc.nodeAt(targetPos);
+      }
     }
   }
 
-  if (!topNode) return;
-  const end = topPos + topNode.nodeSize;
-  let tr = state.tr.delete(topPos, end);
+  if (!targetNode) return;
+  const end = targetPos + targetNode.nodeSize;
+  let tr = state.tr.delete(targetPos, end);
 
   // 文档变空时补一个空段落避免无法编辑
   if (tr.doc.content.size === 0 || tr.doc.childCount === 0) {
@@ -387,9 +422,9 @@ export function deleteCurrentBlock(view: EditorView): void {
     tr = tr.setSelection(TextSelection.near(tr.doc.resolve(1)));
   } else {
     // 光标移到删除位置附近的前一个块末尾
-    // topPos 是被删块的起始位置，topPos-1 是前一个块的末尾位置
-    // 但若 topPos=0（删第一个块），topPos-1=-1 无效，改用 0 找下一个有效位置
-    const target = Math.max(0, topPos - 1);
+    // targetPos 是被删块的起始位置，targetPos-1 是前一个块的末尾位置
+    // 但若 targetPos=0（删第一个块），targetPos-1=-1 无效，改用 0 找下一个有效位置
+    const target = Math.max(0, targetPos - 1);
     const safe = Math.max(0, Math.min(target, tr.doc.content.size));
     try {
       // TextSelection.near 会找 safe 附近最近的有效文本位置（向后或向前）

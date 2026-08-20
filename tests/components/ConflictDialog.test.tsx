@@ -4,10 +4,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-const { writeTextFileMock, listDirMock, openFileMock, alertMock } = vi.hoisted(() => ({
+const { writeTextFileMock, listDirMock, reloadFileMock, alertMock } = vi.hoisted(() => ({
   writeTextFileMock: vi.fn(),
   listDirMock: vi.fn(),
-  openFileMock: vi.fn(),
+  reloadFileMock: vi.fn(),
   alertMock: vi.fn(),
 }));
 
@@ -34,8 +34,8 @@ describe("ConflictDialog", () => {
       children: [],
     });
     writeTextFileMock.mockResolvedValue(undefined);
-    openFileMock.mockResolvedValue(undefined);
-    useWorkspace.setState({ openFile: openFileMock });
+    reloadFileMock.mockResolvedValue(undefined);
+    useWorkspace.setState({ reloadFile: reloadFileMock });
   });
 
   afterEach(() => {
@@ -76,7 +76,7 @@ describe("ConflictDialog", () => {
     fireEvent.click(screen.getByText("保留本地并另存副本（.backup.md）"));
     await waitFor(() => {
       expect(writeTextFileMock).toHaveBeenCalledWith("/docs/note.backup.md", "本地版本");
-      expect(openFileMock).toHaveBeenCalledWith("/docs/note.md");
+      expect(reloadFileMock).toHaveBeenCalledWith("/docs/note.md");
       expect(alertMock).toHaveBeenCalledWith(expect.stringContaining("note.backup.md"));
     });
     expect(useConflict.getState().conflict).toBeNull();
@@ -103,7 +103,7 @@ describe("ConflictDialog", () => {
     fireEvent.click(screen.getByText("丢弃本地修改，重载磁盘"));
     await waitFor(() => {
       expect(writeTextFileMock).not.toHaveBeenCalled();
-      expect(openFileMock).toHaveBeenCalledWith("/docs/note.md");
+      expect(reloadFileMock).toHaveBeenCalledWith("/docs/note.md");
     });
     expect(useConflict.getState().conflict).toBeNull();
   });
@@ -128,7 +128,7 @@ describe("ConflictDialog", () => {
     expect(screen.getByText("文件已被外部修改")).toBeTruthy();
     fireEvent.click(screen.getByText("丢弃本地修改，重载磁盘"));
     await waitFor(() => {
-      expect(openFileMock).toHaveBeenCalled();
+      expect(reloadFileMock).toHaveBeenCalled();
     });
   });
 
@@ -137,7 +137,7 @@ describe("ConflictDialog", () => {
     render(<ConflictDialog />);
     fireEvent.click(screen.getByRole("button", { name: /继续编辑/ }));
     expect(writeTextFileMock).not.toHaveBeenCalled();
-    expect(openFileMock).not.toHaveBeenCalled();
+    expect(reloadFileMock).not.toHaveBeenCalled();
     expect(useConflict.getState().conflict).toBeNull();
   });
 });

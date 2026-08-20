@@ -7,8 +7,25 @@
 // 便于单测直接断言参数、用注入的假命令覆盖各分支，无需 CI 安装 pandoc。
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+static EXPORT_SEQ: AtomicUsize = AtomicUsize::new(0);
+
+/// 生成带有纳秒级时间戳与原子自增序号的唯一临时导出文件路径
+fn make_temp_export_path() -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should be after Unix epoch")
+        .as_nanos();
+    let seq = EXPORT_SEQ.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "inkling-export-{}-{nonce}-{seq}.md",
+        std::process::id()
+    ))
+}
 
 /// 检查系统是否安装 pandoc
 #[tauri::command]
@@ -42,9 +59,8 @@ pub fn pandoc_export_docx(
     output_path: String,
     resource_dir: Option<String>,
 ) -> Result<(), String> {
-    // 1. 写入临时 .md 文件
-    let temp_dir = std::env::temp_dir();
-    let temp_md = temp_dir.join(format!("inkling-export-{}.md", std::process::id()));
+    // 1. 写入临时 .md 文件（唯一命名防并发冲突）
+    let temp_md = make_temp_export_path();
     fs::write(&temp_md, &markdown).map_err(|e| format!("写入临时文件失败: {}", e))?;
 
     // 2. 构造并执行 pandoc 命令
@@ -269,5 +285,12 @@ mod tests {
 
         let result = run_pandoc(Command::new(&script));
         assert!(result.is_ok(), "退出码为 0 时应成功，实际: {result:?}");
+    }
+
+    #[test]
+    fn temp_export_paths_are_unique_and_sequential() {
+        let p1 = make_temp_export_path();
+        let p2 = make_temp_export_path();
+        assert_ne!(p1, p2, "并发/连续生成的临时导出文件路径必须唯一");
     }
 }

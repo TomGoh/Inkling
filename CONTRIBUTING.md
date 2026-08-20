@@ -35,13 +35,40 @@
    - 若关联 issue，写明 `Closes #xxx`，合并后会自动关闭对应 issue。
    - 一个 PR 只做一件事，便于 review 与回滚。
 
-### 开发环境
+### 开发环境与系统依赖
 
+#### Linux 系统依赖（Ubuntu / Debian）
+在 Linux 下编译或运行 Tauri 开发环境需先安装系统依赖库：
 ```bash
-pnpm install      # 安装依赖
+sudo apt-get update
+sudo apt-get install -y \
+  libwebkit2gtk-4.1-dev \
+  build-essential \
+  curl \
+  wget \
+  file \
+  libxdo-dev \
+  libssl-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev
+```
+
+#### Pandoc 导出支持（可选）
+如需本地调试或使用「导出 Word (.docx)」功能，请确保系统已安装 Pandoc：
+- 官方安装指引：[https://pandoc.org/installing.html](https://pandoc.org/installing.html)
+- macOS: `brew install pandoc`
+- Ubuntu / Debian: `sudo apt-get install pandoc`
+- Windows: `winget install JohnMacFarlane.Pandoc` 或 `choco install pandoc`
+
+#### 本地启动与测试命令
+```bash
+pnpm install      # 安装前端依赖
 pnpm dev          # 启动开发服务器（浏览器 + mock 工作区）
 pnpm tauri dev    # 启动 Tauri 桌面应用开发模式
-pnpm build        # 构建前端
+pnpm test         # 运行 Vitest 单元与组件测试
+pnpm e2e:install  # 安装 Playwright 浏览器内核（首次运行 E2E 时必需）
+pnpm e2e          # 运行 Playwright 端到端测试
+pnpm build        # 构建前端资源
 pnpm tauri build  # 打包桌面应用
 ```
 

@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v2.3.7
+> 文档版本：v2.3.8
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -282,9 +282,19 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | — | 架构文档 | ✅ | v2.3.6 | issue #52：新增 `ARCHITECTURE.md`，覆盖整体分层、关键模块职责、数据流与目录约定，链接 `docs/` 深度设计文档 |
 | 3.3 文件与工作区 | 外部修改冲突对话框 | ✅ | v2.3.7 | 用户口头反馈（未建 issue）：本地 dirty 且磁盘被外部修改时弹冲突对话框（保留本地另存 `.backup.md` 副本 / 行级差异对比 / 丢弃修改重载 / 继续编辑），替代原 confirm 二选一，消除「取消后保存静默覆盖外部修改」的数据丢失风险 |
 | — | 发版前置校验 | ✅ | v2.3.7 | CI `release-guard` job（仅 v* tag 触发）：校验 4 处版本号一致且与 tag 一致（`scripts/check-version.mjs`）+ 自上一 tag 有代码变更时文档（CHANGELOG/README/docs）至少一处更新（`scripts/check-docs-updated.mjs`），失败阻止 Release；日常提交不受影响 |
+| 3.3 文件与工作区 | 保存前磁盘基线比对 | ✅ | v2.3.8 | issue #59：`OpenTab` 记录 `diskContent` 基线，Ctrl+S 保存前直读磁盘与基线比对，外部已改则弹确认（拒绝即中止），消除轮询窗口期静默覆盖外部修改；新增 `reloadFile` 强制重读磁盘（openFile 对已打开 tab 只切缓存，此前重载是假重载） |
+| 3.2 编辑 | 未命名草稿贴图 | ✅ | v2.3.8 | issue #60：草稿虚拟路径（`untitled-N`）检测，跳过目录解析/写盘，图片以 Data URL 内联插入，另存后随文档自带不产生失效相对路径 |
+| 3.7 设置 | 多窗口状态同步 | ✅ | v2.3.8 | issue #61：主题/偏好设置/快捷键覆盖三个 store 监听 `storage` 事件（仅其他窗口触发，无回环），一窗修改全部窗口实时同步 |
+| 3.4 搜索 | 全局搜索精确定位 | ✅ | v2.3.8 | issue #62：点击结果按「本文件第 N 处匹配」定位光标（ProseMirror 块节点无换行符，按出现次序累计），正则模式先提取实际匹配文本，未命中回退块级定位 |
+| 3.5 导出 | Pandoc 临时文件并发安全 | ✅ | v2.3.8 | issue #63：临时导出文件名加纳秒时间戳 + 原子自增序号，并发导出不再互相覆盖 |
+| 3.1 安全 | asset 协议权限收敛 | ✅ | v2.3.8 | issue #64：静态 scope 从 `**` 收敛到用户目录，新增 Rust `allow_asset_dir` 命令按需动态放行文档所在目录（前端去重避免重复 IPC），最小权限 |
+| 3.2 编辑 | 嵌套列表删块精准化 | ✅ | v2.3.8 | issue #65：多级列表子项内删块只删当前 `list_item`（父列表仅剩该项时删整个列表），不再误删顶级列表 |
+| 3.5 导出 | PNG 长图导出样式对齐 | ✅ | v2.3.8 | issue #67：离屏容器复刻真实编辑器三层嵌套 `[data-theme] > .editor-scroll > .milkdown`（后代选择器全部命中），等待图片 decode/load（3s 超时），导出图与编辑器所见一致（含深色主题） |
+| — | 开发文档完善 | ✅ | v2.3.8 | issue #66：CONTRIBUTING 补 Linux 系统依赖清单、Pandoc 安装指引（三平台）、本地测试命令 |
 
 ### 8.2 发布版本
 
+- **v2.3.8** 批量修复 issue #59-#67：①#59 保存前磁盘基线比对——`OpenTab` 记录 `diskContent` 基线，Ctrl+S 前直读磁盘比对，外部已改弹确认（拒绝即中止），消除 3 秒轮询窗口期静默覆盖；新增 `reloadFile` 强制重读磁盘（openFile 对已打开 tab 只切缓存，此前冲突对话框/watcher 的重载是假重载）。②#60 未命名草稿贴图——检测 `untitled-N` 虚拟路径，跳过目录解析/写盘，Data URL 内联插入。③#61 多窗口同步——主题/偏好/快捷键三 store 监听 `storage` 事件实时同步。④#62 全局搜索定位——按本文件第 N 处匹配定位光标（正则先提取实际匹配文本），不再总跳第一处。⑤#63 Pandoc 临时文件加纳秒时间戳 + 原子序号防并发覆盖。⑥#64 asset 协议收敛——静态 scope 从 `**` 收敛到用户目录，Rust `allow_asset_dir` 按需动态放行文档目录，最小权限。⑦#65 嵌套列表删块只删当前 `list_item`（单元素列表删整列表），不再误删顶级列表。⑧#66 CONTRIBUTING 补 Linux 系统依赖/Pandoc 安装/测试命令。⑨#67 PNG 导出离屏容器复刻真实编辑器三层嵌套（`[data-theme] > .editor-scroll > .milkdown`，后代选择器全部命中）+ 等待图片 decode/load（3s 超时），导出图与编辑器所见一致。新增 13 个前端单测 + 1 个 Rust 单测，全套 411 测试通过。详见 `docs/v2.3.8 设计文档.md`
 - **v2.3.7** 外部文件变动冲突对话框 + 发版前置校验：①用户口头反馈（未建 issue）排查确认原实现「静默重载丢失内容」不成立（dirty 时有 confirm 明确提示丢弃），但「忽略外部变动后保存会静默覆盖磁盘修改、无备份无 diff」成立——升级为冲突对话框四选项：保留本地另存副本（`*.backup.md` 自动递增编号，存后重载磁盘）、行级差异对比（自研 LCS diff：公共前后缀修剪 + 超 4000 行降级整块替换，unified 视图区分「本地未保存/磁盘外部修改」）、丢弃本地修改重载、继续编辑（明示覆盖风险）；非 dirty 保持 confirm。新增 `src/lib/diff.ts`、`src/store/conflict.ts`、`src/components/FileConflict/`，22 个新单测（diff 14 + 组件 8），全套 398 测试通过。②CI 新增 `release-guard` job（仅 v* tag 触发，日常提交不受影响）：`scripts/check-version.mjs` 校验 4 处版本号一致且与 tag 一致，`scripts/check-docs-updated.mjs` 校验自上一 tag 有代码变更时 CHANGELOG/README/docs 至少一处更新，失败阻止 Release。详见 `docs/v2.3.7 设计文档.md`
 - **v2.3.5** 专注模式复合块高亮修复 + Rust 命令单测补全 + 版本号同步：①issue #56 修复专注模式下点击列表/表格当前块不高亮——`editor-modes.ts` 装饰原先取光标所在「最内层块」（`findParentNodeClosestToPos(n => n.isBlock)`），列表（`bullet_list > list_item > paragraph`）/表格（`table > table_row > table_cell > paragraph`）内命中内部 paragraph，而 `App.css` 只高亮 `.ProseMirror` 直接子节点（`.focus-mode .ProseMirror > *` 弱化、`.focus-mode .ProseMirror > .inkling-focused` 高亮），装饰粒度与 CSS 粒度不一致导致列表/表格停在弱化态点不亮；改为取「文档顶层块」（`$head.node(1)`，即 `.ProseMirror` 直接子节点），与 CSS 高亮粒度对齐，列表→`bullet_list`/`ordered_list`、表格→`table` 均正确点亮，新增 `tests/unit/editor-modes.test.ts` 5 用例；②issue #47 为 `search.rs` 全局搜索补 10 个单测（空查询/工作区不存在/大小写切换/非法正则/跨文件行号与路径/隐藏目录跳过/非 UTF-8 静默跳过/UTF-8 列号计数/纯文本转义/超大文件跳过），复用 `mod.rs` 临时目录模式；③issue #48 为 `pandoc.rs` 补单测并做「参数拼装与执行分离」重构（`build_pandoc_command`/`build_pandoc_locate_command`/`run_pandoc`），注入假脚本覆盖 `--resource-path` 追加/非目录忽略/pandoc 缺失/非零退出码/成功 6 分支，无需 CI 装 pandoc；④CI `test` job 增加 Rust `cargo test` 步骤（双平台矩阵）；⑤同步 Cargo.toml/Cargo.lock/tauri.conf.json/package.json 版本号至 2.3.5（此前 Cargo 滞后在 2.2.0）。前端 376 单测 + `tsc --noEmit` 全绿。详见 `docs/v2.3.5 设计文档.md`
 - **v2.3.4** 打开瞬间抖动根治 + 切 tab 大纲定位修复：v2.3.3 后用户实测仍有两个问题——①打开文件瞬间抖动一下且文件越大抖动越久；②切 tab 后大纲高亮停在顶部，需手动滑动文档一下才恢复。问题①根因是打开路径上三个"渐进改变高度"环节都在首帧绘制后发生、浏览器滚动锚定逐次补偿：代码块懒挂载前 `cmHost` 为空 div（高度≈0，挂载 CodeMirror 后撑开数百 px，首屏短代码块越多跳得越久，主因）；Mermaid 未缓存首渲染从粗估占位高度跳到实测高度并强制收缩 min-height；滚动位置恢复被未撑开的 scrollHeight 钳制且 rAF 仅重试一次。修复：①代码块挂载前在 cmHost 内放与 CodeMirror 基础主题同字体（等宽族）/行高 1.5/字号 0.85rem/上下 padding 0.4rem/max-height 32rem/不折行的 `<pre class="code-block-placeholder">` 纯文本占位，挂载前后高度差接近 0（附带挂载前即可见代码内容），视口外内容变更同步占位文本；②Mermaid 首渲染 min-height 取 max(粗估占位, 实测) 只增不减，实测偏矮时注入零布局跳变，编辑重渲染仍用实测；③位置记忆恢复 scrollTop 改为逐帧重试直到到位（30 帧上限，占位修复后通常 1-2 帧收敛）。问题②为 v2.3.3 采样重构引入：切 tab 重灌文档（replaceWith 整文档替换）后选区被 ProseMirror 钳到文档头，大纲重算回调按选区推导高亮跳回顶部，且 scrollTop 已恢复到位无新 scroll 事件触发采样。修复：重算完成后按当前 scrollTop 采样定位（阅读位置才是大纲高亮语义），防抖窗口（150ms）内标记 stale 跳过滚动采样与选区推导（避免旧文档标题集/位置缓存产出错误高亮闪现），插件创建后追加 rAF 初始采样兜底 scrollTop=0 场景。实测（1.8 万行/398KB 压测文档，缓存冷启动）：打开全程编辑器零布局位移（layout-shift 仅 4 次且全部来自文件树虚拟滚动）、scrollTop 零漂移，scrollHeight 初始 381,884px 与最终 384,451px 偏差 0.67%，仅有的 2 次增高均在视口外；滚至中部（scrollTop=150,000，高亮第 109 项）→ 切到 intro.md → 切回，scrollTop 与大纲高亮均自动恢复正确定位，无需任何滚动。全套单元/组件测试 370 passed（outline-tracker 新增切 tab 用例）。详见 `docs/v2.3.4 设计文档.md`

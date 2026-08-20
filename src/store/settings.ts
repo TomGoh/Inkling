@@ -100,58 +100,83 @@ function clampZoom(v: number): number {
 
 const initial = loadPersisted();
 
-export const useSettings = create<SettingsState>((set, get) => ({
-  formulaAutoNumber: initial.formulaAutoNumber,
-  codeBlockTheme: initial.codeBlockTheme,
-  focusMode: initial.focusMode,
-  typewriterMode: initial.typewriterMode,
-  autoPair: initial.autoPair,
-  spellcheck: initial.spellcheck,
-  editorZoom: clampZoom(initial.editorZoom),
+export const useSettings = create<SettingsState>((set, get) => {
+  // 监听多窗口/跨标签页的 settings storage 同步
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", (e) => {
+      if (e.key === STORAGE_KEY && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue) as Partial<PersistedSettings>;
+          const merged = { ...DEFAULTS, ...parsed };
+          set({
+            formulaAutoNumber: merged.formulaAutoNumber,
+            codeBlockTheme: merged.codeBlockTheme,
+            focusMode: merged.focusMode,
+            typewriterMode: merged.typewriterMode,
+            autoPair: merged.autoPair,
+            spellcheck: merged.spellcheck,
+            editorZoom: clampZoom(merged.editorZoom),
+          });
+        } catch {
+          // 忽略非法 JSON
+        }
+      }
+    });
+  }
 
-  setFormulaAutoNumber: (v) => {
-    set({ formulaAutoNumber: v });
-    persist(snapshot(get()));
-  },
-  setCodeBlockTheme: (v) => {
-    set({ codeBlockTheme: v });
-    persist(snapshot(get()));
-  },
-  setFocusMode: (v) => {
-    set({ focusMode: v });
-    persist(snapshot(get()));
-  },
-  setTypewriterMode: (v) => {
-    set({ typewriterMode: v });
-    persist(snapshot(get()));
-  },
-  setAutoPair: (v) => {
-    set({ autoPair: v });
-    persist(snapshot(get()));
-  },
-  setSpellcheck: (v) => {
-    set({ spellcheck: v });
-    persist(snapshot(get()));
-  },
-  adjustEditorZoom: (delta) => {
-    const next = clampZoom(get().editorZoom + delta);
-    set({ editorZoom: next });
-    persist(snapshot(get()));
-  },
-  setEditorZoom: (v) => {
-    const next = clampZoom(v);
-    set({ editorZoom: next });
-    persist(snapshot(get()));
-  },
-  resetEditorZoom: () => {
-    set({ editorZoom: ZOOM_DEFAULT });
-    persist(snapshot(get()));
-  },
-  reset: () => {
-    set({ ...DEFAULTS });
-    persist(DEFAULTS);
-  },
-}));
+  return {
+    formulaAutoNumber: initial.formulaAutoNumber,
+    codeBlockTheme: initial.codeBlockTheme,
+    focusMode: initial.focusMode,
+    typewriterMode: initial.typewriterMode,
+    autoPair: initial.autoPair,
+    spellcheck: initial.spellcheck,
+    editorZoom: clampZoom(initial.editorZoom),
+
+    setFormulaAutoNumber: (v) => {
+      set({ formulaAutoNumber: v });
+      persist(snapshot(get()));
+    },
+    setCodeBlockTheme: (v) => {
+      set({ codeBlockTheme: v });
+      persist(snapshot(get()));
+    },
+    setFocusMode: (v) => {
+      set({ focusMode: v });
+      persist(snapshot(get()));
+    },
+    setTypewriterMode: (v) => {
+      set({ typewriterMode: v });
+      persist(snapshot(get()));
+    },
+    setAutoPair: (v) => {
+      set({ autoPair: v });
+      persist(snapshot(get()));
+    },
+    setSpellcheck: (v) => {
+      set({ spellcheck: v });
+      persist(snapshot(get()));
+    },
+    adjustEditorZoom: (delta) => {
+      const next = clampZoom(get().editorZoom + delta);
+      set({ editorZoom: next });
+      persist(snapshot(get()));
+    },
+    setEditorZoom: (v) => {
+      const next = clampZoom(v);
+      set({ editorZoom: next });
+      persist(snapshot(get()));
+    },
+    resetEditorZoom: () => {
+      set({ editorZoom: ZOOM_DEFAULT });
+      persist(snapshot(get()));
+    },
+    reset: () => {
+      set({ ...DEFAULTS });
+      persist(DEFAULTS);
+    },
+  };
+});
 
 function snapshot(s: SettingsState): PersistedSettings {
   return {

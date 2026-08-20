@@ -33,7 +33,7 @@ export function useFileWatcher(): void {
 
     const check = async () => {
       if (cancelled) return;
-      const { currentFile, dirty, openFile } = useWorkspace.getState();
+      const { currentFile, dirty, reloadFile } = useWorkspace.getState();
       if (!currentFile) return;
       // 冲突对话框已打开时不重复检测，避免轮询期间再次弹窗
       if (useConflict.getState().conflict) return;
@@ -74,7 +74,8 @@ export function useFileWatcher(): void {
               `「${baseName(currentFile)}」已被外部修改或删除，且当前有未保存的修改。\n是否丢弃当前修改并重新加载？`,
             )
           ) {
-            await openFile(currentFile);
+            // reloadFile 强制从磁盘重读；openFile 对已打开 tab 只切缓存，不会真正重载
+            await reloadFile(currentFile);
             knownMtimeRef.current = null;
           }
         }
@@ -83,12 +84,19 @@ export function useFileWatcher(): void {
 
       // 本地无修改：confirm 询问重载
       if (window.confirm(`「${baseName(currentFile)}」已被外部修改，是否重新加载？`)) {
-        await openFile(currentFile);
+        await reloadFile(currentFile);
         knownMtimeRef.current = null;
       }
     };
 
     timer = window.setInterval(check, POLL_INTERVAL);
+
+    // 窗口重新获得焦点或页面可见时立即触发检查
+    const onFocusOrVisible = () => {
+      void check();
+    };
+    window.addEventListener("focus", onFocusOrVisible);
+    document.addEventListener("visibilitychange", onFocusOrVisible);
 
     // 监听 store：保存后忽略一段时间；切换文件后重置已知 mtime
     let lastFile = useWorkspace.getState().currentFile;
@@ -111,6 +119,8 @@ export function useFileWatcher(): void {
     return () => {
       cancelled = true;
       if (timer) clearInterval(timer);
+      window.removeEventListener("focus", onFocusOrVisible);
+      document.removeEventListener("visibilitychange", onFocusOrVisible);
       unsub();
     };
   }, []);

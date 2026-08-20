@@ -75,33 +75,49 @@ export interface ShortcutsState {
 
 const initial = loadPersisted();
 
-export const useShortcuts = create<ShortcutsState>((set, get) => ({
-  overrides: initial.overrides,
+export const useShortcuts = create<ShortcutsState>((set, get) => {
+  // 监听多窗口/跨标签页的快捷键覆盖同步（storage 事件只在其他窗口触发）
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", (e) => {
+      if (e.key === STORAGE_KEY && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue) as Partial<Persisted>;
+          set({ overrides: parsed.overrides ?? {} });
+        } catch {
+          // 忽略非法 JSON
+        }
+      }
+    });
+  }
 
-  getBinding: (id) => {
-    const o = get().overrides[id];
-    if (o) return o;
-    return SHORTCUT_DEFS.find((d) => d.id === id)?.default ?? "";
-  },
+  return {
+    overrides: initial.overrides,
 
-  setBinding: (id, binding) => {
-    const next = { ...get().overrides, [id]: binding };
-    set({ overrides: next });
-    persist({ overrides: next });
-  },
+    getBinding: (id) => {
+      const o = get().overrides[id];
+      if (o) return o;
+      return SHORTCUT_DEFS.find((d) => d.id === id)?.default ?? "";
+    },
 
-  resetBinding: (id) => {
-    const next = { ...get().overrides };
-    delete next[id];
-    set({ overrides: next });
-    persist({ overrides: next });
-  },
+    setBinding: (id, binding) => {
+      const next = { ...get().overrides, [id]: binding };
+      set({ overrides: next });
+      persist({ overrides: next });
+    },
 
-  resetAll: () => {
-    set({ overrides: {} });
-    persist({ overrides: {} });
-  },
-}));
+    resetBinding: (id) => {
+      const next = { ...get().overrides };
+      delete next[id];
+      set({ overrides: next });
+      persist({ overrides: next });
+    },
+
+    resetAll: () => {
+      set({ overrides: {} });
+      persist({ overrides: {} });
+    },
+  };
+});
 
 // "mod" 是 Ctrl/Cmd 的占位标记，必须在 find 时被跳过，
 // 否则 parts.find 会把 "mod" 当作最终按键，导致 e.key === "mod" 永远 false

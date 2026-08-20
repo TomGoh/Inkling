@@ -62,44 +62,56 @@ function applyCustomCSS(css: string | null) {
 const initialMode = getInitialMode();
 applyMode(initialMode);
 
-export const useTheme = create<ThemeState>((set) => ({
-  mode: initialMode,
-  customCSS: null,
-  customCSSPath: null,
-
-  setMode: (mode) => {
-    applyMode(mode);
-    try {
-      localStorage.setItem(STORAGE_KEY, mode);
-    } catch {
-      // 忽略写入失败
-    }
-    set({ mode });
-  },
-
-  loadCustomCSS: async () => {
-    if (!isTauri()) {
-      alert("自定义 CSS 仅在桌面端支持");
-      return;
-    }
-    const selected = await open({
-      multiple: false,
-      filters: [{ name: "CSS", extensions: ["css"] }],
+export const useTheme = create<ThemeState>((set) => {
+  // 监听多窗口/跨标签页的 localStorage 变化
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", (e) => {
+      if (e.key === STORAGE_KEY && (e.newValue === "light" || e.newValue === "dark")) {
+        applyMode(e.newValue);
+        set({ mode: e.newValue });
+      }
     });
-    if (typeof selected !== "string") return;
-    try {
-      const css = await invoke<string>("read_text_file", {
-        filePath: selected,
-      });
-      applyCustomCSS(css);
-      set({ customCSS: css, customCSSPath: selected });
-    } catch (e) {
-      alert(`读取 CSS 文件失败：${e}`);
-    }
-  },
+  }
 
-  clearCustomCSS: () => {
-    applyCustomCSS(null);
-    set({ customCSS: null, customCSSPath: null });
-  },
-}));
+  return {
+    mode: initialMode,
+    customCSS: null,
+    customCSSPath: null,
+
+    setMode: (mode) => {
+      applyMode(mode);
+      try {
+        localStorage.setItem(STORAGE_KEY, mode);
+      } catch {
+        // 忽略写入失败
+      }
+      set({ mode });
+    },
+
+    loadCustomCSS: async () => {
+      if (!isTauri()) {
+        alert("自定义 CSS 仅在桌面端支持");
+        return;
+      }
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "CSS", extensions: ["css"] }],
+      });
+      if (typeof selected !== "string") return;
+      try {
+        const css = await invoke<string>("read_text_file", {
+          filePath: selected,
+        });
+        applyCustomCSS(css);
+        set({ customCSS: css, customCSSPath: selected });
+      } catch (e) {
+        alert(`读取 CSS 文件失败：${e}`);
+      }
+    },
+
+    clearCustomCSS: () => {
+      applyCustomCSS(null);
+      set({ customCSS: null, customCSSPath: null });
+    },
+  };
+});

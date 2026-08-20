@@ -58,6 +58,12 @@ export interface TabsSlice {
   /** 打开文件：已打开则切换到对应 tab，否则读取内容新增 tab。不改变当前工作区模式 */
   openFile: (filePath: string) => Promise<void>;
   /**
+   * 强制从磁盘重读文件内容并刷新对应 tab（外部修改后「重新加载」用）。
+   * 与 openFile 的区别：openFile 对已打开的 tab 直接复用缓存内容，不会重读磁盘。
+   * 未打开的文件退化为 openFile 行为。
+   */
+  reloadFile: (filePath: string) => Promise<void>;
+  /**
    * 以单文件模式打开一个 md：不构建文件树，但把 rootPath 设为该文件父目录，
    * workspaceMode 置为 "file"。
    * 用于"打开文件"入口——支持散落在不同文件夹的多个 md 作为标签页。
@@ -169,6 +175,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
         content,
         dirty: false,
         lastSavedAt: null,
+        diskContent: content,
         cursorPos: null,
         scrollTop: null,
       };
@@ -237,6 +244,33 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       const intent = ++intents.mainFile;
       await ensureTab(filePath);
       activateMainTab(filePath, intent);
+    },
+
+    reloadFile: async (filePath) => {
+      // 未打开的文件退化为普通打开
+      if (!get().openTabs.some((t) => t.path === filePath)) {
+        await get().openFile(filePath);
+        return;
+      }
+      // 直接读磁盘，绕过 tab 缓存（openFile 对已打开 tab 复用缓存，无法真正重载）
+      const content = await readTextFile(filePath);
+      set((current) => {
+        const openTabs = current.openTabs.map((t) =>
+          t.path === filePath
+            ? { ...t, content, dirty: false, diskContent: content }
+            : t,
+        );
+        const patch: Partial<WorkspaceState> = { openTabs };
+        if (current.activeTabPath === filePath) {
+          patch.currentContent = content;
+          patch.dirty = false;
+          patch.saveError = null;
+        }
+        if (current.splitFile === filePath) {
+          patch.splitContent = content;
+        }
+        return patch;
+      });
     },
 
     openFileStandalone: async (filePath) => {
@@ -497,6 +531,22 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
           if (!picked) return; // 用户取消
           savePath = picked;
         }
+      } else if (isTauri()) {
+        // 普通文件保存前与磁盘基线比对：外部已改动且未被冲突对话框处理过时二次确认，
+        // 防止 Ctrl+S 静默覆盖外部修改（直接读磁盘，不触发 openingFiles 打开态副作用）
+        try {
+          const latestOnDisk = await readTextFile(savePath);
+          if (tab.diskContent !== undefined && latestOnDisk !== tab.diskContent) {
+            const { ask } = await import("@tauri-apps/plugin-dialog");
+            const confirmed = await ask(
+              "文件已被外部程序修改。覆盖保存将丢失外部修改，是否继续覆盖？",
+              { title: "保存冲突提示", kind: "warning" },
+            );
+            if (!confirmed) return;
+          }
+        } catch {
+          // 文件可能被删除或不可读，继续尝试保存
+        }
       }
 
       set({ saving: true, saveError: null });
@@ -506,7 +556,14 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
         // 同步活跃 tab：未命名草稿保存后转为普通文件（path 更新为真实路径）
         const nextTabs = openTabs.map((t) =>
           t.path === activeTabPath
-            ? { ...t, path: savePath, isUntitled: false, dirty: false, lastSavedAt: now }
+            ? {
+                ...t,
+                path: savePath,
+                isUntitled: false,
+                dirty: false,
+                lastSavedAt: now,
+                diskContent: currentContent,
+              }
             : t,
         );
         const nextRecent = tab.isUntitled ? pushRecent(get().recentFiles, savePath) : get().recentFiles;

@@ -245,6 +245,8 @@ export async function copyRichText(
 /**
  * 导出为 PNG 长图：用 html2canvas 把编辑器渲染结果截图。
  * - 在离屏容器中以「只读展示样式」渲染一份完整文档副本，避免编辑态属性干扰
+ * - 为离屏容器注入 .editor-scroll .milkdown 类及 data-theme，保持与当前主题及编辑器样式一致
+ * - 增加所有 <img> 元素 decode/load 异步就绪等待与超时机制，避免长图导出时图片空白
  * - 仅桌面端保存到用户选择路径；浏览器端触发下载
  */
 export async function exportPNG(
@@ -255,16 +257,58 @@ export async function exportPNG(
   if (!bodyHTML) return;
   const name = getBaseName();
 
-  // 离屏容器：白底、固定宽度、去掉编辑态
-  const container = document.createElement("div");
-  container.style.cssText =
-    "position:fixed;left:-99999px;top:0;width:780px;padding:32px 40px;background:#fff;color:#1f2328;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:16px;line-height:1.6;";
-  container.innerHTML = bodyHTML;
-  document.body.appendChild(container);
+  // 获取当前主题模式
+  const currentTheme = document.documentElement.getAttribute("data-theme") || "light";
+
+  // 离屏三层结构对齐真实编辑器 DOM：[data-theme] > .editor-scroll > .milkdown。
+  // App.css 的排版规则都是 ".editor-scroll .milkdown ..." / "[data-theme=dark] .editor-scroll ..."
+  // 后代选择器，必须复刻真实嵌套层级才能命中（同一元素挂两个类无法匹配后代选择器），
+  // 这样 Callout/代码块/Mermaid/表格等自定义块在导出图中保留边框与配色。
+  const themeRoot = document.createElement("div");
+  themeRoot.setAttribute("data-theme", currentTheme);
+  themeRoot.style.cssText =
+    "position:fixed;left:-99999px;top:0;width:820px;box-sizing:border-box;";
+
+  const scroll = document.createElement("div");
+  scroll.className = "editor-scroll";
+
+  const milkdown = document.createElement("div");
+  milkdown.className = "milkdown";
+  milkdown.innerHTML = bodyHTML;
+
+  scroll.appendChild(milkdown);
+  themeRoot.appendChild(scroll);
+  document.body.appendChild(themeRoot);
+
+  // 等待离屏容器内所有图片加载/解码完成（带 3s 超时保护）
+  const images = Array.from(themeRoot.querySelectorAll("img"));
+  if (images.length > 0) {
+    const imgPromises = images.map((img) => {
+      if (img.complete && img.naturalWidth !== 0) {
+        return "decode" in img ? img.decode().catch(() => {}) : Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        const onFinish = () => {
+          img.removeEventListener("load", onFinish);
+          img.removeEventListener("error", onFinish);
+          resolve();
+        };
+        img.addEventListener("load", onFinish);
+        img.addEventListener("error", onFinish);
+      });
+    });
+    const timeoutPromise = new Promise<void>((resolve) => setTimeout(resolve, 3000));
+    await Promise.race([Promise.all(imgPromises), timeoutPromise]);
+  }
 
   try {
-    const canvas = await html2canvas(container, {
-      backgroundColor: "#ffffff",
+    // 背景色取 .milkdown 实际计算的 --editor-bg（跟随主题），取不到时回退白底
+    const computedBg = getComputedStyle(milkdown).backgroundColor;
+    const bgColor = computedBg && computedBg !== "rgba(0, 0, 0, 0)" && computedBg !== "transparent"
+      ? computedBg
+      : "#ffffff";
+    const canvas = await html2canvas(themeRoot, {
+      backgroundColor: bgColor,
       scale: 2, // 2 倍清晰度
       useCORS: true,
       logging: false,
@@ -291,7 +335,7 @@ export async function exportPNG(
       downloadBlob(blob, `${name}.png`);
     }
   } finally {
-    document.body.removeChild(container);
+    document.body.removeChild(themeRoot);
   }
 }
 

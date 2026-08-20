@@ -155,28 +155,65 @@ export function GlobalSearchPanel({ getEditor, onClose }: GlobalSearchPanelProps
       editor.action((ctx) => {
         const view = ctx.get(editorViewCtx);
         const doc = view.state.doc;
-        // 通过行号定位：累计行长度找到该行起始位置
-        let pos = 0;
-        let line = 1;
-        doc.descendants((node) => {
-          if (line >= hit.line) return false;
-          if (node.isText) {
-            const text = node.text ?? "";
-            const newlines = (text.match(/\n/g) ?? []).length;
-            for (let i = 0; i < newlines; i++) {
-              line++;
-              if (line === hit.line) {
-                // 该换行后位置
-                pos += text.indexOf("\n", text.indexOf("\n") > -1 ? pos : 0);
+
+        // 1) 文本匹配定位：找到「点击项是本文件第几处命中」，定位到对应的第 N 次出现，
+        //    而不是永远跳到第一处（ProseMirror 中 paragraph/heading 是独立块节点，
+        //    节点文本不含 \n，按行号累计算不出来，只能按出现次序定位）
+        // 正则搜索时 query 是模式串，先从命中行预览里提取实际匹配文本再找
+        let searchTarget = query;
+        if (useRegex && searchTarget) {
+          try {
+            const re = new RegExp(searchTarget, caseSensitive ? "" : "i");
+            const m = re.exec(hit.preview);
+            if (m) searchTarget = m[0];
+          } catch {
+            // 非法正则：放弃文本定位，走块级回退
+          }
+        }
+
+        const holder: { pos: number | null } = { pos: null };
+        if (searchTarget) {
+          // 本文件内排在点击项之前的命中数（hits 按文件内行序返回）
+          const sameFileHits = hits.filter((h) => h.path === hit.path);
+          const nth = Math.max(0, sameFileHits.indexOf(hit));
+          const target = caseSensitive ? searchTarget : searchTarget.toLowerCase();
+
+          let occurrence = 0;
+          doc.descendants((node, pos) => {
+            if (holder.pos !== null) return false;
+            if (node.isText && node.text) {
+              const text = caseSensitive ? node.text : node.text.toLowerCase();
+              let from = 0;
+              for (;;) {
+                const idx = text.indexOf(target, from);
+                if (idx === -1) break;
+                if (occurrence === nth) {
+                  holder.pos = pos + idx;
+                  return false;
+                }
+                occurrence++;
+                from = idx + Math.max(1, target.length);
               }
             }
-          }
-          return true;
-        });
-        // 简化：用 TextSelection.near 定位到文档近似位置
+            return true;
+          });
+        }
+
+        // 2) 文本未命中（文档已编辑/正则异常）：回退按顶层块序号近似行号定位
+        if (holder.pos === null) {
+          let blockIndex = 1;
+          doc.forEach((_node, offset) => {
+            if (holder.pos !== null) return;
+            if (blockIndex === hit.line) {
+              holder.pos = offset + 1;
+            }
+            blockIndex++;
+          });
+        }
+
         try {
-          const safePos = Math.max(0, Math.min(pos, doc.content.size));
-          const sel = TextSelection.near(doc.resolve(safePos));
+          const finalPos = Math.max(0, Math.min(holder.pos ?? 0, doc.content.size));
+          const sel = TextSelection.near(doc.resolve(finalPos));
           view.dispatch(view.state.tr.setSelection(sel).scrollIntoView());
           view.focus();
         } catch {
