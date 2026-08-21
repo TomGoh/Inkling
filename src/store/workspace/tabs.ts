@@ -101,6 +101,8 @@ export interface TabsSlice {
   saveCursorState: (path: string, pos: number, scrollTop: number) => void;
   /** 读取指定 tab 的编辑位置（用于编辑器 ready 后恢复） */
   getCursorStateFor: (path: string) => { pos: number | null; scrollTop: number | null };
+  /** 设置指定 tab 的基线磁盘内容（用于解决外部冲突后同步基线） */
+  setTabDiskContent: (path: string, diskContent: string) => void;
   /** 设置指定 tab 的源码模式开关；path 省略则作用于当前 activeTabPath */
   setTabSourceMode: (enabled: boolean, path?: string) => void;
   /** 读取指定 tab 是否源码模式；path 省略则读 activeTabPath */
@@ -257,7 +259,13 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       set((current) => {
         const openTabs = current.openTabs.map((t) =>
           t.path === filePath
-            ? { ...t, content, dirty: false, diskContent: content }
+            ? {
+                ...t,
+                content,
+                dirty: false,
+                diskContent: content,
+                revision: (t.revision || 0) + 1,
+              }
             : t,
         );
         const patch: Partial<WorkspaceState> = { openTabs };
@@ -607,6 +615,13 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       const tab = get().openTabs.find((t) => t.path === path);
       if (!tab) return { pos: null, scrollTop: null };
       return { pos: tab.cursorPos, scrollTop: tab.scrollTop };
+    },
+
+    setTabDiskContent: (path, diskContent) => {
+      const nextTabs = get().openTabs.map((t) =>
+        t.path === path ? { ...t, diskContent } : t,
+      );
+      set({ openTabs: nextTabs });
     },
 
     setTabSourceMode: (enabled, path) => {

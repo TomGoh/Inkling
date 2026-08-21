@@ -2,6 +2,27 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.3.9] - 2026-08-21
+
+批量修复缺陷与安全 issue #68-#72：
+
+### 修复
+
+- **#68** reloadFile 触发后富文本 WYSIWYG 编辑器未同步更新：为 `OpenTab` 增加 `revision` 序号，在 `reloadFile` 成功后自增，并联动编辑器 key，确保磁盘重载时强制卸载重建最新 ProseMirror 文档树，杜绝旧缓存覆盖磁盘。
+- **#70** openFile 异常时 openingFiles 状态未被清理：将核心流程包裹在 `try ... finally` 中，确保无论加载成功还是抛出错误，侧边栏对应文件的 loading 态 100% 被清理。
+- **#71** 外部文件冲突对话框选择「保留我的修改」后未更新基线导致后续保存重复弹窗：新增 `setTabDiskContent` action，在保留修改时将冲突的磁盘内容同步为新基准。
+- **#72** Windows 盘符大小写不一致导致路径判定失效：在 `isPathWithin` 中增加盘符统一大写归一化处理，避免跨盘符和子路径比较误判。
+
+### 安全
+
+- **#69** Mermaid 动态渲染 SVG 缺乏 DOM 清洗存在 XSS 风险：在 `html-view.ts` 中增强 SVG 图形标签与属性白名单，将 Mermaid SVG 插入方式重构为 `diagram.appendChild(sanitizeHTML(svg))`，阻断恶意脚本注入。
+
+### 测试
+
+- 新增 5 个前端测试用例（Mermaid SVG 清洗 2 / revision 自增与 openingFiles 清理 2 / 盘符与基线测试补全），全套 416 个测试通过。
+
+详见 [docs/v2.3.9 设计文档.md](docs/v2.3.9%20设计文档.md)。
+
 ## [2.3.8] - 2026-08-21
 
 批量修复 issue #59-#67：

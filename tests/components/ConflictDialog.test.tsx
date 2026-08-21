@@ -132,12 +132,15 @@ describe("ConflictDialog", () => {
     });
   });
 
-  it("继续编辑：关闭对话框不落盘不重载", () => {
+  it("继续编辑：关闭对话框并更新 tab 的 diskContent 基线", () => {
+    const setTabDiskContentMock = vi.fn();
+    useWorkspace.setState({ setTabDiskContent: setTabDiskContentMock });
     openConflict();
     render(<ConflictDialog />);
     fireEvent.click(screen.getByRole("button", { name: /继续编辑/ }));
     expect(writeTextFileMock).not.toHaveBeenCalled();
     expect(reloadFileMock).not.toHaveBeenCalled();
+    expect(setTabDiskContentMock).toHaveBeenCalledWith("/docs/note.md", "磁盘版本");
     expect(useConflict.getState().conflict).toBeNull();
   });
 });

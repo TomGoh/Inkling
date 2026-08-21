@@ -36,6 +36,7 @@ import type { EditorView as PMView } from "@milkdown/kit/prose/view";
 import { isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeBinaryFile } from "../../lib/fs";
+import { sanitizeHTML } from "./html-view";
 import mermaid from "mermaid";
 
 // 初始化一次 Mermaid 运行时
@@ -290,7 +291,8 @@ export function createMermaidView(
         const id = `mermaid-svg-${diagramSeq++}`;
         svg = (await mermaid.render(id, value)).svg;
       }
-      diagram.innerHTML = svg;
+      diagram.innerHTML = "";
+      diagram.appendChild(sanitizeHTML(svg));
       lastSvg = svg;
       // 实测渲染高度写回缓存并锁定本实例 min-height：
       // 同源码后续实例创建即预留精确高度，重渲染也不收缩跳变。

@@ -44,6 +44,14 @@ function App() {
     if (!s.splitFile) return false;
     return s.openTabs.find((t) => t.path === s.splitFile)?.sourceMode ?? false;
   });
+  const mainRevision = useWorkspace((s) => {
+    if (!s.activeTabPath) return 0;
+    return s.openTabs.find((t) => t.path === s.activeTabPath)?.revision ?? 0;
+  });
+  const splitRevision = useWorkspace((s) => {
+    if (!s.splitFile) return 0;
+    return s.openTabs.find((t) => t.path === s.splitFile)?.revision ?? 0;
+  });
   // 分屏编辑器实例引用（独立于主编辑器）
   const splitEditorRef = useRef<(() => Editor | undefined) | null>(null);
 
@@ -160,7 +168,7 @@ function App() {
           <div className="editor-scroll" style={{ zoom: editorZoom }}>
             <EditorErrorBoundary fileName={currentFile}>
               <MarkdownEditor
-                key={currentFile}
+                key={`${currentFile}-${mainRevision}`}
                 filePath={currentFile}
                 value={currentContent}
                 onChange={(md) =>
@@ -210,7 +218,7 @@ function App() {
                 )}
                 <EditorErrorBoundary fileName={currentFile}>
                   <MarkdownEditor
-                    key={currentFile}
+                    key={`${currentFile}-${mainRevision}`}
                     filePath={currentFile}
                     value={currentContent}
                     onChange={(md) =>
@@ -228,6 +236,7 @@ function App() {
                   file={splitFile}
                   content={splitContent}
                   sourceMode={splitSourceMode}
+                  revision={splitRevision}
                   editorZoom={editorZoom}
                   onToggleSourceMode={() => toggleTabSourceMode(splitFile)}
                   onReady={handleSplitEditorReady}

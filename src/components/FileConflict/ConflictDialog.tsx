@@ -41,6 +41,7 @@ export function ConflictDialog() {
   const conflict = useConflict((s) => s.conflict);
   const dismiss = useConflict((s) => s.dismiss);
   const reloadFile = useWorkspace((s) => s.reloadFile);
+  const setTabDiskContent = useWorkspace((s) => s.setTabDiskContent);
   const [showDiff, setShowDiff] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +52,13 @@ export function ConflictDialog() {
   }, [conflict, showDiff]);
 
   if (!conflict) return null;
-  const { filePath, localContent } = conflict;
+  const { filePath, localContent, diskContent } = conflict;
+
+  const handleDismiss = () => {
+    // 用户选择保留当前编辑继续修改时，将 diskContent 同步为当前磁盘基线，避免下次保存重复弹窗
+    setTabDiskContent(filePath, diskContent);
+    dismiss();
+  };
 
   const wrap = (fn: () => Promise<void>) => async () => {
     if (busy) return;
@@ -123,7 +130,7 @@ export function ConflictDialog() {
             <button className="conflict-btn" onClick={handleReload} disabled={busy}>
               丢弃本地修改，重载磁盘
             </button>
-            <button className="conflict-btn" onClick={dismiss} disabled={busy}>
+            <button className="conflict-btn" onClick={handleDismiss} disabled={busy}>
               继续编辑（稍后自行保存会覆盖磁盘）
             </button>
           </div>
@@ -162,7 +169,7 @@ export function ConflictDialog() {
           <button className="conflict-btn" onClick={handleReload} disabled={busy}>
             丢弃本地修改，重载磁盘
           </button>
-          <button className="conflict-btn conflict-btn-muted" onClick={dismiss} disabled={busy}>
+          <button className="conflict-btn conflict-btn-muted" onClick={handleDismiss} disabled={busy}>
             继续编辑（稍后保存将覆盖磁盘）
           </button>
         </div>

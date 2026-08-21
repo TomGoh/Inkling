@@ -84,11 +84,14 @@ describe("文件树路径辅助", () => {
     expect(collectDirectoryPaths(tree)).toEqual(new Set(["/workspace"]));
   });
 
-  it("兼容 Unix 与 Windows 子路径", () => {
+  it("兼容 Unix 与 Windows 子路径及大小写盘符", () => {
     expect(isPathWithin("/workspace/docs", "/workspace")).toBe(true);
     expect(isPathWithin("/workspace/docs", "/workspace/")).toBe(true);
     expect(isPathWithin("C:\\workspace\\docs", "C:\\workspace")).toBe(true);
+    expect(isPathWithin("c:\\workspace\\docs", "C:\\workspace")).toBe(true);
+    expect(isPathWithin("C:/workspace/docs", "c:\\workspace")).toBe(true);
     expect(isPathWithin("C:\\docs", "C:\\")).toBe(true);
+    expect(isPathWithin("c:\\docs", "C:/")).toBe(true);
     expect(isPathWithin("/workspace-other", "/workspace")).toBe(false);
   });
 });

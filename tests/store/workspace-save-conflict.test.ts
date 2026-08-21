@@ -140,7 +140,7 @@ describe("reloadFile 强制重载", () => {
     vi.clearAllMocks();
   });
 
-  it("强制从磁盘重读并清掉 dirty（区别于 openFile 复用 tab 缓存）", async () => {
+  it("强制从磁盘重读并清掉 dirty，递增 tab revision", async () => {
     await useWorkspace.getState().reloadFile("/docs/a.md");
 
     expect(readTextFileMock).toHaveBeenCalledWith("/docs/a.md");
@@ -152,6 +152,7 @@ describe("reloadFile 强制重载", () => {
     expect(t.dirty).toBe(false);
     // 重载后基线同步为磁盘内容，后续保存不再误报冲突
     expect(t.diskContent).toBe("磁盘最新内容");
+    expect(t.revision).toBe(1);
   });
 
   it("非活跃 tab 重载不动主面板镜像，分屏展示时同步分屏内容", async () => {
@@ -177,5 +178,11 @@ describe("reloadFile 强制重载", () => {
     await useWorkspace.getState().reloadFile("/docs/not-open.md");
     expect(openFileSpy).toHaveBeenCalledWith("/docs/not-open.md");
     openFileSpy.mockRestore();
+  });
+
+  it("setTabDiskContent 正确更新指定 tab 的 diskContent", () => {
+    useWorkspace.getState().setTabDiskContent("/docs/a.md", "更新后的磁盘基线");
+    const t = useWorkspace.getState().openTabs.find((x) => x.path === "/docs/a.md");
+    expect(t?.diskContent).toBe("更新后的磁盘基线");
   });
 });

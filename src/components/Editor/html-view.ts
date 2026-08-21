@@ -19,13 +19,19 @@ const ALLOWED_TAGS = new Set([
   // 块级（在 inline atom 内用 inline-block 呈现）
   "div", "p", "details", "summary", "blockquote", "pre", "ul", "ol", "li",
   "h1", "h2", "h3", "h4", "h5", "h6", "hr", "table", "thead", "tbody", "tr", "th", "td",
-  // 图片
-  "img",
+  // 图片与 SVG 图形
+  "img", "svg", "g", "path", "circle", "rect", "line", "polygon", "polyline", "ellipse", "text", "tspan", "defs", "use", "clipPath", "style", "marker", "foreignobject"
 ]);
 
 /** 允许的全局属性白名单 */
 const ALLOWED_GLOBAL_ATTRS = new Set([
   "class", "style", "title", "id", "lang", "dir",
+  // SVG 常用属性
+  "viewbox", "xmlns", "width", "height", "fill", "stroke", "stroke-width",
+  "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-opacity", "fill-opacity",
+  "d", "cx", "cy", "r", "rx", "ry", "x", "y", "x1", "y1", "x2", "y2", "points",
+  "transform", "font-family", "font-size", "font-weight", "text-anchor",
+  "dominant-baseline", "marker-start", "marker-end", "marker-mid",
 ]);
 
 /** 特定标签的额外允许属性 */

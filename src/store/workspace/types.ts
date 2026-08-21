@@ -27,6 +27,8 @@ export interface OpenTab {
   isUntitled?: boolean;
   /** 该标签页是否处于源代码模式（issue #19） */
   sourceMode?: boolean;
+  /** 版本修订计数（reloadFile 强制刷新 DOM 时自增） */
+  revision?: number;
 }
 
 /** 完整工作区状态：各领域 slice 的交集组合 */

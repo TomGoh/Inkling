@@ -10,6 +10,7 @@ interface SplitPaneProps {
   file: string;
   content: string;
   sourceMode: boolean;
+  revision?: number;
   editorZoom: number;
   onToggleSourceMode: () => void;
   /** 分屏编辑器就绪回调（独立于主编辑器实例） */
@@ -20,6 +21,7 @@ export function SplitPane({
   file,
   content,
   sourceMode,
+  revision = 0,
   editorZoom,
   onToggleSourceMode,
   onReady,
@@ -56,7 +58,7 @@ export function SplitPane({
       >
         <EditorErrorBoundary fileName={file}>
           <MarkdownEditor
-            key={file}
+            key={`${file}-${revision}`}
             filePath={file}
             value={content}
             onChange={(md) =>
