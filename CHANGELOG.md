@@ -2,6 +2,25 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.5.0] - 2026-08-21
+
+UI/UX 视觉与交互全面重构 issue #79-#84：
+
+### 界面与体验
+
+- **#79** 统一 Design Tokens：在 `App.css` 建立 4px 栅格（`--space-1`~`--space-8`）、三层背景架构（`--bg-canvas` 至 `--bg-elevated`）、四阶文字层级、圆角与超快阻尼动效变量。
+- **#80** 编辑器排版垂直节奏（Typography & Rhythm）：正文行高提升至 1.75，H1 篇章大间距与轻边框分割，优化代码块、引用块与表格呼吸感。
+- **#81** 顶部工具栏重构：实现轻量 Command Bar，新增 `MoreMenu` 收纳低频设置/搜索/快捷键功能，消除按钮堆叠。
+- **#82** 侧边栏与标签栏精细化：文件树采用 Subtle Pill 柔和全圆角胶囊选中态，标签栏交互更平滑。
+- **#83** 统一全站弹窗浮层：统一所有 Modal 圆角（10~12px）、阴影与入场微动效。
+- **#84** 深色模式校准与响应式适配：精调深色主题对比度，增加 `<960px` 自动折叠大纲与 `<768px` 窄屏适配。
+
+### 测试
+
+- 新增 `tests/components/DesignTokens.test.ts`，验证核心变量体系。
+
+详见 [docs/v2.5.0 设计文档.md](docs/v2.5.0%20设计文档.md)。
+
 ## [2.4.0] - 2026-08-21
 
 性能专项攻坚 issue #73-#78：

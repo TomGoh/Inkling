@@ -221,6 +221,17 @@ export function IconAlertTriangle(props: IconProps) {
   );
 }
 
+/** 更多（三个点） */
+export function IconMoreHorizontal(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+      <circle cx="5" cy="12" r="1" />
+    </Svg>
+  );
+}
+
 /** 文档/页面（自定义 CSS 菜单项） */
 export function IconPalette(props: IconProps) {
   return (

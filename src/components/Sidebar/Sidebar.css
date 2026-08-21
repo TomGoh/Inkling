@@ -174,10 +174,9 @@
 .tree-row-error:hover {
   background: rgba(207, 34, 46, 0.08);
 }
-/* 活跃文件：accent 淡底 + 左侧指示条，一眼定位当前文档 */
+/* 活跃文件：Subtle Pill 胶囊选中态，柔和圆角与 accent 背景 */
 .tree-row-active {
-  background: var(--row-active-bg, rgba(9, 105, 218, 0.1));
-  box-shadow: inset 2px 0 0 var(--accent, #0969da);
+  background: var(--row-active-bg, rgba(9, 105, 218, 0.12));
   color: var(--accent, #0969da);
   font-weight: 500;
 }
