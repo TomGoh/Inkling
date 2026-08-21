@@ -1,10 +1,7 @@
 import { useCallback, useRef, useState, useEffect } from "react";
 import type { Editor } from "@milkdown/kit/core";
 import { editorViewCtx } from "@milkdown/kit/core";
-import { MarkdownEditor } from "./components/Editor/Editor";
-import { TableToolbar } from "./components/Editor/TableToolbar";
-import { SearchPanel } from "./components/Editor/SearchPanel";
-import { SplitPane } from "./components/Editor/SplitPane";
+import { EditorBody } from "./components/Editor/EditorBody";
 import { Sidebar } from "./components/Sidebar/Sidebar";
 import { StatusBar } from "./components/StatusBar/StatusBar";
 import { OutlinePanel } from "./components/Outline/OutlinePanel";
@@ -12,7 +9,6 @@ import { TabsBar } from "./components/Tabs/TabsBar";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import { ShortcutsHelp } from "./components/Shortcuts/ShortcutsHelp";
 import { GlobalSearchPanel } from "./components/GlobalSearch/GlobalSearchPanel";
-import { EditorErrorBoundary } from "./components/Editor/EditorErrorBoundary";
 import { ConflictDialog } from "./components/FileConflict/ConflictDialog";
 import { ShortcutsCustomize } from "./components/Shortcuts/ShortcutsCustomize";
 import { EditorTopbar } from "./components/Topbar/EditorTopbar";
@@ -31,11 +27,8 @@ import "./App.css";
 
 function App() {
   const currentFile = useWorkspace((s) => s.currentFile);
-  const currentContent = useWorkspace((s) => s.currentContent);
   // 分屏：右侧第二面板
   const splitFile = useWorkspace((s) => s.splitFile);
-  const splitContent = useWorkspace((s) => s.splitContent);
-  const toggleTabSourceMode = useWorkspace((s) => s.toggleTabSourceMode);
   const mainSourceMode = useWorkspace((s) => {
     if (!s.activeTabPath) return false;
     return s.openTabs.find((t) => t.path === s.activeTabPath)?.sourceMode ?? false;
@@ -57,8 +50,6 @@ function App() {
 
   // 持有编辑器实例获取函数，供大纲面板与导出使用
   const getEditorRef = useRef<(() => Editor | undefined) | null>(null);
-  // 主编辑器光标是否在表格内（驱动工具栏的表格上下文按钮组）
-  const [mainInTable, setMainInTable] = useState(false);
   // Ctrl+N 新建未命名草稿后，编辑器重建完成时自动聚焦
   const pendingFocusRef = useRef(false);
   const handleEditorReady = useCallback(
@@ -165,21 +156,23 @@ function App() {
     return (
       <main className="app-shell zen-mode">
         <div className="editor-wrap">
-          <div className="editor-scroll" style={{ zoom: editorZoom }}>
-            <EditorErrorBoundary fileName={currentFile}>
-              <MarkdownEditor
-                key={`${currentFile}-${mainRevision}`}
-                filePath={currentFile}
-                value={currentContent}
-                onChange={(md) =>
-                  useWorkspace.getState().setContentFor(currentFile, md)
-                }
-                onReady={handleEditorReady}
-                onOutlineChange={handleOutlineChange}
-                sourceMode={mainSourceMode}
-              />
-            </EditorErrorBoundary>
-          </div>
+          <EditorBody
+            currentFile={currentFile}
+            mainRevision={mainRevision}
+            mainSourceMode={mainSourceMode}
+            splitFile={null}
+            splitSourceMode={false}
+            splitRevision={0}
+            editorZoom={editorZoom}
+            searchOpen={false}
+            searchShowReplace={false}
+            getEditor={getEditor}
+            setSearchOpen={setSearchOpen}
+            setSearchShowReplace={setSearchShowReplace}
+            onEditorReady={handleEditorReady}
+            onOutlineChange={handleOutlineChange}
+            onSplitEditorReady={handleSplitEditorReady}
+          />
         </div>
       </main>
     );
@@ -196,53 +189,30 @@ function App() {
             <EditorTopbar
               currentFile={currentFile}
               sourceMode={mainSourceMode}
-              onToggleSourceMode={() => toggleTabSourceMode()}
+              onToggleSourceMode={() => useWorkspace.getState().toggleTabSourceMode()}
               onToggleZenMode={toggleZenMode}
               onToggleSidebar={toggleSidebar}
               onOpenShortcuts={() => setShortcutsOpen(true)}
               onOpenSettings={() => setSettingsOpen(true)}
               getEditor={getEditor}
             />
-            {!mainSourceMode && (
-              <TableToolbar getEditor={getEditor} inTable={mainInTable} />
-            )}
-            <div className={`editor-body${splitFile ? " editor-body-split" : ""}`}>
-              <div className="editor-scroll" style={{ zoom: editorZoom }}>
-                {searchOpen && !mainSourceMode && (
-                  <SearchPanel
-                    getEditor={getEditor}
-                    onClose={() => setSearchOpen(false)}
-                    showReplace={searchShowReplace}
-                    onShowReplaceChange={setSearchShowReplace}
-                  />
-                )}
-                <EditorErrorBoundary fileName={currentFile}>
-                  <MarkdownEditor
-                    key={`${currentFile}-${mainRevision}`}
-                    filePath={currentFile}
-                    value={currentContent}
-                    onChange={(md) =>
-                      useWorkspace.getState().setContentFor(currentFile, md)
-                    }
-                    onReady={handleEditorReady}
-                    onOutlineChange={handleOutlineChange}
-                    onInTableChange={setMainInTable}
-                    sourceMode={mainSourceMode}
-                  />
-                </EditorErrorBoundary>
-              </div>
-              {splitFile && (
-                <SplitPane
-                  file={splitFile}
-                  content={splitContent}
-                  sourceMode={splitSourceMode}
-                  revision={splitRevision}
-                  editorZoom={editorZoom}
-                  onToggleSourceMode={() => toggleTabSourceMode(splitFile)}
-                  onReady={handleSplitEditorReady}
-                />
-              )}
-            </div>
+            <EditorBody
+              currentFile={currentFile}
+              mainRevision={mainRevision}
+              mainSourceMode={mainSourceMode}
+              splitFile={splitFile}
+              splitSourceMode={splitSourceMode}
+              splitRevision={splitRevision}
+              editorZoom={editorZoom}
+              searchOpen={searchOpen}
+              searchShowReplace={searchShowReplace}
+              getEditor={getEditor}
+              setSearchOpen={setSearchOpen}
+              setSearchShowReplace={setSearchShowReplace}
+              onEditorReady={handleEditorReady}
+              onOutlineChange={handleOutlineChange}
+              onSplitEditorReady={handleSplitEditorReady}
+            />
           </>
         ) : (
           <div className="empty-state">

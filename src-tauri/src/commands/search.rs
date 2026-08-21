@@ -3,7 +3,8 @@
 // 返回命中结果（文件路径 + 行号 + 列号 + 预览文本）。
 // 跳过隐藏目录（. 开头）和超大文件（> 5MB）。
 
-use std::fs;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 use regex::Regex;
 
@@ -25,7 +26,7 @@ const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024;
 
 /// 递归收集目录下所有 .md/.markdown 文件路径
 fn collect_md_files(dir: &Path, out: &mut Vec<String>) {
-    let entries = match fs::read_dir(dir) {
+    let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return,
     };
@@ -95,28 +96,33 @@ pub fn search_in_workspace(
     let mut hits: Vec<SearchHit> = Vec::new();
     for file_path in &files {
         // 跳过超大文件
-        if let Ok(meta) = fs::metadata(file_path) {
+        if let Ok(meta) = std::fs::metadata(file_path) {
             if meta.len() > MAX_FILE_SIZE {
                 continue;
             }
         }
-        let content = match fs::read_to_string(file_path) {
-            Ok(c) => c,
+        let file = match File::open(file_path) {
+            Ok(f) => f,
             Err(_) => continue,
         };
-        for (i, line) in content.lines().enumerate() {
+        let reader = BufReader::new(file);
+        for (i, line_res) in reader.lines().enumerate() {
+            let line = match line_res {
+                Ok(l) => l,
+                Err(_) => continue,
+            };
             // 对每个匹配，记录命中（同行多次命中各记一条）
-            for m in re.find_iter(line) {
+            for m in re.find_iter(&line) {
                 // 列号按 UTF-8 字符计（前端展示更直观）
                 let column = line[..m.start()].chars().count() + 1;
                 hits.push(SearchHit {
                     path: file_path.clone(),
                     line: i + 1,
                     column,
-                    preview: line.to_string(),
+                    preview: line.clone(),
                 });
-                // 单文件单行最多记录 20 条，避免一个超长正则把内存撑爆
-                if hits.len() > 5000 {
+                // 单次搜索最多记录 5000 条，避免一个超长正则把内存撑爆
+                if hits.len() >= 5000 {
                     return Ok(hits);
                 }
             }

@@ -8,6 +8,22 @@ import react from "@vitejs/plugin-react";
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            if (id.includes("mermaid")) return "vendor_mermaid";
+            if (id.includes("katex")) return "vendor_katex";
+            if (id.includes("@milkdown")) return "vendor_milkdown";
+            if (id.includes("@codemirror") || id.includes("codemirror")) return "vendor_codemirror";
+            if (id.includes("react") || id.includes("zustand")) return "vendor_framework";
+          }
+        },
+      },
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

@@ -275,9 +275,12 @@ export function createMermaidView(
     applyZoom();
   };
 
+  let renderSeq = 0;
+
   const render = async (value: string) => {
     if (value === lastValue) return;
     lastValue = value;
+    const currentSeq = ++renderSeq;
     if (!value.trim()) {
       diagram.innerHTML = "";
       lastSvg = "";
@@ -291,6 +294,8 @@ export function createMermaidView(
         const id = `mermaid-svg-${diagramSeq++}`;
         svg = (await mermaid.render(id, value)).svg;
       }
+      // 中途有新的渲染请求排入，丢弃已过期的渲染
+      if (currentSeq !== renderSeq) return;
       diagram.innerHTML = "";
       diagram.appendChild(sanitizeHTML(svg));
       lastSvg = svg;
@@ -520,6 +525,8 @@ export function createMermaidView(
     stopEvent: () => editing,
     ignoreMutation: () => true,
     destroy: () => {
+      // 标记自增以中断未完成的异步渲染
+      renderSeq++;
       // 断开视口观察，清理 window 上的拖动监听器，避免内存泄漏
       io?.disconnect();
       io = null;

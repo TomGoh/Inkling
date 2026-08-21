@@ -371,9 +371,14 @@ async function allowAssetDir(dir: string): Promise<void> {
 
 /** 取路径的父目录（兼容 / 与 \ 分隔符；无分隔符时原样返回） */
 function dirNameOf(p: string): string {
+  if (!p) return "";
   const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
   return idx > 0 ? p.slice(0, idx) : p;
 }
+
+/** 路径与 asset URL 缓存映射，避免重复解析与动态放行 IPC */
+const imageSrcCache = new Map<string, string>();
+const MAX_IMAGE_CACHE = 500;
 
 /**
  * 把 markdown 中的图片 src 解析为 WebView 可加载的 URL。
@@ -390,6 +395,10 @@ export async function resolveImageSrc(
   if (!isTauri()) return src;
   // 非本地协议 URL 直接放行；file: URL 仍需转成 Tauri 可读取的本地路径。
   if (/^(https?:|data:|blob:|asset:|tauri:)/i.test(src)) return src;
+
+  const cacheKey = `${documentPath}::${src}`;
+  const cached = imageSrcCache.get(cacheKey);
+  if (cached) return cached;
 
   // Markdown 图片地址遵循 URI 编码；转成本地路径前解码空格、#、中文等字符。
   // 非法的百分号序列保留原值，避免单张图片导致编辑器初始化失败。
@@ -415,5 +424,11 @@ export async function resolveImageSrc(
   const abs = await resolvePathFromDocument(documentPath, localPath);
   // 静态 scope 之外的目录（其他磁盘分区等）先动态放行，再转 asset 协议 URL
   await allowAssetDir(dirNameOf(abs));
-  return convertFileSrc(abs);
+  const res = convertFileSrc(abs);
+  if (imageSrcCache.size >= MAX_IMAGE_CACHE) {
+    const firstKey = imageSrcCache.keys().next().value;
+    if (firstKey) imageSrcCache.delete(firstKey);
+  }
+  imageSrcCache.set(cacheKey, res);
+  return res;
 }

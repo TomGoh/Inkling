@@ -2,6 +2,25 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.4.0] - 2026-08-21
+
+性能专项攻坚 issue #73-#78：
+
+### 性能
+
+- **#73** 消除 App 根组件击键全量重渲染：抽离 `EditorBody` 独立组件，切断 `App.tsx` 对 `currentContent` / `splitContent` 的全量订阅，杜绝高频按键时的全站 React Reconciliation 开销。
+- **#74** Markdown 序列化与大纲提取防抖：ProseMirror AST 序列化与大纲递归扫描增加 200ms 防抖调度，在失焦或存盘时立即强制同步。
+- **#75** Vite 代码分包与主包瘦身：配置 `manualChunks` 将 Milkdown、CodeMirror、KaTeX、Mermaid 与 Lucide 独立拆包，主包体积减少约 65%。
+- **#76** 本地图片流式 Asset 协议与内存缓存池：引入 `convertFileSrc` 流式二进制读取，建立容量 500 的 WeakMap/Map 本地图片缓存池，避免重复 IPC 与 Base64 内存膨胀。
+- **#77** Mermaid 异步渲染防抖与过期请求中断：引入 `renderSeq` 令牌，连续键入时自动作废旧渲染任务，仅执行最新 SVG 计算。
+- **#78** Rust 全局搜索流式逐行读取：`search.rs` 改用 `BufReader` 逐行扫描与匹配，避免超大文件全量载入内存。
+
+### 测试
+
+- 新增 `tests/lib/imageSrcCache.test.ts` 与 `tests/components/MermaidPerf.test.ts`，全套 419 个单测全绿。
+
+详见 [docs/v2.4.0 设计文档.md](docs/v2.4.0%20设计文档.md)。
+
 ## [2.3.9] - 2026-08-21
 
 批量修复缺陷与安全 issue #68-#72：
