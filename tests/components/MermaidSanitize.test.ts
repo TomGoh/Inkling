@@ -14,6 +14,8 @@ describe("Mermaid SVG DOM 清洗与命名空间校验", () => {
         <a id="link4" href="data:text/html,<script>alert(1)</script>"><text>Data HTML</text></a>
         <a id="link5" href="data:image/svg+xml;utf8,<svg></svg>"><text>Safe Data</text></a>
         <circle cx="50" cy="50" r="40" onclick="alert('click')" />
+        <animate attributeName="onload" values="alert(1)" />
+        <animate attributeName="href" values="javascript:alert(1)" />
       </svg>
     `;
     const fragment = sanitizeMermaidSvg(maliciousSvg);
@@ -32,6 +34,10 @@ describe("Mermaid SVG DOM 清洗与命名空间校验", () => {
 
     const circle = container.querySelector("circle");
     expect(circle?.getAttribute("onclick")).toBeNull();
+
+    const animates = container.querySelectorAll("animate");
+    expect(animates[0]?.getAttribute("attributeName")).toBeNull();
+    expect(animates[1]?.getAttribute("values")).toBeNull();
   });
 
   it("保持 SVG 元素及 foreignObject 完整命名空间", () => {

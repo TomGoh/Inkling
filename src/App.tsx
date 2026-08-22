@@ -20,6 +20,8 @@ import { useFileWatcher } from "./lib/useFileWatcher";
 import { useCtrlWheelZoom } from "./lib/useCtrlWheelZoom";
 import { useGlobalShortcuts } from "./lib/useGlobalShortcuts";
 import { useStartupFile } from "./lib/useStartupFile";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { flushAllMarkdownPublishers } from "./components/Editor/markdown-publisher";
 import { type EditorOutlineSnapshot } from "./lib/outline";
 import { useOutline } from "./store/outline";
@@ -133,14 +135,36 @@ function App() {
   // 启动时打开目标文件（派生窗口 / 文件关联 / 单实例转发）
   useStartupFile();
 
-  // 窗口关闭 / 刷新时统一 flush 存活编辑器的待发变更
+  // 窗口关闭 / 刷新时统一 flush 存活编辑器的待发变更，若有未保存文件在退出时落盘
   useEffect(() => {
     const handleBeforeUnload = () => {
       flushAllMarkdownPublishers();
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
+
+    let unlistenClose: (() => void) | undefined;
+    if (isTauri()) {
+      const win = getCurrentWindow();
+      void win.onCloseRequested(async (event) => {
+        event.preventDefault();
+        flushAllMarkdownPublishers();
+        const s = useWorkspace.getState();
+        if (s.dirty) {
+          try {
+            await s.saveCurrent();
+          } catch {
+            // 保存失败降级，允许销毁窗口
+          }
+        }
+        await win.destroy();
+      }).then((fn) => {
+        unlistenClose = fn;
+      });
+    }
+
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
+      unlistenClose?.();
     };
   }, []);
 

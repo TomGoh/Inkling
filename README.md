@@ -186,11 +186,11 @@ pnpm e2e
 
 > 完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
+- **v2.5.3** 拦截窗口关闭 onCloseRequested 确保自动保存真正写盘 + saveCurrent 入口首行 flush 契约闭环 + LRU 缓存调用计数真实断言 + 消除 Mermaid 渲染孪生实现 + animate 属性名注入硬化
 - **v2.5.2** 完善 Mermaid XSS 纵深清洗与控制字符过滤 + 修复保存并发静默回滚 + 应用退出 beforeunload flush 保护 + Store 层 Tab 操作统一 flush 收口 + 强化真实单元测试
 - **v2.5.1** 修复 HTML/SVG 白名单导致 Mermaid 矢量图渲染异常 + 顶栏冗余设置按钮移除与交互收拢 + 完善切 Tab 防抖序列化 flush、图片 LRU 缓存与搜索排序
 - **v2.5.0** UI/UX 视觉与交互全面重构（#79-#84）：统一 Design Tokens 变量体系与 4px 栅格（#79）+ 优化正文行高/标题篇章边距等垂直排版韵律（#80）+ 顶部工具栏重构为轻量 Command Bar 与收纳菜单（#81）+ 侧边栏 Subtle Pill 柔和胶囊选中态与标签栏微交互（#82）+ 统一全站弹窗圆角/阴影与动效基类（#83）+ 深色模式校准与小视口响应式适配（#84）
 - **v2.4.0** 性能专项攻坚（#73-#78）：消除根组件输入全量重渲染（#73）+ Markdown 序列化与大纲提取防抖（#74）+ Vite manualChunks 分包主包瘦身 65%（#75）+ 本地图片流式 Asset 协议与内存缓存池（#76）+ Mermaid 异步渲染防抖与中断（#77）+ Rust 全局搜索 BufReader 逐行流式扫描（#78）
-- **v2.3.9** 批量修复 #68-#72：reloadFile 强制更新富文本编辑器视图（#68）+ Mermaid 动态 SVG 进行 DOM 级清洗阻断 XSS（#69）+ openFile 异常时 openingFiles 兜底清理（#70）+ 外部文件冲突选择保留修改时同步磁盘基线消除重复弹窗（#71）+ Windows 跨盘符大小写归一化判定（#72）
 
 ## 贡献者
 

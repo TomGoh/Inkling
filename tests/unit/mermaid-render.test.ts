@@ -20,8 +20,8 @@ import mermaid from "mermaid";
 vi.mock("mermaid", () => ({
   default: {
     initialize: vi.fn(),
-    render: vi.fn(async (_id: string, _code: string) => ({
-      svg: '<svg id="test-svg" width="100" height="100"></svg>',
+    render: vi.fn(async (id: string, _code: string) => ({
+      svg: `<svg id="${id}" width="100" height="100"></svg>`,
     })),
   },
 }));
@@ -73,6 +73,10 @@ function makeFakeView() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // mock mermaid：initialize 空实现，render 返回固定 svg
+  (mermaid.render as any).mockImplementation(async (id: string, _code: string) => ({
+    svg: `<svg id="${id}" width="100" height="100"></svg>`,
+  }));
 });
 
 describe("MERMAID_CONFIG 防裁切配置", () => {

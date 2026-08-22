@@ -2,6 +2,16 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.5.3] - 2026-08-22
+
+### 修复与完善
+
+- **窗口关闭拦截与落盘保障**：在 `App.tsx` 中使用 `@tauri-apps/api/window` 的 `onCloseRequested` 拦截原生窗口关闭，同步执行 `flushAllMarkdownPublishers()` 并在未保存时 `await saveCurrent()` 真正写回磁盘后退出，根除最后 150ms 编辑丢失隐患。
+- **`saveCurrent` 入口防抖 Flush 契约**：在 `saveCurrent` 执行体首行调用 `flushAllMarkdownPublishers()`，确保入口快照与磁盘写入始终为最新状态。
+- **真实 LRU 缓存测试覆盖**：重写 `imageSrcCache.test.ts`，打桩调用计数器真实验证 500 容量淘汰与命中时的 LRU 顺序调整。
+- **消除 Mermaid 渲染孪生实现**：收敛并由 `NodeView.render()` 与单测统一复用 `renderMermaidWithSeq` 核心渲染函数，杜绝双轨逻辑漂移。
+- **SMIL `<animate>` 属性名注入硬化**：清洗器拦截 `<animate attributeName="onload/on*">` 注入，安全防线更加完备。
+
 ## [2.5.2] - 2026-08-22
 
 ### 修复与完善

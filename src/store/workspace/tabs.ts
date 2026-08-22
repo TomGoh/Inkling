@@ -527,6 +527,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     },
 
     saveCurrent: async () => {
+      flushAllMarkdownPublishers();
       const { currentContent, dirty, saving, activeTabPath, openTabs } = get();
       if (!activeTabPath) return;
       const tab = openTabs.find((t) => t.path === activeTabPath);
