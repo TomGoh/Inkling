@@ -36,7 +36,55 @@ import type { EditorView as PMView } from "@milkdown/kit/prose/view";
 import { isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeBinaryFile } from "../../lib/fs";
-import { sanitizeHTML } from "./html-view";
+/**
+ * 专为 Mermaid 渲染定制的 SVG 安全过滤：
+ * 移除 <script> 标签及 on* 事件处理器 / javascript: 伪协议，
+ * 同时 100% 保留 Mermaid 渲染出的原生 DOM（包括外层 svg 及 foreignObject 内的 span 等所有子树）。
+ */
+export function sanitizeMermaidSvg(svgHtml: string): globalThis.Node {
+  const parser = new DOMParser();
+  let root: Element | null = null;
+  try {
+    const doc = parser.parseFromString(svgHtml, "image/svg+xml");
+    if (!doc.querySelector("parsererror") && doc.documentElement) {
+      root = doc.documentElement;
+    }
+  } catch {}
+
+  if (!root) {
+    const doc = parser.parseFromString(svgHtml, "text/html");
+    root = doc.body.firstElementChild;
+  }
+
+  if (!root) {
+    const template = document.createElement("template");
+    template.innerHTML = svgHtml;
+    root = template.content.firstElementChild;
+  }
+
+  if (!root) {
+    const span = document.createElement("span");
+    return span;
+  }
+
+  // 移除 script 标签
+  const scripts = root.querySelectorAll("script");
+  scripts.forEach((s) => s.remove());
+
+  // 过滤属性
+  const elements = [root, ...Array.from(root.querySelectorAll("*"))];
+  for (const elem of elements) {
+    for (const attr of Array.from(elem.attributes)) {
+      const name = attr.name.toLowerCase();
+      const val = attr.value.trim().toLowerCase();
+      if (name.startsWith("on") || val.includes("javascript:") || val.includes("expression(")) {
+        elem.removeAttribute(attr.name);
+      }
+    }
+  }
+
+  return (document.importNode ? document.importNode(root, true) : root.cloneNode(true));
+}
 import mermaid from "mermaid";
 
 // 初始化一次 Mermaid 运行时
@@ -298,7 +346,7 @@ export function createMermaidView(
       if (currentSeq !== renderSeq) return;
       diagram.innerHTML = "";
       // 对 Mermaid 生成的 SVG 过滤危险 script/事件属性
-      diagram.appendChild(sanitizeHTML(svg));
+      diagram.appendChild(sanitizeMermaidSvg(svg));
       lastSvg = svg;
       // 实测渲染高度写回缓存并锁定本实例 min-height：
       // 同源码后续实例创建即预留精确高度，重渲染也不收缩跳变。
