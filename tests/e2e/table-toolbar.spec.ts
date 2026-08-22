@@ -115,7 +115,7 @@ test.describe("表格工具栏", () => {
 
   test("T11 公式按钮插入块级公式", async ({ page }) => {
     await page.locator('.tt-overflow-btn').click();
-    await page.locator('.tt-menu-item[title="插入块级公式"]').click();
+    await page.locator('.tt-menu-item[title="块级公式"]').click();
     // 块级公式容器（KaTeX 或 ProseMirror math 节点）
     await expect(page.locator(".ProseMirror .math-display, .ProseMirror [data-math-display]").first()).toBeVisible({ timeout: 5_000 });
   });

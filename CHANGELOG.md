@@ -15,7 +15,6 @@
 ### 测试与重构
 
 - **Design Tokens 自动化测试**：新增 `tests/unit/design-system-tokens.test.ts`，验证全套设计令牌的定义与映射。
-- **E2E 测试适配**：适配 TableToolbar 下拉菜单、Mermaid 插入以及空状态选择器，确保全套自动化测试在全新 UI 架构下 100% 通过。
 
 ## [2.5.6] - 2026-08-22
 

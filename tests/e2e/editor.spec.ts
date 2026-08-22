@@ -16,7 +16,7 @@ test.describe("编辑器核心流程", () => {
     await page.goto("/");
     await expect(page.locator(".sidebar")).toBeVisible();
     // 空状态提示
-    await expect(page.locator(".empty-state p")).toContainText("打开文件夹");
+    await expect(page.locator(".empty-state").getByText(/打开文件夹/)).toBeVisible();
     // 打开文件夹按钮存在
     await expect(page.locator(".sidebar-header").getByRole("button", { name: "打开文件夹" })).toBeVisible();
   });
