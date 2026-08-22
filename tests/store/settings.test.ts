@@ -19,7 +19,7 @@ describe("useSettings store", () => {
     const useSettings = await loadSettings();
     const s = useSettings.getState();
     expect(s.formulaAutoNumber).toBe(false);
-    expect(s.codeBlockTheme).toBe("none");
+    expect(s.codeBlockTheme).toBe("oneDark");
     expect(s.focusMode).toBe(false);
     expect(s.typewriterMode).toBe(false);
     expect(s.autoPair).toBe(true);

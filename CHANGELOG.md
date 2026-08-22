@@ -2,20 +2,6 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
-## [2.6.0] - 2026-08-22
-
-### 新增功能与 UI/UX 重构
-
-- **Design Tokens 视觉系统**：建立全局 CSS 变量系统，包含色彩层级（Canvas / Surface / Elevated）、间距阶梯（`--space-1`~`--space-8`）、高度规范（`--height-sm/md/lg`）、圆角规范（`--radius-xs`~`--radius-xl`）与分层微投影。
-- **块工具栏重做**：`TableToolbar` 规范为 32px 单行 Command Bar，常用格式常驻，低频插入项收纳至 `+ 插入 ▾` 菜单，表格增删行列与对齐仅在表格内聚焦时显示，全量统一为 1.5px stroke SVG 矢量图标。
-- **排版与 Markdown 渲染质感**：正文行高统一为 1.75，最大行宽 800px 居中自适应；H1/H2 移除底边框线，纯依靠垂直节奏与字重纵向分隔；代码块默认主题为 `"none"`（自动融入画布背景）；常态编辑模式当前块挂载 `.inkling-current-block` 弱指示线。
-- **侧边栏与空状态升级**：侧边栏头部增加快捷新建 `+` 入口；空状态重构为极简现代化排版并提供「打开文件夹」与「打开文件」真实主/次操作按钮。
-- **全量无障碍与动效支持**：全局对话框与菜单添加 `role="dialog"` 与 `aria-modal="true"`，支持 Escape 快捷关闭与统一 3px `:focus-visible` 焦点环，支持系统级 `prefers-reduced-motion` 减弱动画。
-
-### 测试与重构
-
-- **Design Tokens 自动化测试**：新增 `tests/unit/design-system-tokens.test.ts`，验证全套设计令牌的定义与映射。
-
 ## [2.5.6] - 2026-08-22
 
 ### 优化与测试

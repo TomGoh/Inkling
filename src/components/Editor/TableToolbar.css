@@ -1,196 +1,106 @@
-.table-toolbar,
-.block-toolbar {
+.table-toolbar {
   position: sticky;
   top: 0;
-  z-index: var(--z-sticky, 10);
+  z-index: 10;
   display: flex;
   align-items: center;
-  gap: var(--space-2, 4px);
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  height: var(--height-md, 32px);
-  padding: 0 var(--space-4, 8px);
-  background: var(--bg-surface, #f6f8fa);
-  border-bottom: 1px solid var(--border-subtle, #eaeef2);
-  font-size: var(--text-sm, 12px);
-  scrollbar-width: none;
-}
-
-.table-toolbar::-webkit-scrollbar,
-.block-toolbar::-webkit-scrollbar {
-  display: none;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  padding: 0.3rem 0.9rem;
+  background: var(--topbar-bg, #ffffff);
+  border-bottom: 1px solid var(--border, #d0d7de);
+  font-size: 0.8rem;
 }
 
 .tt-group {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1, 2px);
+  gap: 0.15rem;
   position: relative;
-  flex-shrink: 0;
 }
 
 .tt-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: var(--height-sm, 28px);
-  height: var(--height-sm, 28px);
-  padding: 0;
+  gap: 0.3rem;
+  padding: 0.22rem 0.5rem;
   border: 1px solid transparent;
   border-radius: var(--radius-md, 6px);
   background: transparent;
-  color: var(--text-muted, #5f6b76);
+  color: var(--text-muted, #6e7681);
   cursor: pointer;
-  font-size: var(--text-sm, 12px);
-  font-weight: 500;
-  line-height: 1;
+  font-size: 0.78rem;
+  line-height: 1.4;
   white-space: nowrap;
-  transition: all var(--duration-fast, 100ms) var(--ease, ease);
 }
 
 .tt-btn:hover {
-  background: var(--btn-hover-bg, rgba(0, 0, 0, 0.05));
+  background: var(--btn-hover-bg, rgba(175, 184, 193, 0.2));
   color: var(--text, #1f2328);
 }
 
-.tt-btn:active,
-.tt-btn.active {
+.tt-btn:active {
   background: var(--row-active-bg, rgba(9, 105, 218, 0.12));
-  color: var(--accent, #0969da);
-}
-
-.tt-btn.tt-btn-labeled {
-  width: auto;
-  padding: 0 var(--space-3, 6px);
-  gap: var(--space-2, 4px);
-  font-size: var(--text-xs, 11px);
-}
-
-.tt-btn.tt-danger {
-  color: var(--text-muted, #5f6b76);
 }
 
 .tt-btn.tt-danger:hover {
-  background: var(--danger-subtle, rgba(207, 34, 46, 0.1));
+  background: rgba(207, 34, 46, 0.1);
+  color: var(--danger, #cf222e);
+}
+
+.tt-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1rem;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--text-muted, #6e7681);
+}
+.tt-btn:hover .tt-icon {
+  color: var(--accent, #0969da);
+}
+.tt-btn.tt-danger:hover .tt-icon {
   color: var(--danger, #cf222e);
 }
 
 .tt-sep {
   width: 1px;
-  height: 14px;
-  background: var(--border-subtle, #eaeef2);
-  margin: 0 var(--space-2, 4px);
-  flex-shrink: 0;
-}
-
-.tt-sep-mini {
-  width: 1px;
-  height: 10px;
-  background: var(--border-subtle, #eaeef2);
-  margin: 0 2px;
-  flex-shrink: 0;
-}
-
-/* 溢出下拉菜单 */
-.tt-overflow-wrap {
-  position: relative;
-}
-
-.tt-overflow-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: var(--z-dropdown, 100);
-  min-width: 200px;
-  padding: var(--space-2, 4px);
-  background: var(--bg-elevated, #ffffff);
-  border: 1px solid var(--border-subtle, #eaeef2);
-  border-radius: var(--radius-lg, 8px);
-  box-shadow: var(--shadow-lg, 0 10px 24px rgba(0, 0, 0, 0.12));
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  animation: menu-in 0.12s var(--ease, ease);
-}
-
-.tt-menu-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3, 6px);
-  height: 28px;
-  padding: 0 var(--space-3, 6px);
-  border: none;
-  border-radius: var(--radius-md, 6px);
-  background: transparent;
-  color: var(--text, #1f2328);
-  font-size: var(--text-sm, 12px);
-  cursor: pointer;
-  text-align: left;
-  transition: all var(--duration-fast, 100ms) var(--ease, ease);
-}
-
-.tt-menu-item:hover {
-  background: var(--row-hover-bg, rgba(0, 0, 0, 0.04));
-  color: var(--text, #1f2328);
-}
-
-.tt-menu-item.tt-menu-danger:hover {
-  background: var(--danger-subtle, rgba(207, 34, 46, 0.1));
-  color: var(--danger, #cf222e);
-}
-
-.tt-menu-hint {
-  margin-left: auto;
-  font-size: 10px;
-  color: var(--text-faint, #8c959f);
-}
-
-.tt-item-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted, #5f6b76);
-}
-
-.tt-menu-divider {
-  height: 1px;
-  background: var(--border-subtle, #eaeef2);
-  margin: var(--space-1, 2px) 0;
+  height: 1rem;
+  background: var(--border, #d0d7de);
+  margin: 0 0.3rem;
 }
 
 /* 网格选择器 */
 .table-picker {
   position: absolute;
-  top: 0;
-  left: calc(100% + 4px);
-  z-index: calc(var(--z-dropdown, 100) + 1);
-  padding: var(--space-3, 6px);
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  padding: 0.6rem;
   background: var(--bg-elevated, #ffffff);
-  border: 1px solid var(--border-subtle, #eaeef2);
-  border-radius: var(--radius-lg, 8px);
-  box-shadow: var(--shadow-lg, 0 10px 24px rgba(0, 0, 0, 0.12));
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: var(--radius-lg, 10px);
+  box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.12));
   animation: menu-in 0.12s var(--ease, ease);
 }
 
 .picker-grid {
   display: grid;
-  grid-template-columns: repeat(8, 14px);
-  grid-template-rows: repeat(8, 14px);
-  gap: 3px;
+  grid-template-columns: repeat(8, 1rem);
+  grid-template-rows: repeat(8, 1rem);
+  gap: 2px;
 }
 
 .picker-cell {
-  width: 14px;
-  height: 14px;
+  width: 1rem;
+  height: 1rem;
   padding: 0;
-  border: 1px solid var(--border-subtle, #eaeef2);
-  background: var(--bg-subtle, #f6f8fa);
+  border: 1px solid var(--border, #d0d7de);
+  background: transparent;
   cursor: pointer;
-  border-radius: var(--radius-xs, 2px);
-  transition: all var(--duration-fast, 100ms) var(--ease, ease);
+  border-radius: 2px;
+  transition: none;
 }
 
 .picker-cell.active {
@@ -199,20 +109,16 @@
 }
 
 .picker-label {
-  margin-top: var(--space-2, 4px);
+  margin-top: 0.45rem;
   text-align: center;
-  font-size: 10px;
+  font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
-  color: var(--text-muted, #5f6b76);
+  color: var(--text-muted, #6e7681);
 }
 
 /* 深色主题适配 */
 [data-theme="dark"] .tt-btn:hover {
-  background: var(--btn-hover-bg, rgba(255, 255, 255, 0.08));
+  background: rgba(139, 148, 158, 0.2);
   color: var(--text, #e6edf3);
 }
 
-[data-theme="dark"] .tt-menu-item:hover {
-  background: var(--row-hover-bg, rgba(255, 255, 255, 0.06));
-  color: var(--text, #e6edf3);
-}

@@ -1,7 +1,7 @@
 .tabs-bar {
   flex-shrink: 0;
   background: var(--sidebar-bg, #f6f8fa);
-  border-bottom: 1px solid var(--border-subtle, #eaeef2);
+  border-bottom: 1px solid var(--border, #d0d7de);
   /* 隐藏横向滚动条（避免占用垂直高度破坏边界对齐），滚轮滚动见 TabsBar.tsx */
   overflow-x: auto;
   overflow-y: hidden;
@@ -39,21 +39,20 @@
   position: relative;
   flex-shrink: 0;
   transition:
-    background-color var(--duration-fast, 120ms) var(--ease, ease),
-    color var(--duration-fast, 120ms) var(--ease, ease);
+    background-color 0.12s var(--ease, ease),
+    color 0.12s var(--ease, ease);
 }
 .tab-disambiguated {
   max-width: 320px;
 }
 .tab:hover {
   background: var(--row-hover-bg, rgba(0, 0, 0, 0.04));
-  color: var(--text, #1f2328);
 }
 /* 活跃 tab：上浮卡片样式，与编辑区背景融为一体 */
 .tab-active {
   background: var(--editor-bg, #ffffff);
   color: var(--text, #1f2328);
-  border-color: var(--border-subtle, #eaeef2);
+  border-color: var(--border, #d0d7de);
   position: relative;
 }
 /* 活跃 tab 底部遮住 tabs-bar 的分隔线，形成"连通"效果 */

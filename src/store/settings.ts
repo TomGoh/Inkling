@@ -65,7 +65,7 @@ interface PersistedSettings {
 
 const DEFAULTS: PersistedSettings = {
   formulaAutoNumber: false,
-  codeBlockTheme: "none",
+  codeBlockTheme: "oneDark",
   focusMode: false,
   typewriterMode: false,
   autoPair: true,

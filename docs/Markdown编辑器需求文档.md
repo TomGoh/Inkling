@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v2.6.0
+> 文档版本：v2.5.6
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -310,7 +310,6 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 ### 8.2 发布版本
 
-- **v2.6.0** UI/UX 全面重构升级（依据 UI-UX-REVIEW 设计系统落地）：①建立系统化 Design Tokens（色彩分层、字体栈、间距 `--space-1`~`--space-8`、高度规范 `--height-sm/md/lg`、圆角 `--radius-xs`~`--radius-xl`、`--shadow-sm/md/lg` 与 `--z-*` 语义分层）；②块工具栏（BlockToolbar / TableToolbar）重构为 32px 单行 Command Bar，常用格式常驻，低频项收纳至 `+ 插入 ▾` 菜单，表格增删行列与对齐操作仅在表格聚焦时显示，全量 SVG 图标化；③大纲项高度规范为 28px，侧边栏头部增加快捷新建 `+` 入口；④标题 H1/H2 移除底边框线，纯依靠垂直节奏与字重纵向分隔，代码块默认主题为 `"none"` 融入画布，常态编辑模式当前块挂载 `.inkling-current-block` 弱指示线；⑤空状态界面极简重塑并提供打开文件夹与打开文件主/次操作按钮；⑥模态窗统一毛玻璃遮罩、12px 圆角与 Focus Ring，全量支持 `role="dialog"` 与 Esc 快捷退出，适配 `prefers-reduced-motion`。详见 `docs/v2.6.0 设计文档.md`
 - **v2.5.6** 退出体验与测试强化（活跃标签页还原 / 批量保存单测防护）：①`App.tsx` 记录退出前初始 `activeTabPath`，若用户取消退出留在应用中，自动还原切回初始标签页，保持多文件编辑上下文连贯；②新增 `tests/unit/exit-save.test.ts`，为多 Tab 状态下的退出遍历保存、dirty 清理与标签页还原逻辑提供可靠单元测试保障。详见 `docs/v2.5.6 设计文档.md`
 - **v2.5.5** 深度闭环加固（DOMParser 安全解析 / 全量 Dirty Tab 退出落盘 / Fail-Safe 容错与 Pan 平移重置）：①Mermaid SVG 清洗器采用 `new DOMParser().parseFromString(..., "text/html")` 进行惰性安全解析 + `document.importNode` 导入，消除 `innerHTML` 活跃解析期执行窗口，杜绝注释与实现矛盾并保持 `foreignObject` 原生 HTML 兼容；②`App.tsx` 窗口关闭拦截真正遍历所有处于 `dirty` 状态的 Tab 并逐项执行保存，避免后台 dirty tab 静默丢失；③`ask()` 异常时采用 fail-safe（中止退出）策略；④Mermaid 图表重渲染时重置 `panX = 0, panY = 0` 避免偏移出视口，并保留用户当前 `zoom` 缩放倍数。详见 `docs/v2.5.5 设计文档.md`
 - **v2.5.4** Review 深度闭环与硬约束加固（R1~R3 / 退出多Tab落盘 / SMIL与单测硬化）：①修复 Mermaid 空闲预渲染守卫（`firstRenderDone || !container.isConnected || container.offsetParent === null`），防止脱落节点渲染与高度 0 污染缓存；②修复首渲染占位高度覆盖顺序，先读 `estimateRenderHeight` 确保 `Math.max(height, reserved)` 真实生效防缩；③恢复 `DOMParser` 解析 `image/svg+xml`，杜绝 `innerHTML` 解析期 XSS 执行窗口；④`App.tsx` 窗口关闭拦截按序落盘所有 dirty 的 Tab，取消保存/失败时弹窗确认，避免数据丢失；⑤补充 `<set>` 标签 `attributeName` 过滤，强化 SMIL 安全；⑥`imageSrcCache.test.ts` 补齐旧项刷新 LRU 顺序免淘汰真实测试。详见 `docs/v2.5.4 设计文档.md`

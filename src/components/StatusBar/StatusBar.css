@@ -1,10 +1,9 @@
 .status-bar {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  height: 26px;
-  padding: 0 1rem;
-  border-top: 1px solid var(--border-subtle, #eaeef2);
+  gap: 0.45rem;
+  padding: 0.32rem 0.9rem;
+  border-top: 1px solid var(--border, #d0d7de);
   background: var(--statusbar-bg, #f6f8fa);
   color: var(--text-muted, #6e7681);
   font-size: 0.72rem;
@@ -20,7 +19,6 @@
 
 .status-sep {
   opacity: 0.4;
-  color: var(--border-strong, #8c959f);
 }
 
 /* 弹性间隔：把右侧缩放按钮推到状态栏最右 */
@@ -30,7 +28,7 @@
 
 /* 缩放按钮：默认无边框融入状态栏，hover 高亮 */
 .status-zoom {
-  padding: 0.1rem 0.45rem;
+  padding: 0.05rem 0.45rem;
   border: none;
   background: transparent;
   color: inherit;
@@ -38,11 +36,10 @@
   border-radius: var(--radius-sm, 4px);
   font: inherit;
   font-variant-numeric: tabular-nums;
-  line-height: 1.4;
-  transition: all var(--duration-fast, 120ms) var(--ease, ease);
+  line-height: 1.5;
 }
 .status-zoom:hover {
-  background: var(--btn-hover-bg, #e9edf1);
+  background: var(--row-hover-bg, rgba(0, 0, 0, 0.04));
   color: var(--text, #1f2328);
 }
 /* 非 100% 时高亮提示用户当前处于缩放态 */

@@ -3,7 +3,7 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border-subtle, #eaeef2);
+  border-left: 1px solid var(--border, #d0d7de);
   background: var(--outline-bg, #f6f8fa);
   height: 100%;
 }
@@ -12,14 +12,14 @@
   display: flex;
   align-items: center;
   padding: 0 0.75rem;
-  border-bottom: 1px solid var(--border-subtle, #eaeef2);
+  border-bottom: 1px solid var(--border, #d0d7de);
   height: 40px;
 }
 
 .outline-title {
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-muted, #6e7681);
 }
@@ -41,7 +41,6 @@
   display: block;
   width: calc(100% - 8px);
   margin: 0 4px;
-  min-height: var(--height-sm, 28px);
   border: none;
   background: transparent;
   color: var(--text, #1f2328);
@@ -53,8 +52,8 @@
   border-radius: var(--radius-md, 6px);
   overflow: hidden;
   transition:
-    background-color var(--duration-fast, 120ms) var(--ease, ease),
-    color var(--duration-fast, 120ms) var(--ease, ease);
+    background-color 0.1s var(--ease, ease),
+    color 0.1s var(--ease, ease);
 }
 .outline-item:hover {
   background: var(--outline-hover-bg, rgba(0, 0, 0, 0.04));
