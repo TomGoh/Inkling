@@ -12,23 +12,25 @@ test.describe("表格工具栏", () => {
 
   test("T1 工具栏可见且常驻按钮齐全", async ({ page }) => {
     await expect(page.locator(".table-toolbar")).toBeVisible();
-    // 标题、列表、代码、表格、公式、Mermaid、提示框、目录、元数据、删除块
+    // 标题、列表、代码、插入菜单
     await expect(page.locator('.tt-btn[title="标题 1"]')).toBeVisible();
-    await expect(page.locator('.tt-btn[title="插入表格"]')).toBeVisible();
-    await expect(page.locator('.tt-btn[title="块级公式"]')).toBeVisible();
-    await expect(page.locator('.tt-btn[title="Mermaid 图表"]')).toBeVisible();
-    await expect(page.locator('.tt-btn[title="YAML Front Matter"]')).toBeVisible();
+    await expect(page.locator('.tt-btn[title="标题 2"]')).toBeVisible();
+    await expect(page.locator('.tt-btn[title="无序列表"]')).toBeVisible();
+    await expect(page.locator('.tt-btn[title="代码块"]')).toBeVisible();
+    await expect(page.locator('.tt-overflow-btn')).toBeVisible();
   });
 
   test("T2 点击表格按钮弹出选择器", async ({ page }) => {
-    await page.locator('.tt-btn[title="插入表格"]').click();
+    await page.locator('.tt-overflow-btn').click();
+    await page.locator('.tt-menu-item[title="插入表格"]').click();
     await expect(page.locator(".table-picker")).toBeVisible();
     await expect(page.locator(".picker-grid .picker-cell").first()).toBeVisible();
     await expect(page.locator(".picker-label")).toContainText(/行.*列/);
   });
 
   test("T3 选 2x2 插入表格", async ({ page }) => {
-    await page.locator('.tt-btn[title="插入表格"]').click();
+    await page.locator('.tt-overflow-btn').click();
+    await page.locator('.tt-menu-item[title="插入表格"]').click();
     // hover 到第 2 行第 2 列的 cell（索引 (1,1)）
     const cells = page.locator(".picker-grid .picker-cell");
     await cells.nth(5).hover(); // 第 2 行第 2 列（8 列网格，索引 = 1*8+1 = 9... 取一个能触发 2x2 的）
@@ -38,7 +40,8 @@ test.describe("表格工具栏", () => {
 
   test("T4 表格内显示行列操作按钮", async ({ page }) => {
     // 先插入表格
-    await page.locator('.tt-btn[title="插入表格"]').click();
+    await page.locator('.tt-overflow-btn').click();
+    await page.locator('.tt-menu-item[title="插入表格"]').click();
     await page.locator(".picker-grid .picker-cell").nth(9).click();
     await expect(page.locator(".ProseMirror table")).toBeVisible();
     // 点击单元格进入表格
@@ -49,7 +52,8 @@ test.describe("表格工具栏", () => {
   });
 
   test("T5 下行插入增加行", async ({ page }) => {
-    await page.locator('.tt-btn[title="插入表格"]').click();
+    await page.locator('.tt-overflow-btn').click();
+    await page.locator('.tt-menu-item[title="插入表格"]').click();
     await page.locator(".picker-grid .picker-cell").nth(9).click();
     const rowsBefore = await page.locator(".ProseMirror table tr").count();
     await page.locator(".ProseMirror table td").first().click();
@@ -59,7 +63,8 @@ test.describe("表格工具栏", () => {
   });
 
   test("T6 删行减少行", async ({ page }) => {
-    await page.locator('.tt-btn[title="插入表格"]').click();
+    await page.locator('.tt-overflow-btn').click();
+    await page.locator('.tt-menu-item[title="插入表格"]').click();
     await page.locator(".picker-grid .picker-cell").nth(9).click();
     // 先加一行确保有可删的行
     await page.locator(".ProseMirror table td").first().click();
@@ -72,7 +77,8 @@ test.describe("表格工具栏", () => {
   });
 
   test("T7 右列插入增加列", async ({ page }) => {
-    await page.locator('.tt-btn[title="插入表格"]').click();
+    await page.locator('.tt-overflow-btn').click();
+    await page.locator('.tt-menu-item[title="插入表格"]').click();
     await page.locator(".picker-grid .picker-cell").nth(9).click();
     const colsBefore = await page.locator(".ProseMirror table tr").first().locator("th,td").count();
     await page.locator(".ProseMirror table td").first().click();
@@ -82,7 +88,8 @@ test.describe("表格工具栏", () => {
   });
 
   test("T8 居中对齐设置单元格", async ({ page }) => {
-    await page.locator('.tt-btn[title="插入表格"]').click();
+    await page.locator('.tt-overflow-btn').click();
+    await page.locator('.tt-menu-item[title="插入表格"]').click();
     await page.locator(".picker-grid .picker-cell").nth(9).click();
     await page.locator(".ProseMirror table td").first().click();
     await page.locator('.tt-btn[title="居中"]').click();
@@ -91,7 +98,8 @@ test.describe("表格工具栏", () => {
   });
 
   test("T9 删除表格", async ({ page }) => {
-    await page.locator('.tt-btn[title="插入表格"]').click();
+    await page.locator('.tt-overflow-btn').click();
+    await page.locator('.tt-menu-item[title="插入表格"]').click();
     await page.locator(".picker-grid .picker-cell").nth(9).click();
     await expect(page.locator(".ProseMirror table")).toBeVisible();
     await page.locator(".ProseMirror table td").first().click();
@@ -100,12 +108,14 @@ test.describe("表格工具栏", () => {
   });
 
   test("T10 Mermaid 按钮插入 mermaid 块", async ({ page }) => {
-    await page.locator('.tt-btn[title="Mermaid 图表"]').click();
+    await page.locator('.tt-overflow-btn').click();
+    await page.locator('.tt-menu-item[title="Mermaid 图表"]').click();
     await expect(page.locator(".mermaid-block").first()).toBeVisible({ timeout: 10_000 });
   });
 
   test("T11 公式按钮插入块级公式", async ({ page }) => {
-    await page.locator('.tt-btn[title="块级公式"]').click();
+    await page.locator('.tt-overflow-btn').click();
+    await page.locator('.tt-menu-item[title="块级公式"]').click();
     // 块级公式容器（KaTeX 或 ProseMirror math 节点）
     await expect(page.locator(".ProseMirror .math-display, .ProseMirror [data-math-display]").first()).toBeVisible({ timeout: 5_000 });
   });

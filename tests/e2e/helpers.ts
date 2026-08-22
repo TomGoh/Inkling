@@ -5,7 +5,7 @@ import { test, expect, type Page } from "@playwright/test";
 // 每个用例前先打开 mock 工作区（浏览器版不自动加载，需点按钮）
 export async function openMockWorkspace(page: Page) {
   await page.goto("/");
-  await page.getByRole("button", { name: "打开文件夹" }).click();
+  await page.locator(".sidebar-header").getByRole("button", { name: "打开文件夹" }).click();
   await expect(page.locator(".sidebar-tree").getByText("mock-workspace")).toBeVisible({ timeout: 10_000 });
 }
 
