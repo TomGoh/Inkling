@@ -159,24 +159,24 @@ export function TableToolbar({ getEditor, inTable }: BlockToolbarProps) {
         <button
           className="tt-btn"
           onClick={() => withView((v) => turnIntoHeading(v, 1))}
-          title="标题 1"
-          aria-label="标题 1"
+          title="一级标题 (H1)"
+          aria-label="一级标题"
         >
           <IconHeading1 size={15} />
         </button>
         <button
           className="tt-btn"
           onClick={() => withView((v) => turnIntoHeading(v, 2))}
-          title="标题 2"
-          aria-label="标题 2"
+          title="二级标题 (H2)"
+          aria-label="二级标题"
         >
           <IconHeading2 size={15} />
         </button>
         <button
           className="tt-btn"
           onClick={() => withView((v) => turnIntoHeading(v, 3))}
-          title="标题 3"
-          aria-label="标题 3"
+          title="三级标题 (H3)"
+          aria-label="三级标题"
         >
           <IconHeading3 size={15} />
         </button>
@@ -224,7 +224,7 @@ export function TableToolbar({ getEditor, inTable }: BlockToolbarProps) {
       {/* 插入菜单溢出项 */}
       <div className="tt-group tt-overflow-wrap" ref={overflowRef}>
         <button
-          className={`tt-btn tt-btn-labeled tt-overflow-btn ${overflowOpen ? "active" : ""}`}
+          className={`tt-btn tt-btn-labeled ${overflowOpen ? "active" : ""}`}
           onClick={() => setOverflowOpen((v) => !v)}
           title="插入扩展元素 (表格/公式/图表/提示框/元数据等)"
           aria-expanded={overflowOpen}
@@ -239,7 +239,6 @@ export function TableToolbar({ getEditor, inTable }: BlockToolbarProps) {
             <button
               className="tt-menu-item"
               role="menuitem"
-              title="插入表格"
               onClick={() => {
                 setPickerOpen((v) => !v);
               }}

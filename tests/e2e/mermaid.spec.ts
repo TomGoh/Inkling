@@ -7,9 +7,8 @@ import { openMockWorkspace, openFile, MULTILINE_FLOWCHART } from "./helpers";
 
 // 通过表格工具栏的 Mermaid 按钮插入空 mermaid 块，再用编辑 textarea 填入代码并提交渲染
 async function insertMermaid(page: import("@playwright/test").Page, code: string) {
-  // 1. 用工具栏下拉菜单按钮插入空 mermaid 代码块
-  await page.locator('.tt-overflow-btn').click();
-  await page.locator('.tt-menu-item[title="Mermaid 图表"]').click();
+  // 1. 用工具栏按钮插入空 mermaid 代码块（最可靠的插入路径）
+  await page.locator('.tt-btn[title="Mermaid 图表"]').click();
   await expect(page.locator(".mermaid-block").first()).toBeVisible({ timeout: 10_000 });
   const block = page.locator(".mermaid-block").first();
   // 2. 进入编辑模式，填入代码
