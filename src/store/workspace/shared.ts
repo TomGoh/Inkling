@@ -87,9 +87,8 @@ export function pushRecent(list: string[], path: string): string[] {
 export function parentDir(filePath: string): string {
   const idx = Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\"));
   if (idx < 0) return filePath;
-  const sep = filePath[idx];
-  if (idx === 0) return sep;
-  if (idx === 2 && /^[a-zA-Z]:[\\/]/.test(filePath)) return filePath.slice(0, 2) + sep;
+  if (idx === 0) return filePath.slice(0, 1);
+  if (idx === 2 && /^[a-zA-Z]:[\\/]/.test(filePath)) return filePath.slice(0, 3);
   return filePath.slice(0, idx);
 }
 

@@ -373,11 +373,7 @@ async function allowAssetDir(dir: string): Promise<void> {
 function dirNameOf(p: string): string {
   if (!p) return "";
   const idx = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-  if (idx < 0) return p;
-  const sep = p[idx];
-  if (idx === 0) return sep;
-  if (idx === 2 && /^[a-zA-Z]:[\\/]/.test(p)) return p.slice(0, 2) + sep;
-  return p.slice(0, idx);
+  return idx > 0 ? p.slice(0, idx) : p;
 }
 
 /** 路径与 asset URL 缓存映射，避免重复解析与动态放行 IPC */

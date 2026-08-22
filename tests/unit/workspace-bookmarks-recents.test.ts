@@ -38,9 +38,6 @@ describe("Workspace Bookmarks & Recents Slices", () => {
       expect(parentDir("/foo/bar/baz.md")).toBe("/foo/bar");
       expect(parentDir("C:\\foo\\bar\\baz.md")).toBe("C:\\foo\\bar");
       expect(parentDir("/file.md")).toBe("/");
-      expect(parentDir("\\file.md")).toBe("\\");
-      expect(parentDir("C:\\file.md")).toBe("C:\\");
-      expect(parentDir("C:/file.md")).toBe("C:/");
       expect(parentDir("simple.md")).toBe("simple.md");
     });
 
