@@ -2,6 +2,13 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.5.7] - 2026-08-22
+
+### 修复与加固
+
+- **修复窗口退出 ACL 权限缺失报错**：在 `src-tauri/capabilities/default.json` 补齐 `core:window:allow-destroy` 与 `core:window:allow-close` 权限，消除退出流程触发 `Command plugin:window|destroy not allowed by ACL` 弹窗报错。
+- **ACL 权限防回归单测**：在 `tests/unit/capabilities.test.ts` 中增加窗口关闭与销毁权限的自动化校验断言。
+
 ## [2.5.6] - 2026-08-22
 
 ### 优化与测试

@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v2.5.6
+> 文档版本：v2.5.7
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -310,6 +310,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 ### 8.2 发布版本
 
+- **v2.5.7** 修复 Tauri 2 窗口销毁 ACL 权限报错：为 `src-tauri/capabilities/default.json` 补齐 `core:window:allow-destroy` 与 `core:window:allow-close` 权限，消除退出时的全局 ErrorBoundary 报错弹窗，新增 ACL 防回归单测。详见 `docs/v2.5.7 设计文档.md`
 - **v2.5.6** 退出体验与测试强化（活跃标签页还原 / 批量保存单测防护）：①`App.tsx` 记录退出前初始 `activeTabPath`，若用户取消退出留在应用中，自动还原切回初始标签页，保持多文件编辑上下文连贯；②新增 `tests/unit/exit-save.test.ts`，为多 Tab 状态下的退出遍历保存、dirty 清理与标签页还原逻辑提供可靠单元测试保障。详见 `docs/v2.5.6 设计文档.md`
 - **v2.5.5** 深度闭环加固（DOMParser 安全解析 / 全量 Dirty Tab 退出落盘 / Fail-Safe 容错与 Pan 平移重置）：①Mermaid SVG 清洗器采用 `new DOMParser().parseFromString(..., "text/html")` 进行惰性安全解析 + `document.importNode` 导入，消除 `innerHTML` 活跃解析期执行窗口，杜绝注释与实现矛盾并保持 `foreignObject` 原生 HTML 兼容；②`App.tsx` 窗口关闭拦截真正遍历所有处于 `dirty` 状态的 Tab 并逐项执行保存，避免后台 dirty tab 静默丢失；③`ask()` 异常时采用 fail-safe（中止退出）策略；④Mermaid 图表重渲染时重置 `panX = 0, panY = 0` 避免偏移出视口，并保留用户当前 `zoom` 缩放倍数。详见 `docs/v2.5.5 设计文档.md`
 - **v2.5.4** Review 深度闭环与硬约束加固（R1~R3 / 退出多Tab落盘 / SMIL与单测硬化）：①修复 Mermaid 空闲预渲染守卫（`firstRenderDone || !container.isConnected || container.offsetParent === null`），防止脱落节点渲染与高度 0 污染缓存；②修复首渲染占位高度覆盖顺序，先读 `estimateRenderHeight` 确保 `Math.max(height, reserved)` 真实生效防缩；③恢复 `DOMParser` 解析 `image/svg+xml`，杜绝 `innerHTML` 解析期 XSS 执行窗口；④`App.tsx` 窗口关闭拦截按序落盘所有 dirty 的 Tab，取消保存/失败时弹窗确认，避免数据丢失；⑤补充 `<set>` 标签 `attributeName` 过滤，强化 SMIL 安全；⑥`imageSrcCache.test.ts` 补齐旧项刷新 LRU 顺序免淘汰真实测试。详见 `docs/v2.5.4 设计文档.md`
