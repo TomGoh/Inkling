@@ -297,6 +297,7 @@ export function createMermaidView(
       // 中途有新的渲染请求排入，丢弃已过期的渲染
       if (currentSeq !== renderSeq) return;
       diagram.innerHTML = "";
+      // 对 Mermaid 生成的 SVG 过滤危险 script/事件属性
       diagram.appendChild(sanitizeHTML(svg));
       lastSvg = svg;
       // 实测渲染高度写回缓存并锁定本实例 min-height：

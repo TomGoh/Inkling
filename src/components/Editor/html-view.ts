@@ -152,19 +152,16 @@ export function sanitizeHTML(value: string): globalThis.Node {
   const fragment = document.createDocumentFragment();
 
   // 递归过滤克隆节点
-  const cloneFiltered = (src: Element, parent: globalThis.Node, isInsideForeignObject = false): void => {
-    const tag = src.tagName.toLowerCase();
-    if (!ALLOWED_TAGS.has(tag)) return; // 不在白名单的标签直接丢弃（不保留子节点，避免结构混乱）
+  const cloneFiltered = (src: Element, parent: globalThis.Node, isInsideSvg = false): void => {
+    const rawTag = src.tagName;
+    const lowerTag = rawTag.toLowerCase();
+    if (!ALLOWED_TAGS.has(lowerTag)) return; // 不在白名单的标签直接丢弃（不保留子节点，避免结构混乱）
 
-    // foreignObject 内的子元素属于 HTML 命名空间（例如 span.nodeLabel、div 等）
-    const isForeignObject = tag === "foreignobject";
-    const insideFO = isInsideForeignObject || isForeignObject;
-    const isSvgTag = SVG_TAGS.has(tag) && !insideFO;
-
-    // SVG 元素必须用 SVG 命名空间创建，否则浏览器会当作未知 HTML 标签，无法正常渲染矢量图形
-    const el = isSvgTag || isForeignObject
-      ? document.createElementNS(SVG_NS, tag)
-      : document.createElement(tag);
+    const inSvg = isInsideSvg || SVG_TAGS.has(lowerTag);
+    // SVG 元素必须用 SVG 命名空间创建
+    const el = inSvg
+      ? document.createElementNS(SVG_NS, rawTag)
+      : document.createElement(lowerTag);
 
     // 过滤属性
     for (const attr of Array.from(src.attributes)) {
@@ -173,7 +170,7 @@ export function sanitizeHTML(value: string): globalThis.Node {
       if (isDangerousAttr(lowerName)) continue;
       const allowed =
         ALLOWED_GLOBAL_ATTRS.has(lowerName) ||
-        ALLOWED_TAG_ATTRS[tag]?.has(lowerName);
+        ALLOWED_TAG_ATTRS[lowerTag]?.has(lowerName);
       if (!allowed) continue;
 
       let val = attr.value;
@@ -188,7 +185,7 @@ export function sanitizeHTML(value: string): globalThis.Node {
     }
 
     // a 标签强制安全：外链加 rel=noopener，target=_blank 时补充
-    if (tag === "a" && el.getAttribute("target") === "_blank") {
+    if (lowerTag === "a" && el.getAttribute("target") === "_blank") {
       el.setAttribute("rel", "noopener noreferrer");
     }
 
@@ -199,7 +196,7 @@ export function sanitizeHTML(value: string): globalThis.Node {
       if (child.nodeType === globalThis.Node.TEXT_NODE) {
         el.appendChild(document.createTextNode(child.textContent ?? ""));
       } else if (child.nodeType === globalThis.Node.ELEMENT_NODE) {
-        cloneFiltered(child as Element, el, insideFO);
+        cloneFiltered(child as Element, el, inSvg);
       }
     }
   };
