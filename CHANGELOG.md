@@ -2,6 +2,13 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.5.9] - 2026-08-23
+
+### 修复与优化
+
+- **跨平台根路径提取边界加固**：修复 `parentDir` 与 `dirNameOf` 处理系统根目录（POSIX `/file.md` 或 Windows `C:\file.md`）时被错误截断为空字符串的问题，精准保留根目录与盘符斜杠，保证资源权限放行与树结构局部刷新鲁棒性。
+- **单测覆盖与全量 Issues 闭环**：完善跨平台根路径单测，完成 GitHub 32 项 Issues 的全量验收与闭环。
+
 ## [2.5.8] - 2026-08-23
 
 ### 测试与重构
