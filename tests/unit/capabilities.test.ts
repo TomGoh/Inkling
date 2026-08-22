@@ -30,6 +30,11 @@ describe("capabilities/default.json ACL 权限配置（v1.2.10 防回归）", ()
     expect(permissions).toContain("dialog:allow-save");
   });
 
+  it("包含 window destroy 与 close 权限（窗口退出逻辑需要）", () => {
+    expect(permissions).toContain("core:window:allow-destroy");
+    expect(permissions).toContain("core:window:allow-close");
+  });
+
   it("包含全部 13 个自定义 app command 权限", () => {
     const expected = [
       "allow-list-dir",
