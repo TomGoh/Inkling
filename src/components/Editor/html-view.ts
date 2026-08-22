@@ -69,6 +69,10 @@ const ALLOWED_CSS_PROPS = new Set([
   "text-indent", "word-break", "overflow-wrap", "text-shadow",
 ]);
 
+function isHtmlTagInsideSvg(tag: string): boolean {
+  return !SVG_TAGS.has(tag);
+}
+
 /** 危险属性前缀（on* 事件处理器） */
 function isDangerousAttr(name: string): boolean {
   return name.toLowerCase().startsWith("on");
@@ -156,9 +160,13 @@ export function sanitizeHTML(value: string): globalThis.Node {
     const tag = src.tagName.toLowerCase();
     if (!ALLOWED_TAGS.has(tag)) return; // 不在白名单的标签直接丢弃（不保留子节点，避免结构混乱）
 
-    const inSvg = isInsideSvg || SVG_TAGS.has(tag);
+    // foreignObject 内的子元素属于 HTML 命名空间（例如 span.nodeLabel、div 等）
+    const isSvgTag = SVG_TAGS.has(tag);
+    const inSvg = isSvgTag ? true : isInsideSvg && tag !== "foreignobject";
+    const useSvgNs = isSvgTag || (isInsideSvg && tag !== "foreignobject" && !isHtmlTagInsideSvg(tag));
+
     // SVG 元素必须用 SVG 命名空间创建，否则浏览器会当作未知 HTML 标签，无法正常渲染矢量图形
-    const el = inSvg
+    const el = useSvgNs
       ? document.createElementNS(SVG_NS, tag)
       : document.createElement(tag);
 
