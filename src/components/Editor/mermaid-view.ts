@@ -43,13 +43,9 @@ import { writeBinaryFile } from "../../lib/fs";
  * 同时 100% 保留 Mermaid 渲染出的原生 DOM。
  */
 export function sanitizeMermaidSvg(svgHtml: string): globalThis.Node {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(svgHtml, "image/svg+xml");
-  let root: Element | null = doc.documentElement;
-  if (!root || root.tagName.toLowerCase() === "parsererror") {
-    const htmlDoc = parser.parseFromString(svgHtml, "text/html");
-    root = htmlDoc.querySelector("svg") || htmlDoc.body.firstElementChild;
-  }
+  const container = document.createElement("div");
+  container.innerHTML = svgHtml;
+  const root = container.querySelector("svg") || container.firstElementChild;
   if (!root) {
     const span = document.createElement("span");
     return span;
