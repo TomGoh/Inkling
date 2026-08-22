@@ -38,14 +38,14 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { writeBinaryFile } from "../../lib/fs";
 /**
  * 专为 Mermaid 渲染定制的 SVG 安全过滤：
- * 使用 XML DOMParser 解析以避免 innerHTML 赋值期的 script/img-onerror 活跃执行，
+ * 使用 DOMParser text/html 惰性解析以避免 innerHTML 赋值期的 script/img-onerror 活跃执行，
+ * 同时天然保留 foreignObject 与 HTML 语义，
  * 移除 <script> 等危险标签及 on* 事件处理器 / javascript: 等危险协议，
- * 同时 100% 保留 Mermaid 渲染出的原生 DOM。
+ * 并通过 document.importNode 导入主文档，100% 保留 Mermaid 渲染出的原生 DOM。
  */
 export function sanitizeMermaidSvg(svgHtml: string): globalThis.Node {
-  const container = document.createElement("div");
-  container.innerHTML = svgHtml;
-  const root = container.querySelector("svg") || container.firstElementChild;
+  const doc = new DOMParser().parseFromString(svgHtml, "text/html");
+  const root = doc.querySelector("svg") || doc.body.firstElementChild;
   if (!root) {
     const span = document.createElement("span");
     return span;
@@ -380,6 +380,9 @@ export function createMermaidView(
       if (firstRender) {
         resetZoomPan();
       } else {
+        // 重渲染时图表尺寸可能发生变化，重置 pan 偏移量（设为 0,0）但保留用户的 zoom 缩放等级
+        panX = 0;
+        panY = 0;
         applyZoom();
       }
       // 实测渲染高度写回缓存并锁定本实例 min-height：

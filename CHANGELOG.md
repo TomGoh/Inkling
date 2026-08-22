@@ -2,6 +2,14 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.5.5] - 2026-08-22
+
+### 修复与加固
+
+- **Mermaid DOMParser 惰性安全解析**：使用 `new DOMParser().parseFromString(..., "text/html")` 进行惰性安全解析，消除 `innerHTML` 活跃执行窗口，纠正注释与实现矛盾，并完美兼容 `foreignObject` / `htmlLabels`。
+- **全量 Dirty Tab 退出落盘**：`App.tsx` 关窗拦截真正遍历所有处于 `dirty` 状态的标签页依次激活并保存，杜绝后台标签页内容丢失。
+- **Fail-Safe 退出容错与重渲染 Pan 重置**：`ask()` 抛出异常时采取 fail-safe（中止退出）策略；图表重渲染时重置平移量 `panX = 0, panY = 0` 避免偏移出视口，并保留用户当前 `zoom` 缩放等级。
+
 ## [2.5.4] - 2026-08-22
 
 ### 修复与加固
