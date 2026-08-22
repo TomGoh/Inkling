@@ -10,12 +10,12 @@ import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import { useWorkspace } from "../../store/workspace";
-import { IconFileText, IconFolder } from "../icons";
+import { IconFileText, IconFolder, IconPlus } from "../icons";
 import { RecentFiles } from "./RecentFiles";
 import { Bookmarks } from "./Bookmarks";
 import { WorkspaceFileTree } from "./WorkspaceFileTree";
 import { TreeContextMenu } from "./TreeContextMenu";
-import { TREE_MENU_EVENT, type MenuPayload } from "./treeShared";
+import { TREE_ACTION_EVENT, TREE_MENU_EVENT, type MenuPayload, type TreeAction } from "./treeShared";
 import "./Sidebar.css";
 
 export function Sidebar() {
@@ -24,6 +24,7 @@ export function Sidebar() {
   const workspaceLoading = useWorkspace((s) => s.workspaceLoading);
   const openWorkspace = useWorkspace((s) => s.openWorkspace);
   const openFileStandalone = useWorkspace((s) => s.openFileStandalone);
+  const newTab = useWorkspace((s) => s.newTab);
   const recentFiles = useWorkspace((s) => s.recentFiles);
   const bookmarks = useWorkspace((s) => s.bookmarks);
   const [menu, setMenu] = useState<MenuPayload | null>(null);
@@ -37,6 +38,18 @@ export function Sidebar() {
     window.addEventListener(TREE_MENU_EVENT, handler);
     return () => window.removeEventListener(TREE_MENU_EVENT, handler);
   }, []);
+
+  const handleCreateNew = useCallback(() => {
+    if (rootPath && tree) {
+      window.dispatchEvent(
+        new CustomEvent<TreeAction>(TREE_ACTION_EVENT, {
+          detail: { type: "new", parentPath: rootPath, kind: "file" },
+        })
+      );
+    } else {
+      newTab();
+    }
+  }, [rootPath, tree, newTab]);
 
   const handleOpenFolder = useCallback(async () => {
     try {
@@ -80,6 +93,14 @@ export function Sidebar() {
           {rootPath ? rootPath.split(/[\\/]/).pop() : "工作区"}
         </span>
         <div className="sidebar-actions">
+          <button
+            className="sidebar-btn-icon"
+            onClick={handleCreateNew}
+            title="新建文件"
+            aria-label="新建文件"
+          >
+            <IconPlus size={16} />
+          </button>
           <button
             className="sidebar-btn-icon"
             onClick={handleOpenFolder}

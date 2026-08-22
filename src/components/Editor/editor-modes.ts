@@ -18,18 +18,20 @@ export const editorModesPlugin = () =>
     },
     props: {
       decorations: (state) => {
-        if (!useSettings.getState().focusMode) return DecorationSet.empty;
+        const isFocus = useSettings.getState().focusMode;
         const $head = state.selection.$head;
-        // 取光标所在的「文档顶层块」（即 .ProseMirror 直接子节点，深度 1）挂装饰，
-        // 与 App.css 的高亮粒度一致（.focus-mode .ProseMirror > .inkling-focused）。
-        // 若取最内层块（findParentNodeClosestToPos(n => n.isBlock)），列表/表格等
-        // 复合块只会命中内部段落，而外层列表/表格仍被整体弱化（issue #56）。
         if ($head.depth < 1) return DecorationSet.empty;
         const top = $head.node(1);
         const start = $head.before(1);
+
+        const classes = ["inkling-current-block"];
+        if (isFocus) {
+          classes.push("inkling-focused");
+        }
+
         return DecorationSet.create(state.doc, [
           Decoration.node(start, start + top.nodeSize, {
-            class: "inkling-focused",
+            class: classes.join(" "),
           }),
         ]);
       },

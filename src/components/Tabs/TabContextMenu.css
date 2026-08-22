@@ -1,18 +1,18 @@
 .tab-context-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: var(--z-popover, 200);
 }
 
 .tab-context-menu {
   position: fixed;
-  min-width: 152px;
+  min-width: 160px;
   background: var(--bg-elevated, #ffffff);
-  border: 1px solid var(--border, #d0d7de);
-  border-radius: var(--radius-lg, 10px);
-  box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.15));
-  padding: 5px;
-  z-index: 201;
+  border: 1px solid var(--border-subtle, #eaeef2);
+  border-radius: var(--radius-lg, 8px);
+  box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.08));
+  padding: 4px;
+  z-index: calc(var(--z-popover, 200) + 1);
   animation: menu-in 0.12s var(--ease, ease);
 }
 
@@ -23,12 +23,12 @@
   background: transparent;
   color: var(--text, #1f2328);
   font-size: 0.8rem;
-  padding: 0.4rem 0.65rem;
+  padding: 0.35rem 0.65rem;
   text-align: left;
   cursor: pointer;
   font-family: inherit;
   border-radius: var(--radius-md, 6px);
-  transition: none;
+  transition: background-color var(--duration-fast, 120ms) var(--ease, ease), color var(--duration-fast, 120ms) var(--ease, ease);
 }
 .tab-context-item:hover:not(:disabled) {
   background: var(--accent-subtle, rgba(9, 105, 218, 0.1));
@@ -42,6 +42,6 @@
 
 .tab-context-sep {
   height: 1px;
-  background: var(--border, #eaeef2);
-  margin: 5px 4px;
+  background: var(--border-subtle, #eaeef2);
+  margin: 4px 2px;
 }

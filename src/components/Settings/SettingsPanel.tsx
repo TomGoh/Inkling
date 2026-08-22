@@ -2,6 +2,7 @@
 // 集中展示可由用户开关的编辑器行为，直接读写 settings store，实时生效。
 // 包含：专注模式、打字机模式、公式自动编号、代码块语法高亮主题。
 
+import { useEffect } from "react";
 import { useSettings, type CodeBlockTheme } from "../../store/settings";
 import { IconX } from "../icons";
 import "./SettingsPanel.css";
@@ -13,6 +14,14 @@ const CODE_THEME_OPTIONS: { value: CodeBlockTheme; label: string }[] = [
 ];
 
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const formulaAutoNumber = useSettings((s) => s.formulaAutoNumber);
   const codeBlockTheme = useSettings((s) => s.codeBlockTheme);
   const focusMode = useSettings((s) => s.focusMode);
@@ -28,7 +37,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const reset = useSettings((s) => s.reset);
 
   return (
-    <div className="settings-backdrop" onClick={onClose}>
+    <div className="settings-backdrop" onClick={onClose} role="dialog" aria-modal="true">
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
           <span className="settings-title">偏好设置</span>

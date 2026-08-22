@@ -1,21 +1,21 @@
 .gs-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(31, 35, 40, 0.45);
-  backdrop-filter: blur(2px);
+  background: var(--bg-overlay, rgba(31, 35, 40, 0.45));
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding-top: 10vh;
   z-index: 150;
-  animation: backdrop-in 0.15s var(--ease, ease);
+  animation: backdrop-in var(--duration-normal, 180ms) var(--ease-out, ease);
 }
 
 /* 命令面板式弹层：从顶部轻微下滑 */
 @keyframes gs-drop-in {
   from {
     opacity: 0;
-    transform: translateY(-10px) scale(0.98);
+    transform: translateY(-8px) scale(0.98);
   }
   to {
     opacity: 1;
@@ -30,78 +30,78 @@
   display: flex;
   flex-direction: column;
   background: var(--bg-elevated, #ffffff);
-  border: 1px solid var(--border, #d0d7de);
-  border-radius: var(--radius-lg, 12px);
-  box-shadow: var(--shadow-lg, 0 8px 28px rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--border-subtle, #eaeef2);
+  border-radius: var(--radius-xl, 12px);
+  box-shadow: var(--shadow-lg, 0 12px 28px rgba(0, 0, 0, 0.15));
   overflow: hidden;
-  animation: gs-drop-in 0.18s var(--ease, ease);
+  animation: gs-drop-in var(--duration-normal, 180ms) var(--ease-out, ease);
 }
 
 .gs-header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.65rem 0.85rem;
-  border-bottom: 1px solid var(--border, #eaeef2);
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border-subtle, #eaeef2);
 }
 
 .gs-input {
   flex: 1;
+  height: 36px;
   border: 1px solid var(--border, #d0d7de);
   border-radius: var(--radius-md, 6px);
-  padding: 0.42rem 0.65rem;
+  padding: 0 0.75rem;
   font-size: 0.9rem;
   font-family: inherit;
-  background: var(--editor-bg, #ffffff);
+  background: var(--bg-canvas, #ffffff);
   color: var(--text, #1f2328);
   outline: none;
   transition:
-    border-color var(--duration) var(--ease),
-    box-shadow var(--duration) var(--ease);
+    border-color var(--duration-fast, 120ms) var(--ease, ease),
+    box-shadow var(--duration-fast, 120ms) var(--ease, ease);
 }
 .gs-input:focus {
-  border-color: var(--accent, #2f81f7);
+  border-color: var(--accent, #0969da);
   box-shadow: var(--ring);
 }
 
 .gs-toggles {
   display: flex;
-  gap: 0.3rem;
+  gap: 0.35rem;
 }
 
 .gs-toggle {
   display: flex;
   align-items: center;
-  gap: 0.2rem;
+  gap: 0.25rem;
+  height: 32px;
   font-size: 0.78rem;
   color: var(--text-muted, #6e7681);
   cursor: pointer;
-  padding: 0.24rem 0.45rem;
+  padding: 0 0.55rem;
   border: 1px solid var(--border, #d0d7de);
   border-radius: var(--radius-md, 6px);
-  transition:
-    background-color var(--duration) var(--ease),
-    border-color var(--duration) var(--ease),
-    color var(--duration) var(--ease);
+  transition: all var(--duration-fast, 120ms) var(--ease, ease);
 }
 .gs-toggle:hover {
-  background: var(--row-hover-bg, rgba(0, 0, 0, 0.05));
+  background: var(--btn-hover-bg, #e9edf1);
+  color: var(--text, #1f2328);
 }
 .gs-toggle input {
   display: none;
 }
 .gs-toggle:has(input:checked) {
-  background: var(--accent-subtle, rgba(47, 129, 247, 0.12));
-  border-color: var(--accent, #2f81f7);
-  color: var(--accent, #2f81f7);
+  background: var(--accent-subtle, rgba(9, 105, 218, 0.12));
+  border-color: var(--accent, #0969da);
+  color: var(--accent, #0969da);
 }
 
 .gs-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border: none;
   background: transparent;
   color: var(--text-muted, #6e7681);
@@ -110,38 +110,39 @@
   padding: 0;
   border-radius: var(--radius-md, 6px);
   line-height: 1;
+  transition: all var(--duration-fast, 120ms) var(--ease, ease);
 }
 .gs-close:hover {
-  background: var(--row-hover-bg, rgba(0, 0, 0, 0.06));
+  background: var(--btn-hover-bg, #e9edf1);
   color: var(--text, #1f2328);
 }
 
 .gs-status {
-  padding: 0.3rem 0.8rem;
+  padding: 0.35rem 1rem;
   font-size: 0.74rem;
   color: var(--text-muted, #6e7681);
-  border-bottom: 1px solid var(--border, #eaeef2);
+  border-bottom: 1px solid var(--border-subtle, #eaeef2);
 }
 
 .gs-error {
-  color: #cf222e;
+  color: var(--danger, #cf222e);
 }
 
 .gs-results {
   flex: 1;
   overflow-y: auto;
-  padding: 0.3rem;
+  padding: 0.4rem 0.6rem;
 }
 
 .gs-group {
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.5rem;
 }
 
 .gs-group-header {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.35rem 0.55rem;
+  padding: 0.4rem 0.6rem;
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--text, #1f2328);
@@ -179,11 +180,11 @@
   border: none;
   background: transparent;
   text-align: left;
-  padding: 0.28rem 0.55rem 0.28rem 1.6rem;
+  padding: 0.35rem 0.6rem 0.35rem 1.6rem;
   border-radius: var(--radius-md, 6px);
   cursor: pointer;
   font-family: inherit;
-  transition: background-color 0.1s var(--ease, ease);
+  transition: background-color var(--duration-fast, 120ms) var(--ease, ease);
 }
 .gs-hit:hover,
 .gs-hit-active {
@@ -191,10 +192,10 @@
 }
 
 .gs-line {
-  font-size: 0.72rem;
+  font-size: 0.74rem;
   color: var(--text-muted, #6e7681);
   flex-shrink: 0;
-  width: 3rem;
+  width: 3.2rem;
   padding-top: 0.1rem;
 }
 
@@ -202,7 +203,7 @@
   flex: 1;
   font-size: 0.8rem;
   color: var(--text, #1f2328);
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: var(--mono-font, monospace);
   white-space: pre-wrap;
   word-break: break-all;
   overflow: hidden;
@@ -213,14 +214,14 @@
 }
 
 .gs-highlight {
-  background: rgba(210, 153, 34, 0.35);
+  background: var(--warning-subtle, rgba(210, 153, 34, 0.35));
   color: inherit;
-  border-radius: 2px;
-  padding: 0 1px;
+  border-radius: var(--radius-xs, 3px);
+  padding: 0 2px;
 }
 
 .gs-empty {
-  padding: 2rem 1rem;
+  padding: 2.5rem 1rem;
   text-align: center;
   color: var(--text-muted, #6e7681);
   font-size: 0.85rem;

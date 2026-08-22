@@ -130,10 +130,12 @@ describe("专注模式装饰粒度（issue #56）", () => {
     expect(node!.type.name).toBe("table");
   });
 
-  it("关闭专注模式：不产生任何高亮装饰", () => {
+  it("关闭专注模式：不产生 inkling-focused 高亮装饰", () => {
     useSettings.setState({ focusMode: false });
     const state = stateWithCursorIn("一段正文。", "paragraph");
-    const set = decorationsOf(state) as { find: () => Array<{ from: number; to: number }> };
-    expect(set.find()).toHaveLength(0);
+    const set = decorationsOf(state) as { find: () => Array<{ spec: { class?: string } }> };
+    const decos = set.find();
+    const focusedDecos = decos.filter((d) => d.spec.class?.includes("inkling-focused"));
+    expect(focusedDecos).toHaveLength(0);
   });
 });

@@ -25,7 +25,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { flushAllMarkdownPublishers } from "./components/Editor/markdown-publisher";
 import { type EditorOutlineSnapshot } from "./lib/outline";
 import { useOutline } from "./store/outline";
-import { IconPanelLeft } from "./components/icons";
+import { IconPanelLeft, IconFolder, IconFileText } from "./components/icons";
 import "./App.css";
 
 function App() {
@@ -290,17 +290,55 @@ function App() {
         ) : (
           <div className="empty-state">
             <h2>InklingMD</h2>
-            <p>从左侧侧边栏「打开」文件夹，或「打开文件」直接打开一个 .md 开始编辑</p>
-            {!sidebarVisible && (
+            <p>从左侧侧边栏打开文件夹，或打开单个 Markdown 文件开始编辑</p>
+            <div className="empty-state-actions">
               <button
-                className="empty-state-open-sidebar"
-                onClick={toggleSidebar}
-                title="打开侧边栏 (Ctrl/Cmd+\)"
+                className="empty-state-btn primary"
+                onClick={async () => {
+                  try {
+                    const selected = await (window as unknown as { __TAURI__?: { dialog?: { open?: (opts: unknown) => Promise<string | null> } } }).__TAURI__?.dialog?.open?.({ directory: true, multiple: false });
+                    if (typeof selected === "string") {
+                      useWorkspace.getState().openWorkspace(selected);
+                    }
+                  } catch {
+                    // ignore
+                  }
+                }}
               >
-                <IconPanelLeft size={16} />
-                打开侧边栏
+                <IconFolder size={16} />
+                打开文件夹
               </button>
-            )}
+              <button
+                className="empty-state-btn secondary"
+                onClick={async () => {
+                  try {
+                    const selected = await (window as unknown as { __TAURI__?: { dialog?: { open?: (opts: unknown) => Promise<string | null> } } }).__TAURI__?.dialog?.open?.({
+                      directory: false,
+                      multiple: false,
+                      filters: [{ name: "Markdown", extensions: ["md", "markdown", "txt"] }],
+                    });
+                    if (typeof selected === "string") {
+                      useWorkspace.getState().openFileStandalone(selected);
+                    }
+                  } catch {
+                    // ignore
+                  }
+                }}
+              >
+                <IconFileText size={16} />
+                打开文件
+              </button>
+              {!sidebarVisible && (
+                <button
+                  className="empty-state-btn secondary"
+                  onClick={toggleSidebar}
+                  title="打开侧边栏 (Ctrl/Cmd+\)"
+                >
+                  <IconPanelLeft size={16} />
+                  打开侧边栏
+                </button>
+              )}
+            </div>
           </div>
         )}
       </div>

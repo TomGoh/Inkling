@@ -29,9 +29,27 @@ import {
   deleteCurrentBlock,
   exitListIfNeeded,
 } from "./block-commands";
+import {
+  IconHeading1,
+  IconHeading2,
+  IconHeading3,
+  IconList,
+  IconListOrdered,
+  IconQuote,
+  IconCode,
+  IconPlus,
+  IconTable,
+  IconSigma,
+  IconInfo,
+  IconAlignLeft,
+  IconAlignCenter,
+  IconAlignRight,
+  IconTrash,
+  IconChevronDown,
+} from "../icons";
 import "./TableToolbar.css";
 
-interface TableToolbarProps {
+export interface BlockToolbarProps {
   getEditor: () => Editor | undefined;
   inTable: boolean;
 }
@@ -41,22 +59,28 @@ const GRID = 8;
 
 type Align = "left" | "center" | "right";
 
-export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
+export function TableToolbar({ getEditor, inTable }: BlockToolbarProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
   const [hover, setHover] = useState({ row: 1, col: 1 });
   const pickerRef = useRef<HTMLDivElement>(null);
+  const overflowRef = useRef<HTMLDivElement>(null);
 
-  // 点击外部关闭网格选择器
+  // 点击外部关闭弹层
   useEffect(() => {
-    if (!pickerOpen) return;
+    if (!pickerOpen && !overflowOpen) return;
     const handler = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (pickerRef.current && !pickerRef.current.contains(target)) {
         setPickerOpen(false);
+      }
+      if (overflowRef.current && !overflowRef.current.contains(target)) {
+        setOverflowOpen(false);
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [pickerOpen]);
+  }, [pickerOpen, overflowOpen]);
 
   /** 调用 Milkdown 命令并重新聚焦编辑器 */
   const callCmd = <T,>(key: CmdKey<T>, payload?: T) => {
@@ -83,17 +107,16 @@ export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
     if (!editor) return;
     editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
-      // 在列表内时先退出：list_item 不允许 table 作为第一个子节点，
-      // 否则 insertTableCommand 会抛 "invalid content for node list_item"
       exitListIfNeeded(view);
       const commands = ctx.get(commandsCtx);
       commands.call(insertTableCommand.key, { row, col });
       view.focus();
     });
     setPickerOpen(false);
+    setOverflowOpen(false);
   };
 
-  // 删除整张表格：先全选表格再删除
+  // 删除整张表格
   const deleteTable = () => {
     const editor = getEditor();
     if (!editor) return;
@@ -105,8 +128,7 @@ export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
     });
   };
 
-  // 删除当前列：直接用 prosemirror-tables 的 deleteColumn
-  // 无需先选中列（CellSelection），基于光标所在列位置删除
+  // 删除当前列
   const deleteCol = () => {
     const editor = getEditor();
     if (!editor) return;
@@ -117,8 +139,7 @@ export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
     });
   };
 
-  // 删除当前行：直接用 prosemirror-tables 的 deleteRow
-  // 无需先选中行（CellSelection），基于光标所在行位置删除
+  // 删除当前行
   const deleteRow_ = () => {
     const editor = getEditor();
     if (!editor) return;
@@ -132,117 +153,300 @@ export function TableToolbar({ getEditor, inTable }: TableToolbarProps) {
   const setAlign = (a: Align) => callCmd(setAlignCommand.key, a);
 
   return (
-    <div className="table-toolbar">
-      {/* 块插入按钮组：与斜杠菜单支持的功能对应 */}
+    <div className="table-toolbar block-toolbar" role="toolbar" aria-label="格式与块工具栏">
+      {/* 高频核心转换按钮（SVG 图标、等宽） */}
       <div className="tt-group">
-        <button className="tt-btn" onClick={() => withView((v) => turnIntoHeading(v, 1))} title="标题 1">H1</button>
-        <button className="tt-btn" onClick={() => withView((v) => turnIntoHeading(v, 2))} title="标题 2">H2</button>
-        <button className="tt-btn" onClick={() => withView((v) => turnIntoHeading(v, 3))} title="标题 3">H3</button>
-      </div>
-
-      <span className="tt-sep" />
-
-      <div className="tt-group">
-        <button className="tt-btn" onClick={() => withView(wrapBulletList)} title="无序列表">• 列表</button>
-        <button className="tt-btn" onClick={() => withView(wrapOrderedList)} title="有序列表">1. 列表</button>
-        <button className="tt-btn" onClick={() => withView(wrapBlockquote)} title="引用块">❝ 引用</button>
-        <button className="tt-btn" onClick={() => withView(turnIntoCodeBlock)} title="代码块">{"</>"} 代码</button>
-      </div>
-
-      <span className="tt-sep" />
-
-      <div className="tt-group">
-        <button className="tt-btn" onClick={() => withView(insertHr)} title="分割线">—</button>
-        <div className="tt-group tt-has-picker">
-          <button
-            className="tt-btn"
-            onClick={() => setPickerOpen((v) => !v)}
-            title="插入表格"
-          >
-            <span className="tt-icon">▦</span> 表格
-          </button>
-          {pickerOpen && (
-            <div className="table-picker" ref={pickerRef}>
-              <div className="picker-grid">
-                {Array.from({ length: GRID }).map((_, r) =>
-                  Array.from({ length: GRID }).map((__, c) => (
-                    <button
-                      key={`${r}-${c}`}
-                      className={`picker-cell ${r < hover.row && c < hover.col ? "active" : ""}`}
-                      onMouseEnter={() => setHover({ row: r + 1, col: c + 1 })}
-                      onClick={() => insertTable(r + 1, c + 1)}
-                    />
-                  ))
-                )}
-              </div>
-              <div className="picker-label">
-                {hover.row} 行 × {hover.col} 列
-              </div>
-            </div>
-          )}
-        </div>
-        <button className="tt-btn" onClick={() => withView(insertMathBlock)} title="块级公式">∑ 公式</button>
-        <button className="tt-btn" onClick={() => withView(insertInlineMath)} title="行内公式">$ 行内</button>
-        <button className="tt-btn" onClick={() => withView(turnIntoMermaid)} title="Mermaid 图表">☿ Mermaid</button>
-      </div>
-
-      <span className="tt-sep" />
-
-      <div className="tt-group">
-        <button className="tt-btn" onClick={() => withView((v) => insertCallout(v, "note"))} title="提示框（注意）">! 提示框</button>
-        <button className="tt-btn" onClick={() => withView(insertToc)} title="目录 [TOC]">☰ 目录</button>
-        <button className="tt-btn" onClick={() => withView(insertFrontmatter)} title="YAML Front Matter">Y 元数据</button>
+        <button
+          className="tt-btn"
+          onClick={() => withView((v) => turnIntoHeading(v, 1))}
+          title="一级标题 (H1)"
+          aria-label="一级标题"
+        >
+          <IconHeading1 size={15} />
+        </button>
+        <button
+          className="tt-btn"
+          onClick={() => withView((v) => turnIntoHeading(v, 2))}
+          title="二级标题 (H2)"
+          aria-label="二级标题"
+        >
+          <IconHeading2 size={15} />
+        </button>
+        <button
+          className="tt-btn"
+          onClick={() => withView((v) => turnIntoHeading(v, 3))}
+          title="三级标题 (H3)"
+          aria-label="三级标题"
+        >
+          <IconHeading3 size={15} />
+        </button>
       </div>
 
       <span className="tt-sep" />
 
       <div className="tt-group">
         <button
-          className="tt-btn tt-danger"
-          // 阻止按钮抢占焦点：frontmatter 的 CodeMirror 获得焦点时，
-          // deleteCurrentBlock 需要读 document.activeElement 反查所属 atom 块，
-          // 若按钮抢走焦点，activeElement 会变成按钮本身，导致反查失败、误删别处。
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => withView(deleteCurrentBlock)}
-          title="删除光标所在的整个块（引用/代码块/图表/提示框/元数据等）"
+          className="tt-btn"
+          onClick={() => withView(wrapBulletList)}
+          title="无序列表"
+          aria-label="无序列表"
         >
-          ✕ 删除块
+          <IconList size={15} />
+        </button>
+        <button
+          className="tt-btn"
+          onClick={() => withView(wrapOrderedList)}
+          title="有序列表"
+          aria-label="有序列表"
+        >
+          <IconListOrdered size={15} />
+        </button>
+        <button
+          className="tt-btn"
+          onClick={() => withView(wrapBlockquote)}
+          title="引用块"
+          aria-label="引用块"
+        >
+          <IconQuote size={15} />
+        </button>
+        <button
+          className="tt-btn"
+          onClick={() => withView(turnIntoCodeBlock)}
+          title="代码块"
+          aria-label="代码块"
+        >
+          <IconCode size={15} />
         </button>
       </div>
 
+      <span className="tt-sep" />
+
+      {/* 插入菜单溢出项 */}
+      <div className="tt-group tt-overflow-wrap" ref={overflowRef}>
+        <button
+          className={`tt-btn tt-btn-labeled ${overflowOpen ? "active" : ""}`}
+          onClick={() => setOverflowOpen((v) => !v)}
+          title="插入扩展元素 (表格/公式/图表/提示框/元数据等)"
+          aria-expanded={overflowOpen}
+        >
+          <IconPlus size={14} />
+          <span>插入</span>
+          <IconChevronDown size={12} />
+        </button>
+
+        {overflowOpen && (
+          <div className="tt-overflow-menu" role="menu">
+            <button
+              className="tt-menu-item"
+              role="menuitem"
+              onClick={() => {
+                setPickerOpen((v) => !v);
+              }}
+            >
+              <IconTable size={15} />
+              <span>表格</span>
+              <span className="tt-menu-hint">网格选择</span>
+            </button>
+            {pickerOpen && (
+              <div className="table-picker" ref={pickerRef}>
+                <div className="picker-grid">
+                  {Array.from({ length: GRID }).map((_, r) =>
+                    Array.from({ length: GRID }).map((__, c) => (
+                      <button
+                        key={`${r}-${c}`}
+                        className={`picker-cell ${r < hover.row && c < hover.col ? "active" : ""}`}
+                        onMouseEnter={() => setHover({ row: r + 1, col: c + 1 })}
+                        onClick={() => insertTable(r + 1, c + 1)}
+                      />
+                    ))
+                  )}
+                </div>
+                <div className="picker-label">
+                  {hover.row} 行 × {hover.col} 列
+                </div>
+              </div>
+            )}
+
+            <button
+              className="tt-menu-item"
+              role="menuitem"
+              onClick={() => {
+                withView(insertMathBlock);
+                setOverflowOpen(false);
+              }}
+            >
+              <IconSigma size={15} />
+              <span>块级公式</span>
+            </button>
+
+            <button
+              className="tt-menu-item"
+              role="menuitem"
+              onClick={() => {
+                withView(insertInlineMath);
+                setOverflowOpen(false);
+              }}
+            >
+              <span className="tt-item-badge">$</span>
+              <span>行内公式</span>
+            </button>
+
+            <button
+              className="tt-menu-item"
+              role="menuitem"
+              onClick={() => {
+                withView(turnIntoMermaid);
+                setOverflowOpen(false);
+              }}
+            >
+              <span className="tt-item-badge">📊</span>
+              <span>Mermaid 图表</span>
+            </button>
+
+            <button
+              className="tt-menu-item"
+              role="menuitem"
+              onClick={() => {
+                withView((v) => insertCallout(v, "note"));
+                setOverflowOpen(false);
+              }}
+            >
+              <IconInfo size={15} />
+              <span>提示框</span>
+            </button>
+
+            <button
+              className="tt-menu-item"
+              role="menuitem"
+              onClick={() => {
+                withView(insertToc);
+                setOverflowOpen(false);
+              }}
+            >
+              <IconAlignLeft size={15} />
+              <span>目录 (TOC)</span>
+            </button>
+
+            <button
+              className="tt-menu-item"
+              role="menuitem"
+              onClick={() => {
+                withView(insertHr);
+                setOverflowOpen(false);
+              }}
+            >
+              <span className="tt-item-badge">—</span>
+              <span>分割线</span>
+            </button>
+
+            <button
+              className="tt-menu-item"
+              role="menuitem"
+              onClick={() => {
+                withView(insertFrontmatter);
+                setOverflowOpen(false);
+              }}
+            >
+              <span className="tt-item-badge">YAML</span>
+              <span>Front Matter 元数据</span>
+            </button>
+
+            <div className="tt-menu-divider" />
+
+            <button
+              className="tt-menu-item tt-menu-danger"
+              role="menuitem"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                withView(deleteCurrentBlock);
+                setOverflowOpen(false);
+              }}
+            >
+              <IconTrash size={15} />
+              <span>删除当前块</span>
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* 表格上下文条：光标进入表格才显示 */}
       {inTable && (
         <>
           <span className="tt-sep" />
-
-          <div className="tt-group">
-            <button className="tt-btn" onClick={() => callCmd(addRowBeforeCommand.key)} title="在上方插入行">↕ 上行</button>
-            <button className="tt-btn" onClick={() => callCmd(addRowAfterCommand.key)} title="在下方插入行">↕ 下行</button>
-            <button className="tt-btn" onClick={deleteRow_} title="删除当前行">✕ 删行</button>
-          </div>
-
-          <span className="tt-sep" />
-
-          <div className="tt-group">
-            <button className="tt-btn" onClick={() => callCmd(addColBeforeCommand.key)} title="在左侧插入列">↔ 左列</button>
-            <button className="tt-btn" onClick={() => callCmd(addColAfterCommand.key)} title="在右侧插入列">↔ 右列</button>
-            <button className="tt-btn" onClick={deleteCol} title="删除当前列">✕ 删列</button>
-          </div>
-
-          <span className="tt-sep" />
-
-          <div className="tt-group">
-            <button className="tt-btn" onClick={() => setAlign("left")} title="左对齐">⬅</button>
-            <button className="tt-btn" onClick={() => setAlign("center")} title="居中">⬌</button>
-            <button className="tt-btn" onClick={() => setAlign("right")} title="右对齐">➡</button>
-          </div>
-
-          <span className="tt-sep" />
-
-          <div className="tt-group">
-            <button className="tt-btn tt-danger" onClick={deleteTable} title="删除整张表格">删除表格</button>
+          <div className="tt-group tt-context-table" aria-label="表格操作">
+            <button
+              className="tt-btn"
+              onClick={() => callCmd(addRowBeforeCommand.key)}
+              title="在上方插入行"
+            >
+              +上行
+            </button>
+            <button
+              className="tt-btn"
+              onClick={() => callCmd(addRowAfterCommand.key)}
+              title="在下方插入行"
+            >
+              +下行
+            </button>
+            <button className="tt-btn" onClick={deleteRow_} title="删除当前行">
+              删行
+            </button>
+            <span className="tt-sep-mini" />
+            <button
+              className="tt-btn"
+              onClick={() => callCmd(addColBeforeCommand.key)}
+              title="在左侧插入列"
+            >
+              +左列
+            </button>
+            <button
+              className="tt-btn"
+              onClick={() => callCmd(addColAfterCommand.key)}
+              title="在右侧插入列"
+            >
+              +右列
+            </button>
+            <button className="tt-btn" onClick={deleteCol} title="删除当前列">
+              删列
+            </button>
+            <span className="tt-sep-mini" />
+            <button
+              className="tt-btn"
+              onClick={() => setAlign("left")}
+              title="左对齐"
+              aria-label="左对齐"
+            >
+              <IconAlignLeft size={14} />
+            </button>
+            <button
+              className="tt-btn"
+              onClick={() => setAlign("center")}
+              title="居中"
+              aria-label="居中对齐"
+            >
+              <IconAlignCenter size={14} />
+            </button>
+            <button
+              className="tt-btn"
+              onClick={() => setAlign("right")}
+              title="右对齐"
+              aria-label="右对齐"
+            >
+              <IconAlignRight size={14} />
+            </button>
+            <span className="tt-sep-mini" />
+            <button
+              className="tt-btn tt-danger"
+              onClick={deleteTable}
+              title="删除整张表格"
+            >
+              删除表格
+            </button>
           </div>
         </>
       )}
     </div>
   );
 }
+
+export { TableToolbar as BlockToolbar };
