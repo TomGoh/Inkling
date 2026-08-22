@@ -24,11 +24,6 @@ const ALLOWED_TAGS = new Set([
   "lineargradient", "radialgradient", "stop", "pattern", "mask", "filter", "fegaussianblur", "feoffset", "femerge", "femergenode", "fecomposite", "fecomponenttransfer", "fefunca", "fefuncr", "fefuncg", "fefuncb"
 ]);
 
-const SVG_TAGS = new Set([
-  "svg", "g", "path", "circle", "rect", "line", "polygon", "polyline", "ellipse", "text", "tspan", "defs", "use", "clippath", "marker", "foreignobject",
-  "lineargradient", "radialgradient", "stop", "pattern", "mask", "filter", "fegaussianblur", "feoffset", "femerge", "femergenode", "fecomposite", "fecomponenttransfer", "fefunca", "fefuncr", "fefuncg", "fefuncb"
-]);
-
 const SVG_NS = "http://www.w3.org/2000/svg";
 
 /** 允许的全局属性白名单 */
@@ -157,8 +152,8 @@ export function sanitizeHTML(value: string): globalThis.Node {
     const lowerTag = rawTag.toLowerCase();
     if (!ALLOWED_TAGS.has(lowerTag)) return; // 不在白名单的标签直接丢弃（不保留子节点，避免结构混乱）
 
-    const inSvg = isInsideSvg || SVG_TAGS.has(lowerTag);
-    // SVG 元素必须用 SVG 命名空间创建
+    const inSvg = isInsideSvg ? lowerTag !== "foreignobject" : lowerTag === "svg";
+    // SVG 元素必须用 SVG 命名空间创建，foreignObject 内部的 HTML 元素用标准 HTML 命名空间
     const el = inSvg
       ? document.createElementNS(SVG_NS, rawTag)
       : document.createElement(lowerTag);
@@ -191,12 +186,13 @@ export function sanitizeHTML(value: string): globalThis.Node {
 
     parent.appendChild(el);
 
-    // 递归子节点
+    // 递归子节点：如果当前节点是 foreignObject，则其内部子节点进入 HTML 命名空间（isInsideSvg = false）
+    const nextInSvg = lowerTag === "foreignobject" ? false : inSvg;
     for (const child of Array.from(src.childNodes)) {
       if (child.nodeType === globalThis.Node.TEXT_NODE) {
         el.appendChild(document.createTextNode(child.textContent ?? ""));
       } else if (child.nodeType === globalThis.Node.ELEMENT_NODE) {
-        cloneFiltered(child as Element, el, inSvg);
+        cloneFiltered(child as Element, el, nextInSvg);
       }
     }
   };
