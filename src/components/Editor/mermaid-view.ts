@@ -363,10 +363,9 @@ export function createMermaidView(
       const svg = await renderMermaidWithSeq(value, currentSeq, () => renderSeq);
       if (currentSeq !== renderSeq) return;
       if (!svg) {
-        // 语法错误：显示友好错误提示，不破坏整体布局
-        diagram.innerHTML = "";
+        // 渲染失败时显示错误信息
+        diagram.innerHTML = `<pre class="mermaid-error">Mermaid 语法错误，点击「编辑」修改</pre>`;
         lastSvg = "";
-        diagram.setAttribute("data-placeholder", "Mermaid 语法错误，点击「编辑」修改");
         diagram.classList.add("has-error");
         return;
       }
@@ -390,10 +389,9 @@ export function createMermaidView(
       diagram.classList.remove("has-error");
     } catch {
       if (currentSeq !== renderSeq) return;
-      // 语法错误：显示友好错误提示，不破坏整体布局
-      diagram.innerHTML = "";
+      // 渲染失败时显示错误信息
+      diagram.innerHTML = `<pre class="mermaid-error">Mermaid 语法错误，点击「编辑」修改</pre>`;
       lastSvg = "";
-      diagram.setAttribute("data-placeholder", "Mermaid 语法错误，点击「编辑」修改");
       diagram.classList.add("has-error");
     }
   };
