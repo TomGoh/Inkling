@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v2.5.1
+> 文档版本：v2.5.2
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -310,6 +310,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 ### 8.2 发布版本
 
+- **v2.5.2** 深度 Code Review 缺陷修复与安全防线加固（H1~H3 / M1~M4）：①加固 Mermaid SVG 清洗器防线——剥离属性值中 `\t`/`\n`/`\r` 控制字符，拦截 `javascript:`/`vbscript:`/`data:(?!image/)` 及嵌套 `iframe/embed/object/form/base` 标签；②`saveCurrent` 异步读盘与弹窗期间采用最小 Patch 机制更新 store，防止分屏并发发布或新输入被陈旧快照静默回退；③应用窗口 `beforeunload` 时同步 Flush 待发布变更；④Store 层全标签页操作（`switchTab`/`closeTab`/`closeOthers`/`closeToRight`/`closeAll`/`newTab`/`splitSwap`）统一收口 Flush 契约；⑤优化源码模式下 Mermaid 空闲预渲染（`offsetParent === null` 时直接跳过避免计算与高度 0 污染）；⑥重构单测套件，移除伪测试并补齐真实的 SVG 命名空间、控制字符 XSS 绕过与异步竞争中断验证。详见 `docs/v2.5.2 设计文档.md`
 - **v2.5.1** 专项缺陷修复与体验完善（Review 意见闭环）：①修复 Mermaid 矢量图表渲染失效——在 HTML/SVG 白名单清洗中正确使用 `document.createElementNS("http://www.w3.org/2000/svg", tag)`，并补充 `linearGradient`/`radialGradient`/`filter` 等 SVG 标签与属性大小写支持；②移除顶栏冗余的设置直达按钮，全面统一收纳至 `···` 更多操作菜单与 `Ctrl+,` 快捷键，同步解耦 E2E 自动化测试定位器；③修复防抖序列化状态丢失风险——在 `switchTab` 与 `closeTab` 关键路径前主动执行 `flushAllMarkdownPublishers()`；④优化本地图片缓存 LRU 淘汰策略——`get` 命中时重新置入末尾；⑤Rust 工作区全局搜索确定性排序——文件列表执行 `files.sort()` 保证多端与 5000 条截断上限下的绝对确定性。详见 `docs/v2.5.1 设计文档.md`
 - **v2.5.0** 落地 UI/UX 全面重构（#79-#84）：①统一 Design Tokens 语义化变量（颜色、圆角、阴影、层级）；②重塑排版垂直节奏，正文/标题间距系统化；③顶栏升级为 44px 紧凑 Command Bar，新增 `···` 更多操作收纳浮层；④文件树 Subtle Pill 内嵌胶囊选中态与安全边距；⑤统一 Modal 浮层遮罩规范；⑥响应式断点与深色模式细节打磨。详见 `docs/v2.5.0 设计文档.md`
 - **v2.4.0** 架构拆分与性能专项攻坚（#73-#78）：①拆分独立 `EditorBody` 降低 App 根组件渲染负担；②Markdown 序列化 200ms 防抖发布，打字零卡顿；③Vite manualChunks 分包（Mermaid、CodeMirror、KaTeX），主包体积下降 60%+；④本地图片流式 Asset 缓存与动态放行；⑤Mermaid 渲染中断 Cancellation Token；⑥Rust 流式逐行扫描工作区搜索。详见 `docs/v2.4.0 设计文档.md`

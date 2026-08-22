@@ -67,17 +67,27 @@ export function sanitizeMermaidSvg(svgHtml: string): globalThis.Node {
     return span;
   }
 
-  // 移除 script 标签
-  const scripts = root.querySelectorAll("script");
-  scripts.forEach((s) => s.remove());
+  // 移除危险标签：script, iframe, embed, object, form, base
+  const dangerousTags = ["script", "iframe", "embed", "object", "form", "base"];
+  for (const tag of dangerousTags) {
+    const nodes = root.querySelectorAll(tag);
+    nodes.forEach((n) => n.remove());
+  }
 
-  // 过滤属性
+  // 过滤属性（防御控制字符绕过及各类危险协议）
   const elements = [root, ...Array.from(root.querySelectorAll("*"))];
   for (const elem of elements) {
     for (const attr of Array.from(elem.attributes)) {
       const name = attr.name.toLowerCase();
-      const val = attr.value.trim().toLowerCase();
-      if (name.startsWith("on") || val.includes("javascript:") || val.includes("expression(")) {
+      // 去除 \t, \n, \r 等浏览器在解析 URL 时会自动剥离的控制字符
+      const val = attr.value.replace(/[\t\n\r]/g, "").trim().toLowerCase();
+      if (
+        name.startsWith("on") ||
+        val.includes("javascript:") ||
+        val.includes("vbscript:") ||
+        /^data:(?!image\/)/.test(val) ||
+        val.includes("expression(")
+      ) {
         elem.removeAttribute(attr.name);
       }
     }
@@ -244,6 +254,29 @@ async function downloadSvgFile(svg: string): Promise<void> {
 }
 
 /**
+ * 带有 sequence 校验的 Mermaid 异步渲染包装器（供 NodeView 及单测调用）
+ */
+export async function renderMermaidWithSeq(
+  code: string,
+  seq: number,
+  getCurrentSeq: () => number,
+): Promise<string | null> {
+  const cached = cacheGet(code)?.svg;
+  if (cached) {
+    if (seq !== getCurrentSeq()) return null;
+    return cached;
+  }
+  try {
+    const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const { svg } = await mermaid.render(id, code);
+    if (seq !== getCurrentSeq()) return null;
+    return svg;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 创建 Mermaid 图表 NodeView。
  * 调用方需先判断 node.attrs.language === "mermaid"。
  */
@@ -401,7 +434,7 @@ export function createMermaidView(
     // 尚未进入视口：排入空闲预渲染队列（按文档顺序），后台逐张渲染。
     // 已被视口路径渲染过或容器已销毁（切文档）时自动跳过。
     idleRenderQueue.push(() => {
-      if (firstRenderDone || !container.isConnected) return;
+      if (firstRenderDone || !container.isConnected || container.offsetParent === null) return;
       // v2.3.3：整体位于视口上方的图表不预渲染——上方内容渲染后变高，
       // 浏览器滚动锚定会反复补偿 scrollTop，表现为窗口持续抖动；
       // 这类图表交给视口路径（滚回到 300px 边距内）时再渲染。

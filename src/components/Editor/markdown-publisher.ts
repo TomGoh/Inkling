@@ -21,6 +21,10 @@ export function flushAllMarkdownPublishers(): void {
   for (const flush of [...pendingFlushes]) flush();
 }
 
+export function hasPendingMarkdownPublishers(): boolean {
+  return pendingFlushes.size > 0;
+}
+
 export const markdownPublisherPlugin = (deps: MarkdownPublisherDeps) =>
   new Plugin({
     key: new PluginKey("inkling-markdown-publisher"),

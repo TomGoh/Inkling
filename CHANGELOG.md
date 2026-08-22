@@ -2,6 +2,17 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.5.2] - 2026-08-22
+
+### 修复与完善
+
+- **Mermaid XSS 纵深防御与属性清洗**：清洗器支持对属性值去除 `\t\n\r` 控制字符，拦截 `javascript:`、`vbscript:`、非图片 `data:` 及 `expression(`，并清理 `iframe/embed/object/form/base` 等危险嵌入标签。
+- **保存并发静默回滚防御**：`saveCurrent` 改为局部 patch 模式，避免 `ask`/`readTextFile` 异步窗口内被旧快照整体覆盖。
+- **应用退出 Flush 保护**：在 `beforeunload` 时统一触发 `flushAllMarkdownPublishers()`，防止退出前击键丢失。
+- **Tab 管理 Store 层 Flush 闭环**：`closeOthers`、`closeToRight`、`closeAll`、`newTab` 均在 store 入口处统一 flush。
+- **源码模式性能优化**：Mermaid 视图在隐藏状态（`offsetParent === null`）下跳过空闲预渲染，避免资源浪费与高度缓存污染。
+- **测试套件重构与强化**：删除伪测试，重写 `MermaidSanitize`、`MermaidPerf`、`workspace-reload-tab`、`imageSrcCache` 单测，覆盖真实产品逻辑。
+
 ## [2.5.1] - 2026-08-22
 
 ### 修复与优化

@@ -20,6 +20,7 @@ import { useFileWatcher } from "./lib/useFileWatcher";
 import { useCtrlWheelZoom } from "./lib/useCtrlWheelZoom";
 import { useGlobalShortcuts } from "./lib/useGlobalShortcuts";
 import { useStartupFile } from "./lib/useStartupFile";
+import { flushAllMarkdownPublishers } from "./components/Editor/markdown-publisher";
 import { type EditorOutlineSnapshot } from "./lib/outline";
 import { useOutline } from "./store/outline";
 import { IconPanelLeft } from "./components/icons";
@@ -131,6 +132,17 @@ function App() {
   useFileWatcher();
   // 启动时打开目标文件（派生窗口 / 文件关联 / 单实例转发）
   useStartupFile();
+
+  // 窗口关闭 / 刷新时统一 flush 存活编辑器的待发变更
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      flushAllMarkdownPublishers();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, []);
 
   // 稳定引用：避免 OutlinePanel 列表项 memo 因 getEditor 身份变化失效
   const getEditor = useCallback(() => getEditorRef.current?.(), []);

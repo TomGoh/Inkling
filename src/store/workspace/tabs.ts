@@ -308,6 +308,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     },
 
     newTab: () => {
+      flushAllMarkdownPublishers();
       intents.mainFile += 1;
       const { openTabs } = get();
       // 生成唯一虚拟路径 untitled-1, untitled-2...（避免与已打开草稿重名）
@@ -351,6 +352,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     },
 
     splitSwap: () => {
+      flushAllMarkdownPublishers();
       const { splitFile, currentFile, openTabs } = get();
       if (!splitFile || !currentFile) return;
       const mainTab = openTabs.find((t) => t.path === currentFile);
@@ -358,7 +360,8 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       if (!mainTab || !splitTab) return;
       // 主面板切换到原分屏文件，分屏切换到原主文件
       get().switchTab(splitFile);
-      set({ splitFile: currentFile, splitContent: mainTab.content });
+      const latestMainTab = get().openTabs.find((t) => t.path === currentFile);
+      set({ splitFile: currentFile, splitContent: latestMainTab?.content ?? mainTab.content });
     },
 
     switchTab: (filePath) => {
@@ -413,6 +416,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     },
 
     closeOthers: (keepPath) => {
+      flushAllMarkdownPublishers();
       const { openTabs, splitFile } = get();
       const keep = openTabs.find((t) => t.path === keepPath);
       if (!keep) return;
@@ -427,6 +431,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     },
 
     closeToRight: (fromPath) => {
+      flushAllMarkdownPublishers();
       const { openTabs, activeTabPath, splitFile } = get();
       const idx = openTabs.findIndex((t) => t.path === fromPath);
       if (idx === -1) return;
@@ -452,6 +457,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     },
 
     closeAll: () => {
+      flushAllMarkdownPublishers();
       intents.mainFile += 1;
       intents.splitFile += 1;
       set({
@@ -564,8 +570,9 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       try {
         await writeTextFile(savePath, currentContent);
         const now = Date.now();
-        // 同步活跃 tab：未命名草稿保存后转为普通文件（path 更新为真实路径）
-        const nextTabs = openTabs.map((t) =>
+        // 异步窗口结束后重新获取最新 store 状态，避免覆盖窗口期间其他 tab / 分屏并发发布的编辑内容
+        const latestState = get();
+        const nextTabs = latestState.openTabs.map((t) =>
           t.path === activeTabPath
             ? {
                 ...t,
@@ -577,14 +584,14 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
               }
             : t,
         );
-        const nextRecent = tab.isUntitled ? pushRecent(get().recentFiles, savePath) : get().recentFiles;
+        const nextRecent = tab.isUntitled ? pushRecent(latestState.recentFiles, savePath) : latestState.recentFiles;
         if (tab.isUntitled) persistRecentFiles(nextRecent);
         set({
           openTabs: nextTabs,
-          activeTabPath: savePath,
-          currentFile: savePath,
+          activeTabPath: latestState.activeTabPath === activeTabPath ? savePath : latestState.activeTabPath,
+          currentFile: latestState.currentFile === activeTabPath ? savePath : latestState.currentFile,
           saving: false,
-          dirty: false,
+          dirty: latestState.activeTabPath === activeTabPath ? false : latestState.dirty,
           saveError: null,
           lastSavedAt: now,
           recentFiles: nextRecent,
