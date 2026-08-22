@@ -271,6 +271,7 @@ export function TableToolbar({ getEditor, inTable }: BlockToolbarProps) {
             <button
               className="tt-menu-item"
               role="menuitem"
+              title="插入块级公式"
               onClick={() => {
                 withView(insertMathBlock);
                 setOverflowOpen(false);
@@ -283,6 +284,7 @@ export function TableToolbar({ getEditor, inTable }: BlockToolbarProps) {
             <button
               className="tt-menu-item"
               role="menuitem"
+              title="插入行内公式"
               onClick={() => {
                 withView(insertInlineMath);
                 setOverflowOpen(false);
@@ -295,6 +297,7 @@ export function TableToolbar({ getEditor, inTable }: BlockToolbarProps) {
             <button
               className="tt-menu-item"
               role="menuitem"
+              title="Mermaid 图表"
               onClick={() => {
                 withView(turnIntoMermaid);
                 setOverflowOpen(false);
