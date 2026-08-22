@@ -70,3 +70,9 @@ export const MULTILINE_FLOWCHART = `flowchart TB
 
 // 平台无关地按下修饰键组合（macOS 用 Meta，其他用 Control）
 export const MOD = process.platform === "darwin" ? "Meta" : "Control";
+
+export async function openSettings(page: Page) {
+  await page.locator('.topbar-btn[title="更多操作"]').click();
+  await page.locator(".export-item", { hasText: "偏好设置" }).click();
+  await page.locator(".settings-modal").waitFor({ state: "visible", timeout: 5_000 });
+}

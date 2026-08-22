@@ -398,7 +398,12 @@ export async function resolveImageSrc(
 
   const cacheKey = `${documentPath}::${src}`;
   const cached = imageSrcCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    // 命中移至末尾实现 LRU
+    imageSrcCache.delete(cacheKey);
+    imageSrcCache.set(cacheKey, cached);
+    return cached;
+  }
 
   // Markdown 图片地址遵循 URI 编码；转成本地路径前解码空格、#、中文等字符。
   // 非法的百分号序列保留原值，避免单张图片导致编辑器初始化失败。

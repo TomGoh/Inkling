@@ -152,6 +152,21 @@ describe("sanitizeHTML 白名单过滤", () => {
     expect(node.childNodes.length).toBe(0);
   });
 
+  it("SVG 标签及属性放行且使用 SVG 命名空间创建", () => {
+    const svgCode = '<svg viewBox="0 0 100 100" width="100"><circle cx="50" cy="50" r="40" fill="red" /></svg>';
+    const node = sanitizeHTML(svgCode);
+    const div = document.createElement("div");
+    div.appendChild(node);
+    const svg = div.querySelector("svg");
+    expect(svg).not.toBeNull();
+    expect(svg!.getAttribute("viewBox")).toBe("0 0 100 100");
+    expect(svg!.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    const circle = div.querySelector("circle");
+    expect(circle).not.toBeNull();
+    expect(circle!.namespaceURI).toBe("http://www.w3.org/2000/svg");
+    expect(circle!.getAttribute("fill")).toBe("red");
+  });
+
   it("纯文本放行", () => {
     const node = sanitizeHTML("hello world");
     const div = document.createElement("div");

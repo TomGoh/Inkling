@@ -6,6 +6,7 @@
 import type { StateCreator } from "zustand";
 import { isTauri } from "@tauri-apps/api/core";
 import { readTextFile, writeTextFile } from "../../lib/fs";
+import { flushAllMarkdownPublishers } from "../../components/Editor/markdown-publisher";
 import {
   fileRequests,
   intents,
@@ -361,6 +362,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     },
 
     switchTab: (filePath) => {
+      flushAllMarkdownPublishers();
       const tab = get().openTabs.find((t) => t.path === filePath);
       if (!tab) return;
       intents.mainFile += 1;
@@ -369,6 +371,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     },
 
     closeTab: (filePath) => {
+      flushAllMarkdownPublishers();
       const { openTabs, activeTabPath } = get();
       const idx = openTabs.findIndex((t) => t.path === filePath);
       if (idx === -1) return;

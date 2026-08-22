@@ -20,18 +20,30 @@ const ALLOWED_TAGS = new Set([
   "div", "p", "details", "summary", "blockquote", "pre", "ul", "ol", "li",
   "h1", "h2", "h3", "h4", "h5", "h6", "hr", "table", "thead", "tbody", "tr", "th", "td",
   // 图片与 SVG 图形
-  "img", "svg", "g", "path", "circle", "rect", "line", "polygon", "polyline", "ellipse", "text", "tspan", "defs", "use", "clipPath", "style", "marker", "foreignobject"
+  "img", "svg", "g", "path", "circle", "rect", "line", "polygon", "polyline", "ellipse", "text", "tspan", "defs", "use", "clippath", "style", "marker", "foreignobject",
+  "lineargradient", "radialgradient", "stop", "pattern", "mask", "filter", "fegaussianblur", "feoffset", "femerge", "femergenode", "fecomposite", "fecomponenttransfer", "fefunca", "fefuncr", "fefuncg", "fefuncb"
 ]);
+
+const SVG_TAGS = new Set([
+  "svg", "g", "path", "circle", "rect", "line", "polygon", "polyline", "ellipse", "text", "tspan", "defs", "use", "clippath", "marker", "foreignobject",
+  "lineargradient", "radialgradient", "stop", "pattern", "mask", "filter", "fegaussianblur", "feoffset", "femerge", "femergenode", "fecomposite", "fecomponenttransfer", "fefunca", "fefuncr", "fefuncg", "fefuncb"
+]);
+
+const SVG_NS = "http://www.w3.org/2000/svg";
 
 /** 允许的全局属性白名单 */
 const ALLOWED_GLOBAL_ATTRS = new Set([
-  "class", "style", "title", "id", "lang", "dir",
+  "class", "style", "title", "id", "lang", "dir", "role", "aria-label", "aria-hidden", "aria-describedby", "tabindex",
   // SVG 常用属性
-  "viewbox", "xmlns", "width", "height", "fill", "stroke", "stroke-width",
-  "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-opacity", "fill-opacity",
-  "d", "cx", "cy", "r", "rx", "ry", "x", "y", "x1", "y1", "x2", "y2", "points",
+  "viewbox", "xmlns", "xmlns:xlink", "xlink:href", "width", "height", "fill", "stroke", "stroke-width",
+  "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-opacity", "fill-opacity", "fill-rule", "clip-rule",
+  "d", "cx", "cy", "r", "rx", "ry", "x", "y", "dx", "dy", "x1", "y1", "x2", "y2", "points",
   "transform", "font-family", "font-size", "font-weight", "text-anchor",
-  "dominant-baseline", "marker-start", "marker-end", "marker-mid",
+  "dominant-baseline", "alignment-baseline", "marker-start", "marker-end", "marker-mid",
+  "markerwidth", "markerheight", "refx", "refy", "orient", "markerunits",
+  "offset", "stop-color", "stop-opacity", "gradientunits", "gradienttransform", "spreadmethod",
+  "maskunits", "maskcontentunits", "patternunits", "patterntransform",
+  "preserveaspectratio", "clippathunits", "overflow", "version", "baseprofile",
 ]);
 
 /** 特定标签的额外允许属性 */
@@ -140,30 +152,35 @@ export function sanitizeHTML(value: string): globalThis.Node {
   const fragment = document.createDocumentFragment();
 
   // 递归过滤克隆节点
-  const cloneFiltered = (src: Element, parent: globalThis.Node): void => {
+  const cloneFiltered = (src: Element, parent: globalThis.Node, isInsideSvg = false): void => {
     const tag = src.tagName.toLowerCase();
     if (!ALLOWED_TAGS.has(tag)) return; // 不在白名单的标签直接丢弃（不保留子节点，避免结构混乱）
 
-    const el = document.createElement(tag);
+    const inSvg = isInsideSvg || SVG_TAGS.has(tag);
+    // SVG 元素必须用 SVG 命名空间创建，否则浏览器会当作未知 HTML 标签，无法正常渲染矢量图形
+    const el = inSvg
+      ? document.createElementNS(SVG_NS, tag)
+      : document.createElement(tag);
 
     // 过滤属性
     for (const attr of Array.from(src.attributes)) {
-      const name = attr.name.toLowerCase();
-      if (isDangerousAttr(name)) continue;
+      const rawName = attr.name;
+      const lowerName = rawName.toLowerCase();
+      if (isDangerousAttr(lowerName)) continue;
       const allowed =
-        ALLOWED_GLOBAL_ATTRS.has(name) ||
-        ALLOWED_TAG_ATTRS[tag]?.has(name);
+        ALLOWED_GLOBAL_ATTRS.has(lowerName) ||
+        ALLOWED_TAG_ATTRS[tag]?.has(lowerName);
       if (!allowed) continue;
 
       let val = attr.value;
       // href/src 做协议检查
-      if ((name === "href" || name === "src") && !isSafeUrl(val)) continue;
+      if ((lowerName === "href" || lowerName === "src") && !isSafeUrl(val)) continue;
       // style 单独过滤
-      if (name === "style") {
+      if (lowerName === "style") {
         val = sanitizeStyle(val);
         if (!val) continue;
       }
-      el.setAttribute(name, val);
+      el.setAttribute(rawName, val);
     }
 
     // a 标签强制安全：外链加 rel=noopener，target=_blank 时补充
@@ -178,7 +195,7 @@ export function sanitizeHTML(value: string): globalThis.Node {
       if (child.nodeType === globalThis.Node.TEXT_NODE) {
         el.appendChild(document.createTextNode(child.textContent ?? ""));
       } else if (child.nodeType === globalThis.Node.ELEMENT_NODE) {
-        cloneFiltered(child as Element, el);
+        cloneFiltered(child as Element, el, inSvg);
       }
     }
   };
@@ -187,7 +204,7 @@ export function sanitizeHTML(value: string): globalThis.Node {
     if (child.nodeType === globalThis.Node.TEXT_NODE) {
       fragment.appendChild(document.createTextNode(child.textContent ?? ""));
     } else if (child.nodeType === globalThis.Node.ELEMENT_NODE) {
-      cloneFiltered(child as Element, fragment);
+      cloneFiltered(child as Element, fragment, false);
     }
   }
 

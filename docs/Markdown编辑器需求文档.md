@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v2.5.0
+> 文档版本：v2.5.1
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -291,8 +291,29 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.2 编辑 | 嵌套列表删块精准化 | ✅ | v2.3.8 | issue #65：多级列表子项内删块只删当前 `list_item`（父列表仅剩该项时删整个列表），不再误删顶级列表 |
 | 3.5 导出 | PNG 长图导出样式对齐 | ✅ | v2.3.8 | issue #67：离屏容器复刻真实编辑器三层嵌套 `[data-theme] > .editor-scroll > .milkdown`（后代选择器全部命中），等待图片 decode/load（3s 超时），导出图与编辑器所见一致（含深色主题） |
 | — | 开发文档完善 | ✅ | v2.3.8 | issue #66：CONTRIBUTING 补 Linux 系统依赖清单、Pandoc 安装指引（三平台）、本地测试命令 |
+| 3.3 文件与工作区 | 外部修改热重载与多Tab状态同步 | ✅ | v2.3.9 | issue #68：`reloadFile` 支持多标签页并发安全刷新，同步更新激活状态与未保存标记 |
+| 3.2 编辑 | Mermaid XSS 与富文本白名单安全 | ✅ | v2.3.9 | issue #69：`html-view.ts` 强化 XSS 过滤（拦截 script、javascript 伪协议、内联事件等），放行合法 SVG 结构 |
+| 3.3 文件与工作区 | 打开失败 Loading 状态清理 | ✅ | v2.3.9 | issue #70：打开损坏或无权限文件时全面清理 loading/pending 状态，防止 UI 卡死 |
+| 3.3 文件与工作区 | 保存冲突磁盘基线对齐 | ✅ | v2.3.9 | issue #71：冲突覆盖或另存后强制刷新 `diskContent` 基线，避免重复误报冲突 |
+| 3.3 文件与工作区 | Windows 盘符路径标准化 | ✅ | v2.3.9 | issue #72：全链路统一 Windows 盘符大小写与斜杠（`normalizePath`），杜绝因盘符大小写不一致导致的重复打开和缓存穿透 |
+| 3.2 编辑 | 编辑器渲染与分屏容器解耦 | ✅ | v2.4.0 | issue #73：提取独立 `EditorBody` 组件，降低 App 根组件渲染频次并保障分屏各自独立的生命周期 |
+| 3.2 编辑 | Markdown 序列化防抖与切页 Flush | ✅ | v2.4.0 / v2.5.1 | issue #74：引入 200ms 防抖发布机制，并在 `switchTab`/`closeTab` 时主动 Flush，彻底消除大文档每键全量序列化卡顿与切页数据丢失 |
+| — | 构建优化与 Rollup 分包 | ✅ | v2.4.0 | issue #75：配置 `manualChunks` 拆分 Mermaid、CodeMirror、KaTeX，主包体积下降 60%+（仅 ~197KB） |
+| 3.3 文件与工作区 | 本地图片流式 Asset 缓存与 LRU | ✅ | v2.4.0 / v2.5.1 | issue #76：`resolveImageSrc` 引入 500 条容量的 LRU 缓存与动态 asset 放行机制，快速连续翻页零卡顿 |
+| 3.2 编辑 | Mermaid 渲染中断令牌与命名空间修复 | ✅ | v2.4.0 / v2.5.1 | issue #77：引入 Render Counter 异步中断令牌，修复 `document.createElementNS` 矢量图形渲染与 SVG 滤镜支持 |
+| 3.4 搜索 | Rust BufReader 流式搜索与排序 | ✅ | v2.4.0 / v2.5.1 | issue #78：Rust 端采用 `BufReader` 流式逐行扫描超大文件，文件列表严格排序保证 5000 条截断上限下结果确定性 |
+| 3.5 样式 | 全局 Design Tokens 与排版节奏 | ✅ | v2.5.0 | issue #79/#80：统一 16px 基础网格系统与语义化变量，标题/段落/列表垂直韵律对齐，提升呼吸感 |
+| 3.5 样式 | 顶部 Command Bar 与 MoreMenu 整合 | ✅ | v2.5.0 / v2.5.1 | issue #81：顶栏收窄为 44px Command Bar，低频功能统一收纳进 `···`（更多操作）菜单，去除冗余设置按钮 |
+| 3.3 文件与工作区 | 文件树 Subtle Pill 选中态 | ✅ | v2.5.0 | issue #82：采用内嵌胶囊状 Subtle Pill 高亮选中态，配合 4px 安全边距与圆角，提升现代感 |
+| 3.5 样式 | 统一 Modal 对话框浮层体系 | ✅ | v2.5.0 | issue #83：封装 `Modal.tsx`，统一快捷键帮助、冲突提示、偏好设置的遮罩、动效、边框与暗色适配 |
+| 3.5 样式 | 响应式断点与深色模式打磨 | ✅ | v2.5.0 | issue #84：优化侧边栏与大纲在窄屏下的响应式表现，修正深色模式下滚动条与高亮对比度 |
 
 ### 8.2 发布版本
+
+- **v2.5.1** 专项缺陷修复与体验完善（Review 意见闭环）：①修复 Mermaid 矢量图表渲染失效——在 HTML/SVG 白名单清洗中正确使用 `document.createElementNS("http://www.w3.org/2000/svg", tag)`，并补充 `linearGradient`/`radialGradient`/`filter` 等 SVG 标签与属性大小写支持；②移除顶栏冗余的设置直达按钮，全面统一收纳至 `···` 更多操作菜单与 `Ctrl+,` 快捷键，同步解耦 E2E 自动化测试定位器；③修复防抖序列化状态丢失风险——在 `switchTab` 与 `closeTab` 关键路径前主动执行 `flushAllMarkdownPublishers()`；④优化本地图片缓存 LRU 淘汰策略——`get` 命中时重新置入末尾；⑤Rust 工作区全局搜索确定性排序——文件列表执行 `files.sort()` 保证多端与 5000 条截断上限下的绝对确定性。详见 `docs/v2.5.1 设计文档.md`
+- **v2.5.0** 落地 UI/UX 全面重构（#79-#84）：①统一 Design Tokens 语义化变量（颜色、圆角、阴影、层级）；②重塑排版垂直节奏，正文/标题间距系统化；③顶栏升级为 44px 紧凑 Command Bar，新增 `···` 更多操作收纳浮层；④文件树 Subtle Pill 内嵌胶囊选中态与安全边距；⑤统一 Modal 浮层遮罩规范；⑥响应式断点与深色模式细节打磨。详见 `docs/v2.5.0 设计文档.md`
+- **v2.4.0** 架构拆分与性能专项攻坚（#73-#78）：①拆分独立 `EditorBody` 降低 App 根组件渲染负担；②Markdown 序列化 200ms 防抖发布，打字零卡顿；③Vite manualChunks 分包（Mermaid、CodeMirror、KaTeX），主包体积下降 60%+；④本地图片流式 Asset 缓存与动态放行；⑤Mermaid 渲染中断 Cancellation Token；⑥Rust 流式逐行扫描工作区搜索。详见 `docs/v2.4.0 设计文档.md`
+- **v2.3.9** 批量修复稳定性与安全问题（#68-#72）：①`reloadFile` 多标签页并发安全刷新与未保存标记同步；②`html-view.ts` 强化 XSS 过滤与白名单；③打开失败时全面清理 loading/pending 状态；④保存冲突覆盖后强制同步 `diskContent` 磁盘基线；⑤跨平台 Windows 盘符与斜杠标准化（`normalizePath`）。详见 `docs/v2.3.9 设计文档.md`
 
 - **v2.3.8** 批量修复 issue #59-#67：①#59 保存前磁盘基线比对——`OpenTab` 记录 `diskContent` 基线，Ctrl+S 前直读磁盘比对，外部已改弹确认（拒绝即中止），消除 3 秒轮询窗口期静默覆盖；新增 `reloadFile` 强制重读磁盘（openFile 对已打开 tab 只切缓存，此前冲突对话框/watcher 的重载是假重载）。②#60 未命名草稿贴图——检测 `untitled-N` 虚拟路径，跳过目录解析/写盘，Data URL 内联插入。③#61 多窗口同步——主题/偏好/快捷键三 store 监听 `storage` 事件实时同步。④#62 全局搜索定位——按本文件第 N 处匹配定位光标（正则先提取实际匹配文本），不再总跳第一处。⑤#63 Pandoc 临时文件加纳秒时间戳 + 原子序号防并发覆盖。⑥#64 asset 协议收敛——静态 scope 从 `**` 收敛到用户目录，Rust `allow_asset_dir` 按需动态放行文档目录，最小权限。⑦#65 嵌套列表删块只删当前 `list_item`（单元素列表删整列表），不再误删顶级列表。⑧#66 CONTRIBUTING 补 Linux 系统依赖/Pandoc 安装/测试命令。⑨#67 PNG 导出离屏容器复刻真实编辑器三层嵌套（`[data-theme] > .editor-scroll > .milkdown`，后代选择器全部命中）+ 等待图片 decode/load（3s 超时），导出图与编辑器所见一致。新增 13 个前端单测 + 1 个 Rust 单测，全套 411 测试通过。详见 `docs/v2.3.8 设计文档.md`
 - **v2.3.7** 外部文件变动冲突对话框 + 发版前置校验：①用户口头反馈（未建 issue）排查确认原实现「静默重载丢失内容」不成立（dirty 时有 confirm 明确提示丢弃），但「忽略外部变动后保存会静默覆盖磁盘修改、无备份无 diff」成立——升级为冲突对话框四选项：保留本地另存副本（`*.backup.md` 自动递增编号，存后重载磁盘）、行级差异对比（自研 LCS diff：公共前后缀修剪 + 超 4000 行降级整块替换，unified 视图区分「本地未保存/磁盘外部修改」）、丢弃本地修改重载、继续编辑（明示覆盖风险）；非 dirty 保持 confirm。新增 `src/lib/diff.ts`、`src/store/conflict.ts`、`src/components/FileConflict/`，22 个新单测（diff 14 + 组件 8），全套 398 测试通过。②CI 新增 `release-guard` job（仅 v* tag 触发，日常提交不受影响）：`scripts/check-version.mjs` 校验 4 处版本号一致且与 tag 一致，`scripts/check-docs-updated.mjs` 校验自上一 tag 有代码变更时 CHANGELOG/README/docs 至少一处更新，失败阻止 Release。详见 `docs/v2.3.7 设计文档.md`

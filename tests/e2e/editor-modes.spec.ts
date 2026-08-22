@@ -2,7 +2,7 @@
 // 覆盖：设置面板切换、focus-mode CSS 类、当前块高亮装饰
 
 import { test, expect } from "@playwright/test";
-import { openMockWorkspace, openFile } from "./helpers";
+import { openMockWorkspace, openFile, openSettings } from "./helpers";
 
 // 专注模式开关在 .settings-row 内（checkbox 本身无文本，靠行的 hasText 定位）
 function focusToggle(page: import("@playwright/test").Page) {
@@ -22,9 +22,8 @@ test.describe("专注模式", () => {
     // 默认无 focus-mode
     await expect(root).not.toHaveClass(/focus-mode/);
 
-    // 打开设置面板（title 为"偏好设置 (Ctrl/Cmd+,)"，用 starts-with 精确匹配前缀）
-    await page.locator('.topbar-btn[title^="偏好设置"]').click();
-    await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 5_000 });
+    // 打开设置面板
+    await openSettings(page);
 
     // 勾选专注模式（checkbox 可能被 label 遮挡，用 force）
     await focusToggle(page).check({ force: true });
@@ -38,8 +37,7 @@ test.describe("专注模式", () => {
     const root = page.locator(".md-editor-root");
 
     // 先开启
-    await page.locator('.topbar-btn[title^="偏好设置"]').click();
-    await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 5_000 });
+    await openSettings(page);
     await focusToggle(page).check({ force: true });
     await page.waitForTimeout(300);
     await expect(root).toHaveClass(/focus-mode/);
@@ -52,8 +50,7 @@ test.describe("专注模式", () => {
 
   test("F3 专注模式下当前块有高亮装饰", async ({ page }) => {
     // 开启专注模式
-    await page.locator('.topbar-btn[title^="偏好设置"]').click();
-    await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 5_000 });
+    await openSettings(page);
     await focusToggle(page).check({ force: true });
     await page.waitForTimeout(300);
 

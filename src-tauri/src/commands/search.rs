@@ -87,6 +87,7 @@ pub fn search_in_workspace(
     let mut files: Vec<String> = Vec::new();
     if root_path.is_dir() {
         collect_md_files(root_path, &mut files);
+        files.sort();
     } else if root_path.is_file() {
         if let Some(p) = root_path.to_str() {
             files.push(p.to_string());

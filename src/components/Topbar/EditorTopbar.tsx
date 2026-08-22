@@ -9,7 +9,6 @@ import { MoreMenu } from "./MoreMenu";
 import {
   IconPanelLeft,
   IconCode,
-  IconSettings,
 } from "../icons";
 
 interface EditorTopbarProps {
@@ -97,15 +96,6 @@ export function EditorTopbar({
             }
           }}
         />
-
-        <button
-          className="topbar-btn"
-          onClick={onOpenSettings}
-          title="偏好设置 (Ctrl/Cmd+,)"
-          aria-label="偏好设置"
-        >
-          <IconSettings size={15} />
-        </button>
 
         <MoreMenu
           open={moreOpen}

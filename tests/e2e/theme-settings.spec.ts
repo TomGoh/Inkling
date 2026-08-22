@@ -2,7 +2,7 @@
 // 覆盖：明暗切换、data-theme 属性、localStorage 持久化、设置项开关、代码高亮主题、恢复默认、关闭方式
 
 import { test, expect, type Page } from "@playwright/test";
-import { openMockWorkspace, openFile, MOD } from "./helpers";
+import { openMockWorkspace, openFile, openSettings, MOD } from "./helpers";
 
 async function insertCodeBlock(page: Page) {
   await page.keyboard.press(`${MOD}+n`);
@@ -65,14 +65,14 @@ test.describe("设置面板", () => {
     await openFile(page, "readme.md");
   });
 
-  test("SE1 点齿轮打开设置面板", async ({ page }) => {
-    await page.locator('.topbar-btn[title*="偏好设置"]').click();
+  test("SE1 点更多菜单打开设置面板", async ({ page }) => {
+    await openSettings(page);
     await expect(page.locator(".settings-modal")).toBeVisible({ timeout: 5_000 });
     await expect(page.locator(".settings-title")).toContainText("偏好设置");
   });
 
   test("SE2 开关可切换并持久化", async ({ page }) => {
-    await page.locator('.topbar-btn[title*="偏好设置"]').click();
+    await openSettings(page);
     const focusToggle = page.locator(".settings-row", { hasText: "专注模式" }).locator(".settings-toggle");
     const before = await focusToggle.isChecked();
     await focusToggle.check({ force: true });
@@ -95,7 +95,7 @@ test.describe("设置面板", () => {
     await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
     await expect(languageSelect).toHaveCSS("color-scheme", "dark");
 
-    await page.locator('.topbar-btn[title*="偏好设置"]').click();
+    await openSettings(page);
     const select = page.locator(".settings-select");
     await expect(select).toHaveCSS("color-scheme", "dark");
     await select.selectOption("light");
@@ -108,7 +108,7 @@ test.describe("设置面板", () => {
     await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
     await expect(languageSelect).toHaveCSS("color-scheme", "light");
 
-    await page.locator('.topbar-btn[title*="偏好设置"]').click();
+    await openSettings(page);
     await select.selectOption("none");
     await expect(select).toHaveValue("none");
     await expect(codeBlock).toHaveAttribute("data-code-theme", "none");
@@ -122,7 +122,7 @@ test.describe("设置面板", () => {
   });
 
   test("SE4 恢复默认", async ({ page }) => {
-    await page.locator('.topbar-btn[title*="偏好设置"]').click();
+    await openSettings(page);
     // 先改一个开关
     const focusToggle = page.locator(".settings-row", { hasText: "专注模式" }).locator(".settings-toggle");
     await focusToggle.check({ force: true });
@@ -133,7 +133,7 @@ test.describe("设置面板", () => {
   });
 
   test("SE5 点遮罩关闭面板", async ({ page }) => {
-    await page.locator('.topbar-btn[title*="偏好设置"]').click();
+    await openSettings(page);
     await expect(page.locator(".settings-modal")).toBeVisible();
     await page.locator(".settings-backdrop").click({ position: { x: 5, y: 5 } });
     await expect(page.locator(".settings-modal")).toBeHidden();

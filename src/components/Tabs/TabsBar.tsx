@@ -182,7 +182,10 @@ export function TabsBar() {
                 setDragPath(null);
                 setDragOverPath(null);
               }}
-              onClick={() => switchTab(tab.path)}
+              onClick={() => {
+                flushAllMarkdownPublishers();
+                switchTab(tab.path);
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setMenu({ tab, x: e.clientX, y: e.clientY });
