@@ -3,8 +3,9 @@
 // 状态持久化到 localStorage，下次启动恢复用户偏好。
 
 import { create } from "zustand";
+import { loadJSON, writeJSON } from "../lib/storage";
 
-interface UIState {
+export interface UIState {
   /** 侧边栏是否可见 */
   sidebarVisible: boolean;
   /** 大纲面板是否可见 */
@@ -38,22 +39,11 @@ const DEFAULTS: PersistedUI = {
 };
 
 function loadPersisted(): PersistedUI {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULTS };
-    const parsed = JSON.parse(raw) as Partial<PersistedUI>;
-    return { ...DEFAULTS, ...parsed };
-  } catch {
-    return { ...DEFAULTS };
-  }
+  return loadJSON<PersistedUI>(STORAGE_KEY, DEFAULTS);
 }
 
 function persist(s: PersistedUI): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-  } catch {
-    // 忽略写入失败
-  }
+  writeJSON(STORAGE_KEY, s);
 }
 
 const initial = loadPersisted();

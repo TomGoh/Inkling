@@ -18,9 +18,7 @@ describe("退出时批量保存与 Tab 还原逻辑", () => {
       openTabs: [
         {
           path: "/doc1.md",
-          name: "doc1.md",
           content: "content 1 modified",
-          savedContent: "content 1",
           diskContent: "content 1",
           dirty: true,
           lastSavedAt: null,
@@ -30,9 +28,7 @@ describe("退出时批量保存与 Tab 还原逻辑", () => {
         },
         {
           path: "/doc2.md",
-          name: "doc2.md",
           content: "content 2 modified",
-          savedContent: "content 2",
           diskContent: "content 2",
           dirty: true,
           lastSavedAt: null,

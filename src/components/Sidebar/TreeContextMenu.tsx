@@ -2,10 +2,11 @@
 // 通过 TREE_ACTION_EVENT 派发重命名/新建指令给文件树，
 // 删除前对未保存 tab 做二次确认，支持书签/新窗口/复制路径。
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useWorkspace } from "../../store/workspace";
 import { openInNewWindow } from "../../lib/newWindow";
 import { deletePath } from "../../lib/fs";
+import { useContextMenuClamping } from "../../hooks/useContextMenuClamping";
 import { isMarkdown, TREE_ACTION_EVENT, type MenuPayload, type TreeAction } from "./treeShared";
 
 export function TreeContextMenu({
@@ -20,7 +21,7 @@ export function TreeContextMenu({
   const onFileDeleted = useWorkspace((s) => s.onFileDeleted);
   const toggleBookmark = useWorkspace((s) => s.toggleBookmark);
   const isBookmarked = useWorkspace((s) => s.isBookmarked);
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useContextMenuClamping<HTMLDivElement>({ x: payload.x, y: payload.y });
 
   // 点击外部或 Esc 关闭
   useEffect(() => {

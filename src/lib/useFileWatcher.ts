@@ -75,7 +75,11 @@ export function useFileWatcher(): void {
             )
           ) {
             // reloadFile 强制从磁盘重读；openFile 对已打开 tab 只切缓存，不会真正重载
-            await reloadFile(currentFile);
+            try {
+              await reloadFile(currentFile);
+            } catch (err) {
+              console.warn("reloadFile failed", err);
+            }
             knownMtimeRef.current = null;
           }
         }
@@ -84,7 +88,11 @@ export function useFileWatcher(): void {
 
       // 本地无修改：confirm 询问重载
       if (window.confirm(`「${baseName(currentFile)}」已被外部修改，是否重新加载？`)) {
-        await reloadFile(currentFile);
+        try {
+          await reloadFile(currentFile);
+        } catch (err) {
+          console.warn("reloadFile failed", err);
+        }
         knownMtimeRef.current = null;
       }
     };

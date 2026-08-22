@@ -2,10 +2,11 @@
 // 在标签页上右键时弹出：关闭/关闭其他/关闭右侧/全部关闭/复制路径
 // 关闭未保存文件时弹确认，避免数据丢失
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useWorkspace, type OpenTab } from "../../store/workspace";
 import { flushAllMarkdownPublishers } from "../Editor/markdown-publisher";
 import { openInNewWindow } from "../../lib/newWindow";
+import { useContextMenuClamping } from "../../hooks/useContextMenuClamping";
 import "./TabContextMenu.css";
 
 interface TabContextMenuProps {
@@ -32,7 +33,7 @@ export function TabContextMenu({ tab, x, y, onClose }: TabContextMenuProps) {
   const splitFile = useWorkspace((s) => s.splitFile);
   const currentFile = useWorkspace((s) => s.currentFile);
 
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useContextMenuClamping<HTMLDivElement>({ x, y });
 
   // 点击外部或 Esc 关闭
   useEffect(() => {

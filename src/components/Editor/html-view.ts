@@ -19,8 +19,8 @@ const ALLOWED_TAGS = new Set([
   // 块级（在 inline atom 内用 inline-block 呈现）
   "div", "p", "details", "summary", "blockquote", "pre", "ul", "ol", "li",
   "h1", "h2", "h3", "h4", "h5", "h6", "hr", "table", "thead", "tbody", "tr", "th", "td",
-  // 图片与 SVG 图形
-  "img", "svg", "g", "path", "circle", "rect", "line", "polygon", "polyline", "ellipse", "text", "tspan", "defs", "use", "clippath", "style", "marker", "foreignobject",
+  // 图片与 SVG 图形（移除 style 标签，禁止直接注入 style 块）
+  "img", "svg", "g", "path", "circle", "rect", "line", "polygon", "polyline", "ellipse", "text", "tspan", "defs", "use", "clippath", "marker", "foreignobject",
   "lineargradient", "radialgradient", "stop", "pattern", "mask", "filter", "fegaussianblur", "feoffset", "femerge", "femergenode", "fecomposite", "fecomponenttransfer", "fefunca", "fefuncr", "fefuncg", "fefuncb"
 ]);
 
@@ -91,12 +91,14 @@ function sanitizeStyle(style: string): string {
     const val = raw.slice(idx + 1).trim();
     if (!prop || !val) continue;
     if (!ALLOWED_CSS_PROPS.has(prop)) continue;
-    // 拦截 CSS 注入：expression()、javascript:、behavior
+    // 拦截 CSS 注入：expression()、javascript:、behavior、@import、url() 外链
     const valLower = val.toLowerCase();
     if (valLower.includes("expression(")) continue;
     if (valLower.includes("javascript:")) continue;
     if (valLower.includes("behavior:")) continue;
     if (valLower.includes("-moz-binding")) continue;
+    if (valLower.includes("@import")) continue;
+    if (valLower.includes("url(") || valLower.includes("image(")) continue;
     decls.push(`${prop}: ${val}`);
   }
   return decls.join("; ");

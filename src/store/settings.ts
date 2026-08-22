@@ -4,6 +4,7 @@
 // 各编辑器插件通过 useSettings.getState() 在运行时读取最新值，无需重建编辑器。
 
 import { create } from "zustand";
+import { loadJSON, writeJSON } from "../lib/storage";
 
 /** 代码块语法高亮主题 */
 export type CodeBlockTheme = "oneDark" | "light" | "none";
@@ -73,29 +74,37 @@ const DEFAULTS: PersistedSettings = {
   editorZoom: ZOOM_DEFAULT,
 };
 
-function loadPersisted(): PersistedSettings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULTS };
-    const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
-    return { ...DEFAULTS, ...parsed };
-  } catch {
-    return { ...DEFAULTS };
-  }
-}
-
 function persist(s: PersistedSettings): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
-  } catch {
-    // 忽略写入失败
-  }
+  writeJSON(STORAGE_KEY, s);
 }
 
 /** 将任意倍率夹到合法范围，并保留一位小数避免浮点累积误差 */
-function clampZoom(v: number): number {
+export function clampZoom(v: number): number {
+  if (!Number.isFinite(v)) return ZOOM_DEFAULT;
   const rounded = Math.round(v * 10) / 10;
   return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, rounded));
+}
+
+function validateSettings(val: unknown): val is PersistedSettings {
+  if (!val || typeof val !== "object" || Array.isArray(val)) return false;
+  const obj = val as Record<string, unknown>;
+  return (
+    (typeof obj.formulaAutoNumber === "undefined" || typeof obj.formulaAutoNumber === "boolean") &&
+    (typeof obj.focusMode === "undefined" || typeof obj.focusMode === "boolean") &&
+    (typeof obj.typewriterMode === "undefined" || typeof obj.typewriterMode === "boolean") &&
+    (typeof obj.autoPair === "undefined" || typeof obj.autoPair === "boolean") &&
+    (typeof obj.spellcheck === "undefined" || typeof obj.spellcheck === "boolean") &&
+    (typeof obj.editorZoom === "undefined" || typeof obj.editorZoom === "number")
+  );
+}
+
+function loadPersisted(): PersistedSettings {
+  const loaded = loadJSON<Partial<PersistedSettings>>(STORAGE_KEY, DEFAULTS, (v): v is Partial<PersistedSettings> => validateSettings(v));
+  return {
+    ...DEFAULTS,
+    ...loaded,
+    editorZoom: clampZoom(typeof loaded.editorZoom === "number" ? loaded.editorZoom : DEFAULTS.editorZoom),
+  };
 }
 
 const initial = loadPersisted();

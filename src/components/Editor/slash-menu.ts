@@ -604,11 +604,13 @@ export function slashMenuPlugin(): Plugin {
         }
         if (key === "Escape") {
           event.preventDefault();
-          // 删除触发的 "/" 与已输入过滤词：否则 dispatch 后 deriveState 会因
-          // "/" 仍在文档中而立刻重新激活菜单，导致弹层关了又弹回来
+          // 删除触发的 "/" 与已输入过滤词：从 anchorPos 开始删除到当前光标 from，
+          // 不会误删 anchorPos 之前的文本内容
           const { from } = view.state.selection;
-          const $head = view.state.selection.$head;
-          view.dispatch(view.state.tr.deleteRange($head.start(), from));
+          const deleteFrom = typeof st.anchorPos === "number" && st.anchorPos >= 0
+            ? st.anchorPos
+            : view.state.selection.$head.start();
+          view.dispatch(view.state.tr.deleteRange(deleteFrom, from));
           return true;
         }
         return false;

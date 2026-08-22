@@ -255,31 +255,36 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
         await get().openFile(filePath);
         return;
       }
-      // 直接读磁盘，绕过 tab 缓存（openFile 对已打开 tab 复用缓存，无法真正重载）
-      const content = await readTextFile(filePath);
-      set((current) => {
-        const openTabs = current.openTabs.map((t) =>
-          t.path === filePath
-            ? {
-                ...t,
-                content,
-                dirty: false,
-                diskContent: content,
-                revision: (t.revision || 0) + 1,
-              }
-            : t,
-        );
-        const patch: Partial<WorkspaceState> = { openTabs };
-        if (current.activeTabPath === filePath) {
-          patch.currentContent = content;
-          patch.dirty = false;
-          patch.saveError = null;
-        }
-        if (current.splitFile === filePath) {
-          patch.splitContent = content;
-        }
-        return patch;
-      });
+      try {
+        // 直接读磁盘，绕过 tab 缓存（openFile 对已打开 tab 复用缓存，无法真正重载）
+        const content = await readTextFile(filePath);
+        set((current) => {
+          const openTabs = current.openTabs.map((t) =>
+            t.path === filePath
+              ? {
+                  ...t,
+                  content,
+                  dirty: false,
+                  diskContent: content,
+                  revision: (t.revision || 0) + 1,
+                }
+              : t,
+          );
+          const patch: Partial<WorkspaceState> = { openTabs };
+          if (current.activeTabPath === filePath) {
+            patch.currentContent = content;
+            patch.dirty = false;
+            patch.saveError = null;
+          }
+          if (current.splitFile === filePath) {
+            patch.splitContent = content;
+          }
+          return patch;
+        });
+      } catch (err) {
+        console.warn(`reloadFile 读取失败: ${filePath}`, err);
+        set({ saveError: `文件重载失败（可能已被删除）：${err instanceof Error ? err.message : String(err)}` });
+      }
     },
 
     openFileStandalone: async (filePath) => {
@@ -528,13 +533,19 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
 
     saveCurrent: async () => {
       flushAllMarkdownPublishers();
-      const { currentContent, dirty, saving, activeTabPath, openTabs } = get();
+      const { dirty, saving, activeTabPath, openTabs } = get();
       if (!activeTabPath) return;
       const tab = openTabs.find((t) => t.path === activeTabPath);
       if (!tab) return;
       if (!dirty || saving) return;
 
+      // 立即置位 saving，防止重入（例如弹窗期间定时保存触发）
+      set({ saving: true, saveError: null });
+
       let savePath = tab.path;
+      // 记录本次保存发起时快照内容
+      const contentToSave = tab.content;
+
       // 未命名草稿：首次保存弹另存为对话框选择保存位置
       if (tab.isUntitled) {
         if (!isTauri()) {
@@ -546,7 +557,10 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
             defaultPath: "未命名.md",
             filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
           });
-          if (!picked) return; // 用户取消
+          if (!picked) {
+            set({ saving: false });
+            return; // 用户取消
+          }
           savePath = picked;
         }
       } else if (isTauri()) {
@@ -560,41 +574,48 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
               "文件已被外部程序修改。覆盖保存将丢失外部修改，是否继续覆盖？",
               { title: "保存冲突提示", kind: "warning" },
             );
-            if (!confirmed) return;
+            if (!confirmed) {
+              set({ saving: false });
+              return;
+            }
           }
         } catch {
           // 文件可能被删除或不可读，继续尝试保存
         }
       }
 
-      set({ saving: true, saveError: null });
       try {
-        await writeTextFile(savePath, currentContent);
+        await writeTextFile(savePath, contentToSave);
         const now = Date.now();
         // 异步窗口结束后重新获取最新 store 状态，避免覆盖窗口期间其他 tab / 分屏并发发布的编辑内容
         const latestState = get();
-        const nextTabs = latestState.openTabs.map((t) =>
-          t.path === activeTabPath
-            ? {
-                ...t,
-                path: savePath,
-                isUntitled: false,
-                dirty: false,
-                lastSavedAt: now,
-                diskContent: currentContent,
-              }
-            : t,
-        );
+        const nextTabs = latestState.openTabs.map((t) => {
+          if (t.path === activeTabPath) {
+            // 如果写盘期间内容又发生了新的修改，保持 dirty 为 true
+            const isStillDirty = t.content !== contentToSave;
+            return {
+              ...t,
+              path: savePath,
+              isUntitled: false,
+              dirty: isStillDirty,
+              lastSavedAt: now,
+              diskContent: contentToSave,
+            };
+          }
+          return t;
+        });
         const nextRecent = tab.isUntitled ? pushRecent(latestState.recentFiles, savePath) : latestState.recentFiles;
         if (tab.isUntitled) persistRecentFiles(nextRecent);
+
+        const currentActiveTab = nextTabs.find((t) => t.path === (latestState.activeTabPath === activeTabPath ? savePath : latestState.activeTabPath));
         set({
           openTabs: nextTabs,
           activeTabPath: latestState.activeTabPath === activeTabPath ? savePath : latestState.activeTabPath,
           currentFile: latestState.currentFile === activeTabPath ? savePath : latestState.currentFile,
           saving: false,
-          dirty: latestState.activeTabPath === activeTabPath ? false : latestState.dirty,
+          dirty: currentActiveTab ? currentActiveTab.dirty : false,
           saveError: null,
-          lastSavedAt: now,
+          lastSavedAt: latestState.activeTabPath === activeTabPath ? now : latestState.lastSavedAt,
           recentFiles: nextRecent,
         });
       } catch (e) {

@@ -300,50 +300,50 @@ mod tests {
         let test_file_str = test_file.to_string_lossy().to_string();
 
         // 1. 测试 create_file 自动创建父目录
-        create_file(test_file_str.clone()).unwrap();
+        create_file_sync(test_file_str.clone()).unwrap();
         assert!(test_file.exists());
-        assert_eq!(read_text_file(test_file_str.clone()).unwrap(), "");
+        assert_eq!(read_text_file_sync(test_file_str.clone()).unwrap(), "");
 
         // 2. 测试 create_file 重复创建报错
-        assert!(create_file(test_file_str.clone()).is_err());
+        assert!(create_file_sync(test_file_str.clone()).is_err());
 
         // 3. 测试 write_text_file 覆盖写入
-        write_text_file(test_file_str.clone(), "# Hello World\nLine 2".into()).unwrap();
+        write_text_file_sync(test_file_str.clone(), "# Hello World\nLine 2".into()).unwrap();
         assert_eq!(
-            read_text_file(test_file_str.clone()).unwrap(),
+            read_text_file_sync(test_file_str.clone()).unwrap(),
             "# Hello World\nLine 2"
         );
 
         // 4. 测试 file_mtime 获取时间戳
-        let mtime = file_mtime(test_file_str.clone()).unwrap();
+        let mtime = file_mtime_sync(test_file_str.clone()).unwrap();
         assert!(mtime > 0.0);
 
         // 5. 测试 write_binary_file
         let bin_file = temp.path.join("nested/folder/image.png");
         let bin_file_str = bin_file.to_string_lossy().to_string();
         let bin_data = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-        write_binary_file(bin_file_str.clone(), bin_data.clone()).unwrap();
+        write_binary_file_sync(bin_file_str.clone(), bin_data.clone()).unwrap();
         let read_bin = fs::read(&bin_file).unwrap();
         assert_eq!(read_bin, bin_data);
 
         // 6. 测试 rename_path
         let renamed_file = temp.path.join("nested/folder/renamed.md");
         let renamed_str = renamed_file.to_string_lossy().to_string();
-        rename_path(test_file_str.clone(), renamed_str.clone()).unwrap();
+        rename_path_sync(test_file_str.clone(), renamed_str.clone()).unwrap();
         assert!(!test_file.exists());
         assert!(renamed_file.exists());
         assert_eq!(
-            read_text_file(renamed_str.clone()).unwrap(),
+            read_text_file_sync(renamed_str.clone()).unwrap(),
             "# Hello World\nLine 2"
         );
 
         // 7. 测试 delete_path (文件和目录)
-        delete_path(renamed_str).unwrap();
+        delete_path_sync(renamed_str).unwrap();
         assert!(!renamed_file.exists());
 
         let nested_dir = temp.path.join("nested");
         assert!(nested_dir.exists());
-        delete_path(nested_dir.to_string_lossy().to_string()).unwrap();
+        delete_path_sync(nested_dir.to_string_lossy().to_string()).unwrap();
         assert!(!nested_dir.exists());
     }
 
@@ -353,51 +353,100 @@ mod tests {
         let dir = temp.path.join("a/b/c");
         let dir_str = dir.to_string_lossy().to_string();
 
-        create_dir(dir_str.clone()).unwrap();
+        create_dir_sync(dir_str.clone()).unwrap();
         assert!(dir.is_dir());
 
         // 重复创建应报错
-        let err = create_dir(dir_str).unwrap_err();
+        let err = create_dir_sync(dir_str).unwrap_err();
         assert!(err.contains("目录已存在"));
 
         // 读取不存在文件应报错
         let not_found_err =
-            read_text_file(temp.path.join("nonexistent.md").to_string_lossy().to_string())
+            read_text_file_sync(temp.path.join("nonexistent.md").to_string_lossy().to_string())
                 .unwrap_err();
         assert!(not_found_err.contains("文件不存在"));
 
         // 获取不存在文件 mtime 应报错
         let mtime_err =
-            file_mtime(temp.path.join("nonexistent.md").to_string_lossy().to_string()).unwrap_err();
+            file_mtime_sync(temp.path.join("nonexistent.md").to_string_lossy().to_string()).unwrap_err();
         assert!(mtime_err.contains("文件不存在"));
     }
-}
 
-/// 读取文本文件内容（UTF-8）
-#[tauri::command]
-pub fn read_text_file(file_path: String) -> Result<String, String> {
-    let path = Path::new(&file_path);
-    if !path.exists() {
-        return Err(format!("文件不存在: {}", file_path));
+    #[test]
+    fn test_atomic_write_safety() {
+        let temp = TestDir::new("atomic_write");
+        let file = temp.path.join("doc.md");
+        let file_str = file.to_string_lossy().to_string();
+
+        write_text_file_sync(file_str.clone(), "Initial content".into()).unwrap();
+        assert_eq!(read_text_file_sync(file_str.clone()).unwrap(), "Initial content");
+
+        // 覆盖写入
+        write_text_file_sync(file_str.clone(), "Updated content".into()).unwrap();
+        assert_eq!(read_text_file_sync(file_str.clone()).unwrap(), "Updated content");
     }
-    fs::read_to_string(path).map_err(|e| format!("读取失败 {}: {}", file_path, e))
 }
 
-/// 写入文本文件（覆盖写入，不存在则创建）
+/// 写入文本文件（原子写入：写入临时文件再重命名，避免写盘崩溃导致截断损坏）
 #[tauri::command]
-pub fn write_text_file(file_path: String, content: String) -> Result<(), String> {
+pub async fn write_text_file(file_path: String, content: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || write_text_file_sync(file_path, content))
+        .await
+        .map_err(|e| format!("文件写入任务失败: {e}"))?
+}
+
+fn write_text_file_sync(file_path: String, content: String) -> Result<(), String> {
     let path = Path::new(&file_path);
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    if !parent.exists() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
+    }
+
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default();
+    let temp_path = parent.join(format!(".{}.tmp.{}", file_name, nonce));
+
+    if let Err(e) = fs::write(&temp_path, &content) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("写入临时文件失败 {}: {}", temp_path.display(), e));
+    }
+
+    // 重命名原子替换目标文件
+    if let Err(e) = fs::rename(&temp_path, path) {
+        // Windows 上如果目标已存在，尝试 fallback 或标准替换
+        #[cfg(windows)]
+        {
+            if path.exists() {
+                let _ = fs::remove_file(path);
+                if let Err(e2) = fs::rename(&temp_path, path) {
+                    let _ = fs::remove_file(&temp_path);
+                    return Err(format!("替换目标文件失败 {}: {}", file_path, e2));
+                }
+                return Ok(());
+            }
         }
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("替换目标文件失败 {}: {}", file_path, e));
     }
-    fs::write(path, content).map_err(|e| format!("写入失败 {}: {}", file_path, e))
+
+    Ok(())
 }
 
 /// 写入二进制文件（图片等），覆盖写入，不存在则创建
 #[tauri::command]
-pub fn write_binary_file(file_path: String, data: Vec<u8>) -> Result<(), String> {
+pub async fn write_binary_file(file_path: String, data: Vec<u8>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || write_binary_file_sync(file_path, data))
+        .await
+        .map_err(|e| format!("二进制写入任务失败: {e}"))?
+}
+
+fn write_binary_file_sync(file_path: String, data: Vec<u8>) -> Result<(), String> {
     let path = Path::new(&file_path);
     if let Some(parent) = path.parent() {
         if !parent.exists() {
@@ -407,10 +456,32 @@ pub fn write_binary_file(file_path: String, data: Vec<u8>) -> Result<(), String>
     fs::write(path, data).map_err(|e| format!("写入失败 {}: {}", file_path, e))
 }
 
+/// 读取文本文件内容（UTF-8）
+#[tauri::command]
+pub async fn read_text_file(file_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || read_text_file_sync(file_path))
+        .await
+        .map_err(|e| format!("文件读取任务失败: {e}"))?
+}
+
+fn read_text_file_sync(file_path: String) -> Result<String, String> {
+    let path = Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("文件不存在: {}", file_path));
+    }
+    fs::read_to_string(path).map_err(|e| format!("读取失败 {}: {}", file_path, e))
+}
+
 /// 读取文件的最后修改时间（Unix 秒，浮点）
 /// 用于前端轮询检测外部修改，提示用户重新加载
 #[tauri::command]
-pub fn file_mtime(file_path: String) -> Result<f64, String> {
+pub async fn file_mtime(file_path: String) -> Result<f64, String> {
+    tauri::async_runtime::spawn_blocking(move || file_mtime_sync(file_path))
+        .await
+        .map_err(|e| format!("获取文件修改时间任务失败: {e}"))?
+}
+
+fn file_mtime_sync(file_path: String) -> Result<f64, String> {
     let path = Path::new(&file_path);
     if !path.exists() {
         return Err(format!("文件不存在: {}", file_path));
@@ -428,7 +499,13 @@ pub fn file_mtime(file_path: String) -> Result<f64, String> {
 
 /// 重命名/移动文件或目录
 #[tauri::command]
-pub fn rename_path(from: String, to: String) -> Result<(), String> {
+pub async fn rename_path(from: String, to: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || rename_path_sync(from, to))
+        .await
+        .map_err(|e| format!("重命名任务失败: {e}"))?
+}
+
+fn rename_path_sync(from: String, to: String) -> Result<(), String> {
     let from_path = Path::new(&from);
     let to_path = Path::new(&to);
     if !from_path.exists() {
@@ -442,7 +519,13 @@ pub fn rename_path(from: String, to: String) -> Result<(), String> {
 
 /// 删除文件或目录（目录时递归删除）
 #[tauri::command]
-pub fn delete_path(path: String) -> Result<(), String> {
+pub async fn delete_path(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || delete_path_sync(path))
+        .await
+        .map_err(|e| format!("删除任务失败: {e}"))?
+}
+
+fn delete_path_sync(path: String) -> Result<(), String> {
     let p = Path::new(&path);
     if !p.exists() {
         return Err(format!("路径不存在: {}", path));
@@ -456,7 +539,13 @@ pub fn delete_path(path: String) -> Result<(), String> {
 
 /// 创建空文件（如果父目录不存在则创建）
 #[tauri::command]
-pub fn create_file(file_path: String) -> Result<(), String> {
+pub async fn create_file(file_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || create_file_sync(file_path))
+        .await
+        .map_err(|e| format!("创建文件任务失败: {e}"))?
+}
+
+fn create_file_sync(file_path: String) -> Result<(), String> {
     let path = Path::new(&file_path);
     if path.exists() {
         return Err(format!("文件已存在: {}", file_path));
@@ -471,7 +560,13 @@ pub fn create_file(file_path: String) -> Result<(), String> {
 
 /// 创建目录（含父目录）
 #[tauri::command]
-pub fn create_dir(dir_path: String) -> Result<(), String> {
+pub async fn create_dir(dir_path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || create_dir_sync(dir_path))
+        .await
+        .map_err(|e| format!("创建目录任务失败: {e}"))?
+}
+
+fn create_dir_sync(dir_path: String) -> Result<(), String> {
     let path = Path::new(&dir_path);
     if path.exists() {
         return Err(format!("目录已存在: {}", dir_path));

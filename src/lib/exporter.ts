@@ -7,6 +7,7 @@ import type { Editor } from "@milkdown/kit/core";
 import { editorViewCtx } from "@milkdown/kit/core";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
+import { flushAllMarkdownPublishers } from "../components/Editor/markdown-publisher";
 import { useWorkspace } from "../store/workspace";
 import { resolvePathFromDocument } from "./fs";
 import { parseOutline } from "./outline";
@@ -92,6 +93,7 @@ function escapeHTML(s: string): string {
 export async function exportHTML(
   getEditor: () => Editor | undefined,
 ): Promise<void> {
+  flushAllMarkdownPublishers();
   const bodyHTML = getEditorHTML(getEditor);
   if (!bodyHTML) return;
   const name = getBaseName();
@@ -114,12 +116,13 @@ export async function exportHTML(
 export async function exportPDF(
   getEditor: () => Editor | undefined,
 ): Promise<void> {
+  flushAllMarkdownPublishers();
   const bodyHTML = getEditorHTML(getEditor);
   if (!bodyHTML) return;
   const name = getBaseName();
   const fullHTML = buildStandaloneHTML(bodyHTML, name);
 
-  // 新窗口打开并立即打印
+  // 新窗口打开并等待完全加载后打印，避免白屏
   const win = window.open("", "_blank");
   if (!win) {
     alert("无法打开新窗口，请检查浏览器弹窗拦截设置");
@@ -128,13 +131,17 @@ export async function exportPDF(
   win.document.open();
   win.document.write(fullHTML);
   win.document.close();
-  // 等待内容渲染后触发打印
-  win.onload = () => {
-    setTimeout(() => {
+  const triggerPrint = () => {
+    try {
       win.focus();
       win.print();
-    }, 300);
+    } catch {}
   };
+  if (win.document.readyState === "complete") {
+    setTimeout(triggerPrint, 100);
+  } else {
+    win.addEventListener("load", () => setTimeout(triggerPrint, 100), { once: true });
+  }
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -150,6 +157,7 @@ function downloadBlob(blob: Blob, filename: string): void {
 
 /** 复制当前 Markdown 源码到剪贴板（纯文本） */
 export async function copyMarkdown(): Promise<boolean> {
+  flushAllMarkdownPublishers();
   const content = useWorkspace.getState().currentContent;
   try {
     await navigator.clipboard.writeText(content);
@@ -178,6 +186,7 @@ export async function exportDocx(): Promise<{
   ok: boolean;
   error?: string;
 }> {
+  flushAllMarkdownPublishers();
   if (!isTauri()) {
     return { ok: false, error: "Word 导出仅在桌面端可用（需调用 Pandoc）" };
   }
@@ -218,6 +227,7 @@ export async function exportDocx(): Promise<{
 export async function copyRichText(
   getEditor: () => Editor | undefined,
 ): Promise<boolean> {
+  flushAllMarkdownPublishers();
   const html = getEditorHTML(getEditor);
   if (!html) return false;
   const text = useWorkspace.getState().currentContent;
@@ -252,6 +262,7 @@ export async function copyRichText(
 export async function exportPNG(
   getEditor: () => Editor | undefined,
 ): Promise<void> {
+  flushAllMarkdownPublishers();
   const { default: html2canvas } = await import("html2canvas");
   const bodyHTML = getEditorHTML(getEditor);
   if (!bodyHTML) return;
@@ -345,6 +356,7 @@ export async function exportPNG(
  * - 同时输出原始 # 语法，兼容 GitHub 等渲染器
  */
 export async function exportOutline(): Promise<void> {
+  flushAllMarkdownPublishers();
   const content = useWorkspace.getState().currentContent;
   if (!content) return;
   const name = getBaseName();

@@ -1,12 +1,13 @@
 // 全局搜索命令
 // 遍历工作区目录下所有 .md/.markdown 文件，按行匹配关键词或正则，
 // 返回命中结果（文件路径 + 行号 + 列号 + 预览文本）。
-// 跳过隐藏目录（. 开头）和超大文件（> 5MB）。
+// 跳过隐藏目录（. 开头）、依赖目录（node_modules 等）、符号链接目录防死循环和超大文件（> 5MB）。
 
+use regex::Regex;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
-use regex::Regex;
+use std::path::{Path, PathBuf};
 
 /// 单条命中
 #[derive(Debug, serde::Serialize)]
@@ -24,8 +25,27 @@ pub struct SearchHit {
 /// 超过此大小（字节）的文件跳过
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024;
 
-/// 递归收集目录下所有 .md/.markdown 文件路径
-fn collect_md_files(dir: &Path, out: &mut Vec<String>) {
+const IGNORED_SEARCH_DIRS: &[&str] = &[
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "out",
+    ".git",
+    ".svn",
+    ".hg",
+];
+
+/// 递归收集目录下所有 .md/.markdown 文件路径（带循环引用检测和依赖过滤）
+fn collect_md_files(dir: &Path, visited: &mut HashSet<PathBuf>, out: &mut Vec<String>) {
+    let canonical = match dir.canonicalize() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    if !visited.insert(canonical) {
+        return;
+    }
+
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return,
@@ -33,15 +53,31 @@ fn collect_md_files(dir: &Path, out: &mut Vec<String>) {
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name();
-        let name = name.to_string_lossy();
-        // 跳过隐藏目录和文件
-        if name.starts_with('.') {
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with('.') {
             continue;
         }
+
+        let file_type = match entry.file_type() {
+            Ok(ft) => ft,
+            Err(_) => continue,
+        };
+
+        if file_type.is_symlink() {
+            if let Ok(meta) = std::fs::metadata(&path) {
+                if meta.is_dir() {
+                    continue; // 跳过目录符号链接以防递归死循环
+                }
+            }
+        }
+
         if path.is_dir() {
-            collect_md_files(&path, out);
+            if IGNORED_SEARCH_DIRS.iter().any(|&d| d.eq_ignore_ascii_case(&name_str)) {
+                continue;
+            }
+            collect_md_files(&path, visited, out);
         } else if path.is_file() {
-            let lower = name.to_lowercase();
+            let lower = name_str.to_lowercase();
             if lower.ends_with(".md") || lower.ends_with(".markdown") {
                 if let Some(p) = path.to_str() {
                     out.push(p.to_string());
@@ -58,7 +94,20 @@ fn collect_md_files(dir: &Path, out: &mut Vec<String>) {
 /// - `case_sensitive`: 是否区分大小写
 /// - `use_regex`: 是否作为正则匹配
 #[tauri::command]
-pub fn search_in_workspace(
+pub async fn search_in_workspace(
+    root: String,
+    query: String,
+    case_sensitive: bool,
+    use_regex: bool,
+) -> Result<Vec<SearchHit>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        search_in_workspace_sync(root, query, case_sensitive, use_regex)
+    })
+    .await
+    .map_err(|e| format!("搜索任务执行失败: {e}"))?
+}
+
+fn search_in_workspace_sync(
     root: String,
     query: String,
     case_sensitive: bool,
@@ -86,7 +135,8 @@ pub fn search_in_workspace(
 
     let mut files: Vec<String> = Vec::new();
     if root_path.is_dir() {
-        collect_md_files(root_path, &mut files);
+        let mut visited = HashSet::new();
+        collect_md_files(root_path, &mut visited, &mut files);
         files.sort();
     } else if root_path.is_file() {
         if let Some(p) = root_path.to_str() {
@@ -175,7 +225,7 @@ mod tests {
     }
 
     fn search(root: &Path, query: &str) -> Vec<SearchHit> {
-        search_in_workspace(
+        search_in_workspace_sync(
             root.to_string_lossy().into_owned(),
             query.to_string(),
             true,
@@ -189,7 +239,7 @@ mod tests {
         let temp = TestDir::new("empty-query");
         write(&temp.path.join("a.md"), "hello world\n");
 
-        let hits = search_in_workspace(
+        let hits = search_in_workspace_sync(
             temp.path.to_string_lossy().into_owned(),
             String::new(),
             true,
@@ -201,7 +251,7 @@ mod tests {
 
     #[test]
     fn missing_workspace_returns_error() {
-        let result = search_in_workspace(
+        let result = search_in_workspace_sync(
             "C:/definitely/not/a/real/workspace/path".to_string(),
             "x".to_string(),
             true,
@@ -216,7 +266,7 @@ mod tests {
         let temp = TestDir::new("case");
         write(&temp.path.join("a.md"), "Hello\nhello\nHELLO\n");
 
-        let sensitive = search_in_workspace(
+        let sensitive = search_in_workspace_sync(
             temp.path.to_string_lossy().into_owned(),
             "hello".to_string(),
             true,
@@ -226,7 +276,7 @@ mod tests {
         assert_eq!(sensitive.len(), 1, "区分大小写只命中小写 hello");
         assert_eq!(sensitive[0].line, 2);
 
-        let insensitive = search_in_workspace(
+        let insensitive = search_in_workspace_sync(
             temp.path.to_string_lossy().into_owned(),
             "hello".to_string(),
             false,
@@ -241,7 +291,7 @@ mod tests {
         let temp = TestDir::new("bad-regex");
         write(&temp.path.join("a.md"), "hello\n");
 
-        let result = search_in_workspace(
+        let result = search_in_workspace_sync(
             temp.path.to_string_lossy().into_owned(),
             "(".to_string(),
             true,
@@ -361,7 +411,7 @@ mod tests {
         write(&file, "target line here\n");
 
         // 搜索单文件路径
-        let hits = search_in_workspace(
+        let hits = search_in_workspace_sync(
             file.to_string_lossy().to_string(),
             "target".into(),
             true,
@@ -372,7 +422,7 @@ mod tests {
         assert_eq!(hits[0].line, 1);
 
         // 搜索不存在的路径
-        let err = search_in_workspace(
+        let err = search_in_workspace_sync(
             temp.path.join("does_not_exist").to_string_lossy().to_string(),
             "target".into(),
             true,
@@ -380,5 +430,24 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("工作区不存在"));
+    }
+
+    #[test]
+    fn ignore_node_modules_and_target_directories() {
+        let temp = TestDir::new("ignore_dirs");
+        let node_modules = temp.path.join("node_modules");
+        let target = temp.path.join("target");
+        let src = temp.path.join("src");
+        fs::create_dir(&node_modules).unwrap();
+        fs::create_dir(&target).unwrap();
+        fs::create_dir(&src).unwrap();
+
+        write(&node_modules.join("dep.md"), "needle in deps\n");
+        write(&target.join("build.md"), "needle in target\n");
+        write(&src.join("main.md"), "needle in src\n");
+
+        let hits = search(&temp.path, "needle");
+        assert_eq!(hits.len(), 1, "应跳过 node_modules 和 target 目录");
+        assert!(hits[0].path.contains("src"));
     }
 }

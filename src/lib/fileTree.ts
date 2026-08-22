@@ -68,22 +68,4 @@ export function collectDirectoryPaths(root: FileNode): Set<string> {
   return paths;
 }
 
-/** 统一规范化路径：将 Windows 反斜杠替换为正斜杠，并将 Windows 盘符首字母统一大写 */
-export function normalizePath(p: string): string {
-  if (!p) return "";
-  let norm = p.replace(/\\/g, "/");
-  // 匹配形如 c:/ 或 c: 的 Windows 盘符并将其转为大写 C:/
-  if (/^[a-zA-Z]:/.test(norm)) {
-    norm = norm.charAt(0).toUpperCase() + norm.slice(1);
-  }
-  return norm;
-}
-
-/** 判断路径是否等于指定目录，或位于该目录之下 */
-export function isPathWithin(path: string, prefix: string): boolean {
-  const normPath = normalizePath(path);
-  const normPrefix = normalizePath(prefix);
-  if (normPath === normPrefix) return true;
-  if (normPrefix.endsWith("/")) return normPath.startsWith(normPrefix);
-  return normPath.startsWith(normPrefix + "/");
-}
+export { isPathWithin, normalizePath } from "./path";

@@ -247,50 +247,78 @@ export const createFileTreeSlice: StateCreator<
       openTabs,
       activeTabPath,
       splitFile,
+      recentFiles,
+      bookmarks,
       expandedDirs,
       loadedDirs,
       loadingDirs,
       directoryErrors,
+      openingFiles,
+      fileOpenErrors,
     } = get();
+
     const nextTabs = openTabs.map((t) =>
       t.path === from ? { ...t, path: to } : t,
     );
-    const patch: Partial<WorkspaceState> = { openTabs: nextTabs };
-    if (activeTabPath === from) {
-      patch.activeTabPath = to;
-      patch.currentFile = to;
-    }
-    // 分屏文件被重命名，同步路径
-    if (splitFile === from) patch.splitFile = to;
-    set(patch);
-    // 同步 recentFiles
-    const rf = get().recentFiles.map((p) => (p === from ? to : p));
-    set({ recentFiles: rf });
-    persistRecentFiles(rf);
-    // 同步 bookmarks（精确匹配文件，目录重命名时前缀匹配子项）
-    const bk = get().bookmarks.map((p) =>
+
+    const rf = recentFiles.map((p) => (p === from ? to : p));
+    const bk = bookmarks.map((p) =>
       p === from ? to : p.startsWith(from + "/") || p.startsWith(from + "\\")
         ? to + p.slice(from.length)
         : p,
     );
-    // 目录重命名后保留展开偏好，但让新路径重新按需加载子项
+
     const nextExpanded = new Set(
       [...expandedDirs].map((path) => rebasePathPrefix(path, from, to)),
     );
-    const nextLoaded = new Set([...loadedDirs].filter((path) => !isPathWithin(path, from)));
+    const nextLoaded = new Set(
+      [...loadedDirs].filter((dir) => !isPathWithin(dir, from) && !isPathWithin(dir, to)),
+    );
     const nextLoading = new Set(
-      [...loadingDirs].filter((path) => !isPathWithin(path, from)),
+      [...loadingDirs].map((path) => rebasePathPrefix(path, from, to)),
     );
     const nextErrors = new Map(
-      [...directoryErrors].filter(([path]) => !isPathWithin(path, from)),
+      [...directoryErrors].map(([path, err]) => [rebasePathPrefix(path, from, to), err]),
     );
-    set({
+
+    // 迁移 openingFiles 和 fileOpenErrors 映射状态
+    const nextOpeningFiles = new Set(openingFiles);
+    if (nextOpeningFiles.has(from)) {
+      nextOpeningFiles.delete(from);
+      nextOpeningFiles.add(to);
+    }
+
+    const nextFileOpenErrors = new Map(fileOpenErrors);
+    if (nextFileOpenErrors.has(from)) {
+      const err = nextFileOpenErrors.get(from)!;
+      nextFileOpenErrors.delete(from);
+      nextFileOpenErrors.set(to, err);
+    }
+
+    const patch: Partial<WorkspaceState> = {
+      openTabs: nextTabs,
+      recentFiles: rf,
       bookmarks: bk,
       expandedDirs: nextExpanded,
       loadedDirs: nextLoaded,
       loadingDirs: nextLoading,
       directoryErrors: nextErrors,
-    });
+      openingFiles: nextOpeningFiles,
+      fileOpenErrors: nextFileOpenErrors,
+    };
+
+    if (activeTabPath === from) {
+      patch.activeTabPath = to;
+      patch.currentFile = to;
+    }
+    if (splitFile === from) {
+      patch.splitFile = to;
+    }
+
+    // 单次原子 set 更新所有状态
+    set(patch);
+
+    persistRecentFiles(rf);
     persistBookmarks(bk);
     persistExpandedDirs(nextExpanded);
     void get().refreshTree(parentDir(from));

@@ -9,6 +9,7 @@
 //   最后一段为按键名（单字符或特殊键名，如 backspace、enter）
 
 import { create } from "zustand";
+import { loadJSON, writeJSON } from "../lib/storage";
 
 /** 可自定义快捷键 ID */
 export type ShortcutId =
@@ -43,22 +44,11 @@ interface Persisted {
 }
 
 function loadPersisted(): Persisted {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { overrides: {} };
-    const parsed = JSON.parse(raw) as Partial<Persisted>;
-    return { overrides: parsed.overrides ?? {} };
-  } catch {
-    return { overrides: {} };
-  }
+  return loadJSON<Persisted>(STORAGE_KEY, { overrides: {} });
 }
 
 function persist(p: Persisted): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
-  } catch {
-    // 忽略写入失败
-  }
+  writeJSON(STORAGE_KEY, p);
 }
 
 export interface ShortcutsState {
