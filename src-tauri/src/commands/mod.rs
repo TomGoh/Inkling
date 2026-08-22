@@ -292,6 +292,85 @@ mod tests {
         assert!(root.children[0].children.is_empty());
         assert!(!root.children[1].is_dir);
     }
+
+    #[test]
+    fn test_file_operations_crud() {
+        let temp = TestDir::new("file_ops");
+        let test_file = temp.path.join("nested/folder/test.md");
+        let test_file_str = test_file.to_string_lossy().to_string();
+
+        // 1. 测试 create_file 自动创建父目录
+        create_file(test_file_str.clone()).unwrap();
+        assert!(test_file.exists());
+        assert_eq!(read_text_file(test_file_str.clone()).unwrap(), "");
+
+        // 2. 测试 create_file 重复创建报错
+        assert!(create_file(test_file_str.clone()).is_err());
+
+        // 3. 测试 write_text_file 覆盖写入
+        write_text_file(test_file_str.clone(), "# Hello World\nLine 2".into()).unwrap();
+        assert_eq!(
+            read_text_file(test_file_str.clone()).unwrap(),
+            "# Hello World\nLine 2"
+        );
+
+        // 4. 测试 file_mtime 获取时间戳
+        let mtime = file_mtime(test_file_str.clone()).unwrap();
+        assert!(mtime > 0.0);
+
+        // 5. 测试 write_binary_file
+        let bin_file = temp.path.join("nested/folder/image.png");
+        let bin_file_str = bin_file.to_string_lossy().to_string();
+        let bin_data = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        write_binary_file(bin_file_str.clone(), bin_data.clone()).unwrap();
+        let read_bin = fs::read(&bin_file).unwrap();
+        assert_eq!(read_bin, bin_data);
+
+        // 6. 测试 rename_path
+        let renamed_file = temp.path.join("nested/folder/renamed.md");
+        let renamed_str = renamed_file.to_string_lossy().to_string();
+        rename_path(test_file_str.clone(), renamed_str.clone()).unwrap();
+        assert!(!test_file.exists());
+        assert!(renamed_file.exists());
+        assert_eq!(
+            read_text_file(renamed_str.clone()).unwrap(),
+            "# Hello World\nLine 2"
+        );
+
+        // 7. 测试 delete_path (文件和目录)
+        delete_path(renamed_str).unwrap();
+        assert!(!renamed_file.exists());
+
+        let nested_dir = temp.path.join("nested");
+        assert!(nested_dir.exists());
+        delete_path(nested_dir.to_string_lossy().to_string()).unwrap();
+        assert!(!nested_dir.exists());
+    }
+
+    #[test]
+    fn test_create_dir_and_errors() {
+        let temp = TestDir::new("create_dir");
+        let dir = temp.path.join("a/b/c");
+        let dir_str = dir.to_string_lossy().to_string();
+
+        create_dir(dir_str.clone()).unwrap();
+        assert!(dir.is_dir());
+
+        // 重复创建应报错
+        let err = create_dir(dir_str).unwrap_err();
+        assert!(err.contains("目录已存在"));
+
+        // 读取不存在文件应报错
+        let not_found_err =
+            read_text_file(temp.path.join("nonexistent.md").to_string_lossy().to_string())
+                .unwrap_err();
+        assert!(not_found_err.contains("文件不存在"));
+
+        // 获取不存在文件 mtime 应报错
+        let mtime_err =
+            file_mtime(temp.path.join("nonexistent.md").to_string_lossy().to_string()).unwrap_err();
+        assert!(mtime_err.contains("文件不存在"));
+    }
 }
 
 /// 读取文本文件内容（UTF-8）

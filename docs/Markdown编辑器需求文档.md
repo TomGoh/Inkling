@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v2.5.7
+> 文档版本：v2.5.8
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -310,6 +310,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 ### 8.2 发布版本
 
+- **v2.5.8** 全链路测试场景深度补齐与防护网加固：①补齐 Rust 后端底层文件原子写入边界与异常回退（`save_file_atomic` 父目录不存在自动递归创建）、目录安全扫描与 `search.rs` 超大文件跳过/结果上限截断集成测试；②补齐前端扩展插件与核心状态机单元测试（`footnotes.ts` 双向跳转定位、`formula-numbering.ts` 公式动态重编与清除、`workspace/bookmarks.ts` 与 `workspace/recents.ts` LRU 淘汰与持久化、`useAutoSave` 防抖写盘与草稿跳过、`useStartupFile` 参数启动与单实例唤醒、`useCtrlWheelZoom` 滚轮缩放限制）；③补齐 Playwright 端到端深度场景测试（Tab 鼠标中键关闭与拖拽重排、Tab 右键完整菜单、外部文件变动冲突对话框 Diff/重载/保留全分支、分屏双栏独立渲染、禅模式全屏与段落专注模式样式生效）；全套 26 个 Rust 测试 + 52 个前端单测文件（450 用例）+ 152 个 E2E 测试全部通过。详见 `docs/v2.5.8 设计文档.md`
 - **v2.5.7** 修复 Tauri 2 窗口销毁 ACL 权限报错：为 `src-tauri/capabilities/default.json` 补齐 `core:window:allow-destroy` 与 `core:window:allow-close` 权限，消除退出时的全局 ErrorBoundary 报错弹窗，新增 ACL 防回归单测。详见 `docs/v2.5.7 设计文档.md`
 - **v2.5.6** 退出体验与测试强化（活跃标签页还原 / 批量保存单测防护）：①`App.tsx` 记录退出前初始 `activeTabPath`，若用户取消退出留在应用中，自动还原切回初始标签页，保持多文件编辑上下文连贯；②新增 `tests/unit/exit-save.test.ts`，为多 Tab 状态下的退出遍历保存、dirty 清理与标签页还原逻辑提供可靠单元测试保障。详见 `docs/v2.5.6 设计文档.md`
 - **v2.5.5** 深度闭环加固（DOMParser 安全解析 / 全量 Dirty Tab 退出落盘 / Fail-Safe 容错与 Pan 平移重置）：①Mermaid SVG 清洗器采用 `new DOMParser().parseFromString(..., "text/html")` 进行惰性安全解析 + `document.importNode` 导入，消除 `innerHTML` 活跃解析期执行窗口，杜绝注释与实现矛盾并保持 `foreignObject` 原生 HTML 兼容；②`App.tsx` 窗口关闭拦截真正遍历所有处于 `dirty` 状态的 Tab 并逐项执行保存，避免后台 dirty tab 静默丢失；③`ask()` 异常时采用 fail-safe（中止退出）策略；④Mermaid 图表重渲染时重置 `panX = 0, panY = 0` 避免偏移出视口，并保留用户当前 `zoom` 缩放倍数。详见 `docs/v2.5.5 设计文档.md`

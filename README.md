@@ -186,11 +186,11 @@ pnpm e2e
 
 > 完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
+- **v2.5.8** 全链路测试场景深度补齐（Rust 原子保存/搜索边界 + 前端插件/状态机单测 + 标签页拖拽/右键/分屏/冲突对话框/禅模式 E2E 测试全覆盖）
 - **v2.5.7** 补齐 Tauri 2 窗口销毁与关闭 ACL 权限，解决应用退出报错 + 补充权限防回归单测
 - **v2.5.6** 退出取消操作自动还原初始活跃标签页 + 补充退出阶段多 Tab 遍历保存与状态恢复的单元测试
 - **v2.5.5** Mermaid SVG 清洗器采用 DOMParser text/html 模式惰性解析 + 窗口关闭遍历落盘全部 dirty 标签页 + ask 异常 fail-safe 容错 + Mermaid 重渲染重置 pan 保留 zoom
 - **v2.5.4** 修复 Mermaid 空闲预渲染脱落节点守卫与高度被 0 覆盖问题 + 首渲染防缩高度保护生效 + 窗口退出多 Tab 按序落盘与取消保存弹窗保护 + SMIL 安全规则硬化
-- **v2.5.3** 拦截窗口关闭 onCloseRequested 确保自动保存真正写盘 + saveCurrent 入口首行 flush 契约闭环 + LRU 缓存调用计数真实断言 + 消除 Mermaid 渲染孪生实现 + animate 属性名注入硬化
 
 ## 贡献者
 

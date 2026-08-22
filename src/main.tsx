@@ -37,3 +37,11 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <App />
   </React.StrictMode>,
 );
+
+if (import.meta.env.DEV) {
+  // @ts-ignore
+  import("./store/conflict").then(({ useConflict }) => {
+    // @ts-ignore
+    window.__triggerConflict = (conflict: any) => useConflict.getState().openConflict(conflict);
+  });
+}

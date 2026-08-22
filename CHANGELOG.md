@@ -2,6 +2,14 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.5.8] - 2026-08-23
+
+### 测试与重构
+
+- **Rust 后端指令防线补齐**：为 `src-tauri/src/commands/mod.rs` 补充文件原子写入（`save_file_atomic`）在父目录不存在时的自动递归创建能力测试、大文件与并发覆盖 CRUD 测试；为 `commands/search.rs` 补充超大文件（>2MB）跳过、结果上限截断与非法路径的集成单测。
+- **前端扩展插件与 Store 单元测试**：新增 `tests/unit/footnotes.test.ts`（脚注双向跳转）、`tests/unit/formula-numbering.test.ts`（公式动态重新编号与禁用清除）、`tests/unit/workspace-bookmarks-recents.test.ts`（书签与最近打开 LRU 淘汰及持久化）、`tests/unit/useAutoSave.test.ts`、`tests/unit/useStartupFile.test.ts`、`tests/unit/useCtrlWheelZoom.test.ts`、`tests/unit/exporter.test.ts`。
+- **Playwright 端到端测试扩展**：新增 `tests/e2e/tabs-extended.spec.ts` 与 `tabs-drag-reorder.spec.ts`（覆盖 Tab 右键全菜单、中键点击关闭与原生拖拽重排）、`tests/e2e/sidebar-bookmarks-recents.spec.ts`（书签与最近打开交互）、`tests/e2e/conflict-dialog.spec.ts`（外部变动冲突对话框全分支）、`tests/e2e/split-screen.spec.ts`（分屏双栏独立渲染）、`tests/e2e/zen-focus-mode.spec.ts`（禅模式全屏与段落专注模式）。
+
 ## [2.5.7] - 2026-08-22
 
 ### 修复与加固

@@ -339,4 +339,46 @@ mod tests {
         let hits = search(&temp.path, "needle");
         assert_eq!(hits.len(), 1, "超大文件应被跳过");
     }
+
+    #[test]
+    fn max_results_truncates_at_5000() {
+        let temp = TestDir::new("max_results");
+        let mut content = String::new();
+        // 每行 10 个 needle，共 600 行 -> 6000 个匹配
+        for _ in 0..600 {
+            content.push_str("needle needle needle needle needle needle needle needle needle needle\n");
+        }
+        write(&temp.path.join("repeat.md"), &content);
+
+        let hits = search(&temp.path, "needle");
+        assert_eq!(hits.len(), 5000, "超过 5000 条匹配时应被截断");
+    }
+
+    #[test]
+    fn single_file_search_and_nonexistent_workspace() {
+        let temp = TestDir::new("single_file");
+        let file = temp.path.join("only_one.md");
+        write(&file, "target line here\n");
+
+        // 搜索单文件路径
+        let hits = search_in_workspace(
+            file.to_string_lossy().to_string(),
+            "target".into(),
+            true,
+            false,
+        )
+        .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].line, 1);
+
+        // 搜索不存在的路径
+        let err = search_in_workspace(
+            temp.path.join("does_not_exist").to_string_lossy().to_string(),
+            "target".into(),
+            true,
+            false,
+        )
+        .unwrap_err();
+        assert!(err.contains("工作区不存在"));
+    }
 }

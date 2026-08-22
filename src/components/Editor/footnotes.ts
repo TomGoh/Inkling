@@ -152,3 +152,11 @@ export const footnoteDefinitionView = $view(
   footnoteDefinitionSchema.node,
   () => createFootnoteDefView(),
 );
+
+/** 导出供单元测试与视图创建的工厂函数 */
+export {
+  findFootnoteDefPos,
+  findFirstFootnoteRefPos,
+  createFootnoteRefView,
+  createFootnoteDefView,
+};
