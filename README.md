@@ -186,11 +186,11 @@ pnpm e2e
 
 > 完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
+- **v2.5.6** 退出取消操作自动还原初始活跃标签页 + 补充退出阶段多 Tab 遍历保存与状态恢复的单元测试
 - **v2.5.5** Mermaid SVG 清洗器采用 DOMParser text/html 模式惰性解析 + 窗口关闭遍历落盘全部 dirty 标签页 + ask 异常 fail-safe 容错 + Mermaid 重渲染重置 pan 保留 zoom
 - **v2.5.4** 修复 Mermaid 空闲预渲染脱落节点守卫与高度被 0 覆盖问题 + 首渲染防缩高度保护生效 + 窗口退出多 Tab 按序落盘与取消保存弹窗保护 + SMIL 安全规则硬化
 - **v2.5.3** 拦截窗口关闭 onCloseRequested 确保自动保存真正写盘 + saveCurrent 入口首行 flush 契约闭环 + LRU 缓存调用计数真实断言 + 消除 Mermaid 渲染孪生实现 + animate 属性名注入硬化
 - **v2.5.2** 完善 Mermaid XSS 纵深清洗与控制字符过滤 + 修复保存并发静默回滚 + 应用退出 beforeunload flush 保护 + Store 层 Tab 操作统一 flush 收口 + 强化真实单元测试
-- **v2.5.1** 修复 HTML/SVG 白名单导致 Mermaid 矢量图渲染异常 + 顶栏冗余设置按钮移除与交互收拢 + 完善切 Tab 防抖序列化 flush、图片 LRU 缓存与搜索排序
 
 ## 贡献者
 

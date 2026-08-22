@@ -2,6 +2,13 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.5.6] - 2026-08-22
+
+### 优化与测试
+
+- **退出取消标签页还原**：`App.tsx` 记录退出前初始 `activeTabPath`，若用户取消退出留在应用中，自动还原切回初始标签页，保持多文件编辑上下文连贯。
+- **退出多 Tab 保存逻辑单元测试**：新增 `tests/unit/exit-save.test.ts`，为多 Tab 状态下的退出遍历保存、dirty 清理与标签页还原逻辑提供可靠单元测试保障。
+
 ## [2.5.5] - 2026-08-22
 
 ### 修复与加固

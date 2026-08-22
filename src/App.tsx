@@ -151,6 +151,7 @@ function App() {
         flushAllMarkdownPublishers();
         const currentTabs = useWorkspace.getState().openTabs;
         const dirtyTabs = currentTabs.filter((t) => t.dirty);
+        const originalActivePath = useWorkspace.getState().activeTabPath;
         if (dirtyTabs.length > 0) {
           // 遍历所有 dirty tabs，逐个切换并执行保存
           for (const tab of dirtyTabs) {
@@ -171,9 +172,18 @@ function App() {
                 "存在未保存的文档修改。退出将丢失这些修改，确定要退出吗？",
                 { title: "退出确认", kind: "warning" },
               );
-              if (!confirmed) return;
+              if (!confirmed) {
+                // 用户取消退出留在应用时，恢复到原先的 activeTab
+                if (originalActivePath) {
+                  useWorkspace.getState().switchTab(originalActivePath);
+                }
+                return;
+              }
             } catch {
               // 弹窗失败采用 fail-safe 策略：不强制销毁窗口，保护用户数据
+              if (originalActivePath) {
+                useWorkspace.getState().switchTab(originalActivePath);
+              }
               return;
             }
           }
