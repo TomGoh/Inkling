@@ -38,13 +38,18 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { writeBinaryFile } from "../../lib/fs";
 /**
  * 专为 Mermaid 渲染定制的 SVG 安全过滤：
- * 移除 <script> 标签及 on* 事件处理器 / javascript: 伪协议，
- * 同时 100% 保留 Mermaid 渲染出的原生 DOM（包括外层 svg 及 foreignObject 内的 span 等所有子树）。
+ * 使用 XML DOMParser 解析以避免 innerHTML 赋值期的 script/img-onerror 活跃执行，
+ * 移除 <script> 等危险标签及 on* 事件处理器 / javascript: 等危险协议，
+ * 同时 100% 保留 Mermaid 渲染出的原生 DOM。
  */
 export function sanitizeMermaidSvg(svgHtml: string): globalThis.Node {
-  const container = document.createElement("div");
-  container.innerHTML = svgHtml;
-  const root = container.querySelector("svg") || container.firstElementChild;
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svgHtml, "image/svg+xml");
+  let root: Element | null = doc.documentElement;
+  if (!root || root.tagName.toLowerCase() === "parsererror") {
+    const htmlDoc = parser.parseFromString(svgHtml, "text/html");
+    root = htmlDoc.querySelector("svg") || htmlDoc.body.firstElementChild;
+  }
   if (!root) {
     const span = document.createElement("span");
     return span;
@@ -57,20 +62,21 @@ export function sanitizeMermaidSvg(svgHtml: string): globalThis.Node {
     nodes.forEach((n) => n.remove());
   }
 
-  // 过滤属性（防御控制字符绕过及各类危险协议）
+  // 过滤属性（防御控制字符绕过及各类危险协议与 SMIL animate 注入）
   const elements = [root, ...Array.from(root.querySelectorAll("*"))];
   for (const elem of elements) {
+    const elemTag = elem.tagName.toLowerCase();
     for (const attr of Array.from(elem.attributes)) {
       const name = attr.name.toLowerCase();
       // 去除 \t, \n, \r 等浏览器在解析 URL 时会自动剥离的控制字符
       const val = attr.value.replace(/[\t\n\r]/g, "").trim().toLowerCase();
-      const isAnimateOn =
-        elem.tagName.toLowerCase() === "animate" &&
+      const isSmilDangerous =
+        (elemTag === "animate" || elemTag === "set") &&
         name === "attributename" &&
-        val.startsWith("on");
+        (val.startsWith("on") || val === "href" || val === "xlink:href");
       if (
         name.startsWith("on") ||
-        isAnimateOn ||
+        isSmilDangerous ||
         val.includes("javascript:") ||
         val.includes("vbscript:") ||
         /^data:(?!image\/)/.test(val) ||
@@ -81,7 +87,7 @@ export function sanitizeMermaidSvg(svgHtml: string): globalThis.Node {
     }
   }
 
-  return root.cloneNode(true);
+  return document.importNode(root, true);
 }
 import mermaid from "mermaid";
 
@@ -255,14 +261,14 @@ export async function renderMermaidWithSeq(
   try {
     const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const result = await mermaid.render(id, code);
-    const svg = typeof result === "string" ? result : (result as any)?.svg;
+    const svg = result.svg;
     if (svg) {
       cachePut(code, { svg, height: estimateRenderHeight(code) });
     }
     if (seq !== getCurrentSeq()) return null;
     return svg ?? null;
   } catch (err) {
-    console.log("DEBUG: mermaid.render error", err);
+    console.warn("mermaid.render error:", err);
     return null;
   }
 }
@@ -357,6 +363,7 @@ export function createMermaidView(
       diagram.innerHTML = "";
       lastSvg = "";
       diagram.setAttribute("data-placeholder", "输入 Mermaid 图表代码");
+      diagram.classList.remove("has-error");
       return;
     }
     try {
@@ -366,6 +373,7 @@ export function createMermaidView(
         // 渲染失败时显示错误信息
         diagram.innerHTML = `<pre class="mermaid-error">Mermaid 语法错误，点击「编辑」修改</pre>`;
         lastSvg = "";
+        diagram.removeAttribute("data-placeholder");
         diagram.classList.add("has-error");
         return;
       }
@@ -373,16 +381,19 @@ export function createMermaidView(
       // 对 Mermaid 生成的 SVG 过滤危险 script/事件属性
       diagram.appendChild(sanitizeMermaidSvg(svg));
       lastSvg = svg;
-      resetZoomPan();
+      if (firstRender) {
+        resetZoomPan();
+      } else {
+        applyZoom();
+      }
       // 实测渲染高度写回缓存并锁定本实例 min-height：
       // 同源码后续实例创建即预留精确高度，重渲染也不收缩跳变。
       // 首渲染取 max(占位, 实测)：占位偏大时保持不缩，注入零跳变
+      const reserved = firstRender ? estimateRenderHeight(value) : 0;
       const height = diagram.offsetHeight;
       const hit = cacheGet(value);
       if (hit) hit.height = height;
-      const appliedHeight = firstRender
-        ? Math.max(height, estimateRenderHeight(value))
-        : height;
+      const appliedHeight = firstRender ? Math.max(height, reserved) : height;
       firstRender = false;
       diagram.style.minHeight = `${appliedHeight}px`;
       diagram.removeAttribute("data-placeholder");
@@ -392,6 +403,7 @@ export function createMermaidView(
       // 渲染失败时显示错误信息
       diagram.innerHTML = `<pre class="mermaid-error">Mermaid 语法错误，点击「编辑」修改</pre>`;
       lastSvg = "";
+      diagram.removeAttribute("data-placeholder");
       diagram.classList.add("has-error");
     }
   };
@@ -414,8 +426,7 @@ export function createMermaidView(
   // 此时直接触发首渲染保证测试和无 IO 环境正常工作
   const hasWorkingIO =
     typeof IntersectionObserver !== "undefined" &&
-    typeof (IntersectionObserver.prototype as any)?.observe === "function" &&
-    typeof (globalThis as any).process?.env?.VITEST === "undefined";
+    typeof (IntersectionObserver.prototype as any)?.observe === "function";
 
   if (hasWorkingIO) {
     try {
@@ -430,8 +441,7 @@ export function createMermaidView(
       // 尚未进入视口：排入空闲预渲染队列（按文档顺序），后台逐张渲染。
       // 已被视口路径渲染过或容器已销毁（切文档）时自动跳过。
       idleRenderQueue.push(() => {
-        if (firstRenderDone) return;
-        if (container.offsetParent === null && container.isConnected && document.body.contains(container)) return;
+        if (firstRenderDone || !container.isConnected || container.offsetParent === null) return;
         // v2.3.3：整体位于视口上方的图表不预渲染——上方内容渲染后变高，
         // 浏览器滚动锚定会反复补偿 scrollTop，表现为窗口持续抖动；
         // 这类图表交给视口路径（滚回到 300px 边距内）时再渲染。

@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v2.5.3
+> 文档版本：v2.5.4
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -310,6 +310,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 ### 8.2 发布版本
 
+- **v2.5.4** Review 深度闭环与硬约束加固（R1~R3 / 退出多Tab落盘 / SMIL与单测硬化）：①修复 Mermaid 空闲预渲染守卫（`firstRenderDone || !container.isConnected || container.offsetParent === null`），防止脱落节点渲染与高度 0 污染缓存；②修复首渲染占位高度覆盖顺序，先读 `estimateRenderHeight` 确保 `Math.max(height, reserved)` 真实生效防缩；③恢复 `DOMParser` 解析 `image/svg+xml`，杜绝 `innerHTML` 解析期 XSS 执行窗口；④`App.tsx` 窗口关闭拦截按序落盘所有 dirty 的 Tab，取消保存/失败时弹窗确认，避免数据丢失；⑤补充 `<set>` 标签 `attributeName` 过滤，强化 SMIL 安全；⑥`imageSrcCache.test.ts` 补齐旧项刷新 LRU 顺序免淘汰真实测试。详见 `docs/v2.5.4 设计文档.md`
 - **v2.5.3** 深度 Review 缺陷彻底修复与安全/测试硬化（H3/H2/M4/Hardening）：①`App.tsx` 使用 `@tauri-apps/api/window` 的 `onCloseRequested` 拦截原生窗口关闭，同步执行 `flushAllMarkdownPublishers()` 并异步 `await saveCurrent()` 真正写回磁盘后退出，根除最后 150ms 编辑丢失隐患；②`saveCurrent` 执行体首行增加 `flushAllMarkdownPublishers()`，确保入口快照与磁盘写入始终为最新内容；③重写 `imageSrcCache.test.ts`，打桩调用计数器真实验证 500 容量淘汰与 LRU 顺序调整；④消除 `renderMermaidWithSeq` 孪生实现，`NodeView.render()` 与单测统一复用核心渲染与中断机制；⑤强化 SVG 清洗器防御，拦截 SMIL `<animate attributeName="onload/on*">` 注入。详见 `docs/v2.5.3 设计文档.md`
 - **v2.5.2** 深度 Code Review 缺陷修复与安全防线加固（H1~H3 / M1~M4）：①加固 Mermaid SVG 清洗器防线——剥离属性值中 `\t`/`\n`/`\r` 控制字符，拦截 `javascript:`/`vbscript:`/`data:(?!image/)` 及嵌套 `iframe/embed/object/form/base` 标签；②`saveCurrent` 异步读盘与弹窗期间采用最小 Patch 机制更新 store，防止分屏并发发布或新输入被陈旧快照静默回退；③应用窗口 `beforeunload` 时同步 Flush 待发布变更；④Store 层全标签页操作（`switchTab`/`closeTab`/`closeOthers`/`closeToRight`/`closeAll`/`newTab`/`splitSwap`）统一收口 Flush 契约；⑤优化源码模式下 Mermaid 空闲预渲染（`offsetParent === null` 时直接跳过避免计算与高度 0 污染）；⑥重构单测套件，移除伪测试并补齐真实的 SVG 命名空间、控制字符 XSS 绕过与异步竞争中断验证。详见 `docs/v2.5.2 设计文档.md`
 - **v2.5.1** 专项缺陷修复与体验完善（Review 意见闭环）：①修复 Mermaid 矢量图表渲染失效——在 HTML/SVG 白名单清洗中正确使用 `document.createElementNS("http://www.w3.org/2000/svg", tag)`，并补充 `linearGradient`/`radialGradient`/`filter` 等 SVG 标签与属性大小写支持；②移除顶栏冗余的设置直达按钮，全面统一收纳至 `···` 更多操作菜单与 `Ctrl+,` 快捷键，同步解耦 E2E 自动化测试定位器；③修复防抖序列化状态丢失风险——在 `switchTab` 与 `closeTab` 关键路径前主动执行 `flushAllMarkdownPublishers()`；④优化本地图片缓存 LRU 淘汰策略——`get` 命中时重新置入末尾；⑤Rust 工作区全局搜索确定性排序——文件列表执行 `files.sort()` 保证多端与 5000 条截断上限下的绝对确定性。详见 `docs/v2.5.1 设计文档.md`

@@ -2,6 +2,17 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.5.4] - 2026-08-22
+
+### 修复与加固
+
+- **Mermaid 空闲预渲染与脱落节点守卫**：修复守卫逻辑为 `firstRenderDone || !container.isConnected || container.offsetParent === null`，防止已销毁容器空闲渲染导致高度被 0 覆盖。
+- **Mermaid 首渲染防缩高度保护**：重排高度覆盖顺序，优先读取覆盖前的估算高度保底，确保 `Math.max(height, reserved)` 真实生效。
+- **SVG 清洗器恢复 XML DOMParser**：恢复使用 `DOMParser(image/svg+xml)` 解析 SVG，杜绝 `innerHTML` 阶段的 XSS 执行窗口与宽松解析隐患。
+- **窗口退出多 Tab 落盘与取消保存保护**：`onCloseRequested` 拦截后按序落盘所有 dirty 的 Tab，取消保存或保存失败时弹窗确认，避免数据意外丢失。
+- **SMIL 标签安全硬化**：增加对 `<set>` 标签 `attributeName` 过滤与 `href`/`xlink:href` 清洗。
+- **单测真实性加固**：`imageSrcCache.test.ts` 补充旧缓存刷新免淘汰真实用例。
+
 ## [2.5.3] - 2026-08-22
 
 ### 修复与完善

@@ -1,6 +1,6 @@
 [package]
 name = "inklingmd"
-version = "2.5.3"
+version = "2.5.4"
 description = "A WYSIWYG Markdown editor"
 authors = ["zhkp"]
 edition = "2021"

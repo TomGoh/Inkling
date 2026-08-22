@@ -142,27 +142,49 @@ function App() {
     };
     window.addEventListener("beforeunload", handleBeforeUnload);
 
+    let disposed = false;
     let unlistenClose: (() => void) | undefined;
     if (isTauri()) {
       const win = getCurrentWindow();
       void win.onCloseRequested(async (event) => {
         event.preventDefault();
         flushAllMarkdownPublishers();
-        const s = useWorkspace.getState();
-        if (s.dirty) {
+        const { openTabs, saveCurrent } = useWorkspace.getState();
+        const hasDirtyTabs = openTabs.some((t) => t.dirty);
+        if (hasDirtyTabs) {
           try {
-            await s.saveCurrent();
+            await saveCurrent();
           } catch {
-            // 保存失败降级，允许销毁窗口
+            // 保存失败降级
+          }
+          // 重新检查是否仍有 dirty tab（如未命名取消保存/冲突拒绝覆盖/磁盘错误）
+          const latestTabs = useWorkspace.getState().openTabs;
+          const stillDirty = latestTabs.some((t) => t.dirty);
+          if (stillDirty) {
+            try {
+              const { ask } = await import("@tauri-apps/plugin-dialog");
+              const confirmed = await ask(
+                "存在未保存的文档修改。退出将丢失这些修改，确定要退出吗？",
+                { title: "退出确认", kind: "warning" },
+              );
+              if (!confirmed) return;
+            } catch {
+              // 弹窗失败直接销毁
+            }
           }
         }
         await win.destroy();
       }).then((fn) => {
-        unlistenClose = fn;
+        if (disposed) {
+          fn();
+        } else {
+          unlistenClose = fn;
+        }
       });
     }
 
     return () => {
+      disposed = true;
       window.removeEventListener("beforeunload", handleBeforeUnload);
       unlistenClose?.();
     };

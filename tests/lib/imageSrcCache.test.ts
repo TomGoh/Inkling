@@ -59,4 +59,27 @@ describe("resolveImageSrc 真实缓存命中计数与 LRU 淘汰", () => {
     expect(resolveCalls).toBe(callsBefore + 1);
     expect(reFetchedFirst).not.toBe(firstRes);
   });
+
+  it("访问旧项刷新 LRU 顺序免于淘汰", async () => {
+    const docPath = "/home/user/lru-refresh-doc.md";
+    const earlyRes = await resolveImageSrc("early-item.png", docPath);
+    await resolveImageSrc("other-item.png", docPath);
+
+    // 重新访问 early-item.png 将其移到 LRU 末尾
+    const callsBeforeRefresh = resolveCalls;
+    const refreshed = await resolveImageSrc("early-item.png", docPath);
+    expect(refreshed).toBe(earlyRes);
+    expect(resolveCalls).toBe(callsBeforeRefresh);
+
+    // 插入 499 个新项（此时缓存总共 501 项，淘汰最旧的 other-item.png）
+    for (let i = 1; i <= 499; i++) {
+      await resolveImageSrc(`filler-${i}.png`, docPath);
+    }
+
+    // early-item 仍在缓存中，不触发 resolve
+    const callsCheck = resolveCalls;
+    const stillCached = await resolveImageSrc("early-item.png", docPath);
+    expect(stillCached).toBe(earlyRes);
+    expect(resolveCalls).toBe(callsCheck);
+  });
 });
