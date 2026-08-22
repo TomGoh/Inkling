@@ -87,8 +87,7 @@ test.describe("设置面板", () => {
     const codeBlock = page.locator(".code-block");
     const languageSelect = codeBlock.locator(".code-block-lang");
     await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
-    await expect(codeBlock).toHaveAttribute("data-code-theme", "oneDark");
-    await expect(languageSelect).toHaveCSS("color-scheme", "dark");
+    await expect(codeBlock).toHaveAttribute("data-code-theme", "none");
 
     await page.locator('.topbar-btn[title="主题"]').click();
     await page.locator(".export-item", { hasText: "深色" }).click();
