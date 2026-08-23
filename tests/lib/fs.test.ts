@@ -1,7 +1,7 @@
 // 文件系统工具函数测试
 // 覆盖 joinPath（路径拼接，兼容 Win/Unix）和 resolvePathFromDocument（浏览器分支）
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { joinPath, listDir, resolvePathFromDocument } from "../../src/lib/fs";
 
 describe("listDir", () => {

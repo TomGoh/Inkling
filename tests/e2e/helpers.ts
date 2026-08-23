@@ -1,6 +1,8 @@
 // E2E 共享辅助函数
 
-import { test, expect, type Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+
+declare const process: { platform: string };
 
 // 每个用例前先打开 mock 工作区（浏览器版不自动加载，需点按钮）
 export async function openMockWorkspace(page: Page) {

@@ -5,7 +5,7 @@
 
 import type { StateCreator } from "zustand";
 import { isTauri } from "@tauri-apps/api/core";
-import { readTextFile, writeTextFile } from "../../lib/fs";
+import { fileMtime, readTextFile, writeTextFile } from "../../lib/fs";
 import { flushAllMarkdownPublishers } from "../../components/Editor/markdown-publisher";
 import {
   fileRequests,
@@ -75,6 +75,10 @@ export interface TabsSlice {
    * 首次 Ctrl+S 保存时弹另存为对话框选择保存位置，保存后转为普通文件 tab。
    */
   newTab: () => void;
+  /**
+   * 以指定内容新建未命名草稿标签页（用于恢复被删除文件等场景）。
+   */
+  openUntitledTabWithContent: (initialContent: string) => void;
   /** 切换活跃标签页 */
   switchTab: (filePath: string) => void;
   /** 关闭标签页（若关闭的是活跃 tab，自动激活相邻 tab） */
@@ -165,6 +169,12 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     if (existing) return existing;
 
     const content = await readFileOnce(filePath);
+    let mtime: number | undefined;
+    try {
+      mtime = await fileMtime(filePath);
+    } catch {
+      // 忽略 mtime 获取失败，降级为 undefined
+    }
     let resolvedTab: OpenTab | undefined;
     set((current) => {
       const currentTab = current.openTabs.find((tab) => tab.path === filePath);
@@ -179,6 +189,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
         dirty: false,
         lastSavedAt: null,
         diskContent: content,
+        diskMtime: mtime,
         cursorPos: null,
         scrollTop: null,
       };
@@ -258,6 +269,12 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       try {
         // 直接读磁盘，绕过 tab 缓存（openFile 对已打开 tab 复用缓存，无法真正重载）
         const content = await readTextFile(filePath);
+        let mtime: number | undefined;
+        try {
+          mtime = await fileMtime(filePath);
+        } catch {
+          // 忽略 mtime 失败
+        }
         set((current) => {
           const openTabs = current.openTabs.map((t) =>
             t.path === filePath
@@ -266,6 +283,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
                   content,
                   dirty: false,
                   diskContent: content,
+                  diskMtime: mtime,
                   revision: (t.revision || 0) + 1,
                 }
               : t,
@@ -313,6 +331,10 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     },
 
     newTab: () => {
+      get().openUntitledTabWithContent("");
+    },
+
+    openUntitledTabWithContent: (initialContent: string) => {
       flushAllMarkdownPublishers();
       intents.mainFile += 1;
       const { openTabs } = get();
@@ -323,8 +345,8 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       const path = `untitled-${n}`;
       const tab: OpenTab = {
         path,
-        content: "",
-        dirty: false,
+        content: initialContent,
+        dirty: initialContent.length > 0,
         lastSavedAt: null,
         cursorPos: null,
         scrollTop: null,
@@ -334,11 +356,10 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
         openTabs: [...get().openTabs, tab],
         activeTabPath: path,
         currentFile: path,
-        currentContent: "",
-        dirty: false,
+        currentContent: initialContent,
+        dirty: initialContent.length > 0,
         saveError: null,
         lastSavedAt: null,
-        currentHeadingSlug: null,
       });
     },
 
@@ -571,16 +592,32 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
             savePath = picked;
           }
         } else if (isTauri()) {
-          // 普通文件保存前与磁盘基线比对：外部已改动且未被冲突对话框处理过时二次确认，
-          // 防止 Ctrl+S 静默覆盖外部修改（直接读磁盘，不触发 openingFiles 打开态副作用）
+          // 普通文件保存前与磁盘基线比对：优先比对 mtime 快速路径；
+          // 仅在 mtime 变动（或无法获取 mtime）时才读取磁盘全文比对，防止大文件每按一次 Ctrl+S 产生双倍 IO 与全文字符串比较
           let shouldCheckConflict = false;
+          let mtimeChanged = true;
           try {
-            const latestOnDisk = await readTextFile(savePath);
-            if (tab.diskContent !== undefined && latestOnDisk !== tab.diskContent) {
-              shouldCheckConflict = true;
+            if (tab.diskMtime !== undefined) {
+              const currentMtime = await fileMtime(savePath);
+              if (Math.abs(currentMtime - tab.diskMtime) < 5) {
+                // mtime 一致，快速路径命中，无需读取全文
+                mtimeChanged = false;
+              }
             }
           } catch {
-            // 文件可能被删除或不可读，继续尝试保存
+            // 获取 mtime 失败（如文件被删），回退到内容读取
+            mtimeChanged = true;
+          }
+
+          if (mtimeChanged) {
+            try {
+              const latestOnDisk = await readTextFile(savePath);
+              if (tab.diskContent !== undefined && latestOnDisk !== tab.diskContent) {
+                shouldCheckConflict = true;
+              }
+            } catch {
+              // 文件可能被删除或不可读，继续尝试保存
+            }
           }
 
           if (shouldCheckConflict) {
@@ -609,6 +646,12 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
 
         await writeTextFile(savePath, contentToSave);
         const now = Date.now();
+        let savedMtime: number | undefined;
+        try {
+          savedMtime = await fileMtime(savePath);
+        } catch {
+          // 忽略 mtime 失败
+        }
         // 异步窗口结束后重新获取最新 store 状态，避免覆盖窗口期间其他 tab / 分屏并发发布的编辑内容
         const latestState = get();
         const nextTabs = latestState.openTabs.map((t) => {
@@ -622,6 +665,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
               dirty: isStillDirty,
               lastSavedAt: now,
               diskContent: contentToSave,
+              diskMtime: savedMtime,
             };
           }
           return t;

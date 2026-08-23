@@ -9,7 +9,8 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { flushAllMarkdownPublishers } from "../components/Editor/markdown-publisher";
 import { useWorkspace } from "../store/workspace";
-import { resolvePathFromDocument } from "./fs";
+import { resolvePathFromDocument, writeBinaryFile } from "./fs";
+import { showMessage } from "./dialogs";
 import { parseOutline } from "./outline";
 
 /** 从编辑器获取渲染后的 HTML 内容 */
@@ -125,7 +126,7 @@ export async function exportPDF(
   // 新窗口打开并等待完全加载后打印，避免白屏
   const win = window.open("", "_blank");
   if (!win) {
-    alert("无法打开新窗口，请检查浏览器弹窗拦截设置");
+    await showMessage("无法打开新窗口，请检查浏览器弹窗拦截设置", { kind: "error" });
     return;
   }
   win.document.open();
@@ -338,10 +339,7 @@ export async function exportPNG(
       });
       if (!path) return;
       const buf = new Uint8Array(await blob.arrayBuffer());
-      await invoke<void>("write_binary_file", {
-        filePath: path,
-        data: Array.from(buf),
-      });
+      await writeBinaryFile(path, buf);
     } else {
       downloadBlob(blob, `${name}.png`);
     }

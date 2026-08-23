@@ -10,9 +10,11 @@ import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import { useWorkspace } from "../../store/workspace";
+import { showMessage } from "../../lib/dialogs";
 import { IconFileText, IconFolder } from "../icons";
 import { RecentFiles } from "./RecentFiles";
 import { Bookmarks } from "./Bookmarks";
+import { DeletedSnapshots } from "./DeletedSnapshots";
 import { WorkspaceFileTree } from "./WorkspaceFileTree";
 import { TreeContextMenu } from "./TreeContextMenu";
 import { TREE_MENU_EVENT, type MenuPayload } from "./treeShared";
@@ -49,7 +51,7 @@ export function Sidebar() {
         await openWorkspace(selected);
       }
     } catch (e) {
-      alert(`打开工作区失败：${e instanceof Error ? e.message : String(e)}`);
+      await showMessage(`打开工作区失败：${e instanceof Error ? e.message : String(e)}`, { kind: "error" });
     }
   }, [openWorkspace]);
 
@@ -69,7 +71,7 @@ export function Sidebar() {
         await openFileStandalone(selected);
       }
     } catch (e) {
-      alert(`打开文件失败：${e instanceof Error ? e.message : String(e)}`);
+      await showMessage(`打开文件失败：${e instanceof Error ? e.message : String(e)}`, { kind: "error" });
     }
   }, [openFileStandalone]);
 
@@ -99,6 +101,7 @@ export function Sidebar() {
         </div>
       </div>
       <div className="sidebar-tree">
+        <DeletedSnapshots />
         {workspaceLoading && <div className="sidebar-empty">加载中…</div>}
         {!workspaceLoading && tree && (
           <>

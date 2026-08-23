@@ -6,7 +6,7 @@ import { invoke, isTauri, convertFileSrc } from "@tauri-apps/api/core";
 import { resolve as resolvePath } from "@tauri-apps/api/path";
 import { dirNameOf, joinPath, normalizePath } from "./path";
 
-export { joinPath, normalizePath, dirNameOf };
+export { joinPath, normalizePath, dirNameOf, isTauri };
 
 /** 文件树节点（与 Rust 端 FileNode 对应） */
 export interface FileNode {
@@ -59,12 +59,12 @@ export async function writeTextFile(
   MOCK_FILE_CONTENT[filePath] = content;
 }
 
-/** 读取文件最后修改时间（Unix 毫秒级浮点数/秒）。浏览器 mock 返回当前时间 */
+/** 读取文件最后修改时间（Unix 毫秒时间戳）。浏览器 mock 返回当前时间毫秒 */
 export async function fileMtime(filePath: string): Promise<number> {
   if (isTauri()) {
     return invoke<number>("file_mtime", { filePath });
   }
-  return Date.now() / 1000;
+  return Date.now();
 }
 
 /** 重命名/移动文件或目录 */
@@ -179,9 +179,36 @@ export async function searchInWorkspace(
 }
 
 /**
+ * 将 Uint8Array 分块转为 base64 字符串。
+ * 分块处理（每块 0x8000 字节）以防止超大数组一次性展开导致 JS 引擎调用栈溢出。
+ */
+export function uint8ArrayToBase64(data: Uint8Array): string {
+  const CHUNK_SIZE = 0x8000;
+  let binary = "";
+  for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+    const chunk = data.subarray(i, i + CHUNK_SIZE);
+    binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+  }
+  return btoa(binary);
+}
+
+/**
+ * 将 base64 字符串解码为 Uint8Array。
+ */
+export function base64ToUint8Array(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
  * 写入二进制文件（图片等）。
- * 桌面端走 Rust 命令；浏览器端无真实 fs，仅返回成功（mock 无法持久化二进制）。
- * 优化：如果底层支持 Uint8Array 则直接传递，避免 JSON 数字数组开销。
+ * 桌面端将数据编码为 base64 后调用 Rust write_binary_file 命令（避免 JSON 数字数组导致的 IPC 膨胀）；
+ * 浏览器端无真实 fs，仅返回成功（mock 无法持久化二进制）。
  * @param data 字节数组
  */
 export async function writeBinaryFile(
@@ -191,7 +218,7 @@ export async function writeBinaryFile(
   if (isTauri()) {
     return invoke<void>("write_binary_file", {
       filePath,
-      data: Array.from(data),
+      data: uint8ArrayToBase64(data),
     });
   }
   // 浏览器 mock：无操作

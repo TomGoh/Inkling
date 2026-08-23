@@ -13,6 +13,7 @@ import { writeTextFile, listDir } from "../../lib/fs";
 import { diffLines, nextBackupPath } from "../../lib/diff";
 import { IconAlertTriangle, IconX } from "../icons";
 import { baseName } from "../../lib/path-utils";
+import { showMessage } from "../../lib/dialogs";
 import "./ConflictDialog.css";
 
 /** 把本地内容另存为同目录副本文件，返回副本路径 */
@@ -76,7 +77,10 @@ export function ConflictDialog() {
     const backupPath = await saveLocalBackup(filePath, localContent);
     // reloadFile 强制从磁盘重读（openFile 对已打开 tab 只切缓存，不会真正重载）
     await reloadFile(filePath);
-    alert(`本地修改已另存为副本：\n${backupPath}\n\n编辑器已重载磁盘最新版本。`);
+    await showMessage(
+      `本地修改已另存为副本：\n${backupPath}\n\n编辑器已重载磁盘最新版本。`,
+      { title: "备份成功", kind: "info" },
+    );
   });
 
   /** 选项 2：丢弃本地修改，重载磁盘最新 */

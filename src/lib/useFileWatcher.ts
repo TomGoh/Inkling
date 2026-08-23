@@ -11,6 +11,7 @@ import { useEffect, useRef } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { useWorkspace } from "../store/workspace";
 import { useConflict } from "../store/conflict";
+import { askConfirmation } from "./dialogs";
 import { fileMtime, readTextFile } from "./fs";
 import { baseName } from "./path-utils";
 
@@ -48,7 +49,7 @@ export function useFileWatcher(): void {
         knownMtimeRef.current = mtime;
         return;
       }
-      if (Math.abs(mtime - knownMtimeRef.current) < 1) return;
+      if (Math.abs(mtime - knownMtimeRef.current) < 5) return;
       knownMtimeRef.current = mtime;
 
       if (dirty) {
@@ -65,12 +66,12 @@ export function useFileWatcher(): void {
             detectedAt: Date.now(),
           });
         } catch {
-          // 磁盘读取失败（文件被删除等）：回退 confirm 提示
-          if (
-            window.confirm(
-              `「${baseName(currentFile)}」已被外部修改或删除，且当前有未保存的修改。\n是否丢弃当前修改并重新加载？`,
-            )
-          ) {
+          // 磁盘读取失败（文件被删除等）：使用统一 dialog 提示
+          const shouldReload = await askConfirmation(
+            `「${baseName(currentFile)}」已被外部修改或删除，且当前有未保存的修改。\n是否丢弃当前修改并重新加载？`,
+            { title: "文件冲突", kind: "warning" },
+          );
+          if (shouldReload) {
             // reloadFile 强制从磁盘重读；openFile 对已打开 tab 只切缓存，不会真正重载
             try {
               await reloadFile(currentFile);
@@ -83,8 +84,12 @@ export function useFileWatcher(): void {
         return;
       }
 
-      // 本地无修改：confirm 询问重载
-      if (window.confirm(`「${baseName(currentFile)}」已被外部修改，是否重新加载？`)) {
+      // 本地无修改：询问重载
+      const shouldReload = await askConfirmation(
+        `「${baseName(currentFile)}」已被外部修改，是否重新加载？`,
+        { title: "文件已被外部修改", kind: "info" },
+      );
+      if (shouldReload) {
         try {
           await reloadFile(currentFile);
         } catch (err) {

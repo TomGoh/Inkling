@@ -20,14 +20,14 @@ describe("useStartupFile hook", () => {
     useWorkspace.setState({
       openTabs: [],
       activeTabPath: null,
-      workspaceMode: "closed",
+      workspaceMode: null,
       rootPath: null,
     });
   });
 
   it("should open startup file if take_pending_file returns path and is Markdown", async () => {
     vi.mocked(tauriCore.isTauri).mockReturnValue(true);
-    vi.mocked(tauriCore.invoke).mockImplementation(async (cmd, args: any) => {
+    vi.mocked(tauriCore.invoke).mockImplementation(async (cmd) => {
       if (cmd === "take_pending_file") return "/path/to/startup.md";
       if (cmd === "read_text_file") return "# Startup Note";
       return "";
@@ -45,14 +45,14 @@ describe("useStartupFile hook", () => {
 
   it("should open file when open-file event is received", async () => {
     vi.mocked(tauriCore.isTauri).mockReturnValue(true);
-    let eventCallback: any = null;
-    vi.mocked(tauriEvent.listen).mockImplementation(async (event: string, cb: any) => {
+    let eventCallback: ((evt: { payload: string }) => Promise<void>) | null = null;
+    vi.mocked(tauriEvent.listen).mockImplementation(async (event: string, cb: unknown) => {
       if (event === "open-file") {
-        eventCallback = cb;
+        eventCallback = cb as (evt: { payload: string }) => Promise<void>;
       }
       return () => {};
     });
-    vi.mocked(tauriCore.invoke).mockImplementation(async (cmd, args: any) => {
+    vi.mocked(tauriCore.invoke).mockImplementation(async (cmd) => {
       if (cmd === "take_pending_file") return null;
       if (cmd === "read_text_file") return "# From Single Instance";
       return "";
@@ -62,7 +62,7 @@ describe("useStartupFile hook", () => {
 
     // 触发 open-file 事件
     if (eventCallback) {
-      await eventCallback({ payload: "/path/to/second.md" });
+      await (eventCallback as (evt: { payload: string }) => Promise<void>)({ payload: "/path/to/second.md" });
     }
 
     await vi.waitFor(() => {

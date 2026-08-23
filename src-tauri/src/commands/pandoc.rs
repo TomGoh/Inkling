@@ -7,23 +7,24 @@
 // 便于单测直接断言参数、用注入的假命令覆盖各分支，无需 CI 安装 pandoc。
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-static EXPORT_SEQ: AtomicUsize = AtomicUsize::new(0);
+static TEMP_EXPORT_SEQ: AtomicU64 = AtomicU64::new(0);
 
-/// 生成带有纳秒级时间戳与原子自增序号的唯一临时导出文件路径
+/// 生成不易冲突的临时文件路径
 fn make_temp_export_path() -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("system clock should be after Unix epoch")
-        .as_nanos();
-    let seq = EXPORT_SEQ.fetch_add(1, Ordering::Relaxed);
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let seq = TEMP_EXPORT_SEQ.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
     std::env::temp_dir().join(format!(
-        "inkling-export-{}-{nonce}-{seq}.md",
-        std::process::id()
+        "inkling-export-{pid}-{nonce}-{seq}.md"
     ))
 }
 
@@ -77,9 +78,19 @@ fn pandoc_export_docx_sync(
     output_path: String,
     resource_dir: Option<String>,
 ) -> Result<(), String> {
-    // 1. 写入临时 .md 文件（唯一命名防并发冲突）
+    // 1. 写入临时 .md 文件（唯一命名防并发冲突），写完后物理落盘防 pandoc 读到未落盘内容
     let temp_md = make_temp_export_path();
-    fs::write(&temp_md, &markdown).map_err(|e| format!("写入临时文件失败: {}", e))?;
+    let mut temp_file =
+        fs::File::create(&temp_md).map_err(|e| format!("创建临时文件失败: {}", e))?;
+    if let Err(e) = temp_file.write_all(markdown.as_bytes()) {
+        let _ = fs::remove_file(&temp_md);
+        return Err(format!("写入临时文件失败: {}", e));
+    }
+    if let Err(e) = temp_file.sync_all() {
+        let _ = fs::remove_file(&temp_md);
+        return Err(format!("临时文件落盘(sync_all)失败: {}", e));
+    }
+    drop(temp_file);
 
     // 2. 构造并执行 pandoc 命令
     let cmd = build_pandoc_command(&temp_md, &output_path, resource_dir.as_deref());

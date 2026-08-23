@@ -17,6 +17,7 @@ import {
   markdownOffsetToProsePos,
   prosePosToMarkdownOffset,
 } from "../../lib/source-mode-cursor";
+import { showMessage } from "../../lib/dialogs";
 
 export interface CursorScrollSnapshot {
   cursor: number;
@@ -128,8 +129,9 @@ export function useSourceModeTransition({
         } catch (e) {
           console.error("退出源码模式时解析失败：", e);
           void navigator.clipboard.writeText(value).catch(() => {});
-          alert(
+          void showMessage(
             "解析失败：无法切换回渲染视图。当前 Markdown 仍保留在编辑器中，并已尝试复制到剪贴板。请检查源码语法后重试。",
+            { title: "解析失败", kind: "error" },
           );
           // 保留快照以便 SourceModeEditor 重新挂载（enterSnapshot 为 null 会空白）
           setEnterSnapshot({

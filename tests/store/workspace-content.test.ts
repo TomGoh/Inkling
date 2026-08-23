@@ -12,6 +12,7 @@ function tab(path: string, content: string): OpenTab {
     scrollTop: null,
     dirty: false,
     isUntitled: false,
+    lastSavedAt: null,
   };
 }
 

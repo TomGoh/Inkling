@@ -1705,6 +1705,7 @@ dependencies = [
 name = "inklingmd"
 version = "2.6.1"
 dependencies = [
+ "base64 0.22.1",
  "regex",
  "serde",
  "serde_json",

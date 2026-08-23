@@ -25,7 +25,7 @@ describe("Footnotes Plugin & Views", () => {
         content: "inline*",
         attrs: { label: { default: "1" } },
         parseDOM: [{ tag: "div.footnote-definition" }],
-        toDOM: (node) => ["div", { class: "footnote-definition" }, 0],
+        toDOM: () => ["div", { class: "footnote-definition" }, 0],
       },
     },
   });
@@ -85,9 +85,15 @@ describe("Footnotes Plugin & Views", () => {
     const mockView = {
       state: { doc: mockDoc },
       nodeDOM: vi.fn().mockReturnValue(targetElement),
-    } as any;
+    } as unknown as Parameters<ReturnType<typeof createFootnoteRefView>>[1];
 
-    const nodeView = refViewFactory(node, mockView, () => 0);
+    const nodeView = refViewFactory(
+      node as never,
+      mockView as never,
+      (() => 0) as never,
+      [] as never,
+      undefined as never,
+    );
     expect(nodeView.dom).toBeDefined();
 
     const sup = nodeView.dom as HTMLElement;
@@ -105,9 +111,9 @@ describe("Footnotes Plugin & Views", () => {
     expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
 
     // 更新逻辑
-    expect(nodeView.update?.(schema.nodes.footnote_reference.create({ label: "note1" }))).toBe(true);
-    expect(nodeView.update?.(schema.nodes.footnote_reference.create({ label: "note2" }))).toBe(false);
-    expect(nodeView.update?.(schema.nodes.paragraph.create())).toBe(false);
+    expect(nodeView.update?.(schema.nodes.footnote_reference.create({ label: "note1" }), [] as never, (() => {}) as never)).toBe(true);
+    expect(nodeView.update?.(schema.nodes.footnote_reference.create({ label: "note2" }), [] as never, (() => {}) as never)).toBe(false);
+    expect(nodeView.update?.(schema.nodes.paragraph.create(), [] as never, (() => {}) as never)).toBe(false);
   });
 
   it("should create footnote def view with correct elements and backlink handler", () => {
@@ -128,7 +134,13 @@ describe("Footnotes Plugin & Views", () => {
       nodeDOM: vi.fn().mockReturnValue(targetElement),
     } as any;
 
-    const nodeView = defViewFactory(node, mockView, () => 0);
+    const nodeView = defViewFactory(
+      node as never,
+      mockView as never,
+      (() => 0) as never,
+      [] as never,
+      undefined as never,
+    );
     expect(nodeView.dom).toBeDefined();
     expect(nodeView.contentDOM).toBeDefined();
 
@@ -148,7 +160,7 @@ describe("Footnotes Plugin & Views", () => {
     expect(scrollIntoViewMock).toHaveBeenCalledWith({ behavior: "smooth", block: "center" });
 
     // 更新逻辑
-    expect(nodeView.update?.(schema.nodes.footnote_definition.create({ label: "note1" }))).toBe(true);
-    expect(nodeView.update?.(schema.nodes.footnote_definition.create({ label: "note2" }))).toBe(false);
+    expect(nodeView.update?.(schema.nodes.footnote_definition.create({ label: "note1" }), [] as never, (() => {}) as never)).toBe(true);
+    expect(nodeView.update?.(schema.nodes.footnote_definition.create({ label: "note2" }), [] as never, (() => {}) as never)).toBe(false);
   });
 });

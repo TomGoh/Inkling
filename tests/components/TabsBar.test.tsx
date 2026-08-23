@@ -16,6 +16,7 @@ function makeTab(overrides: Partial<OpenTab> = {}): OpenTab {
     scrollTop: 0,
     dirty: false,
     isUntitled: false,
+    lastSavedAt: null,
     ...overrides,
   };
 }
@@ -167,7 +168,7 @@ describe("TabsBar", () => {
     expect(closeTab).not.toHaveBeenCalled();
   });
 
-  it("关闭未保存 tab 确认后关闭", () => {
+  it("关闭未保存 tab 确认后关闭", async () => {
     const closeTab = vi.fn();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     useWorkspace.setState({
@@ -176,7 +177,7 @@ describe("TabsBar", () => {
       closeTab,
     });
     render(<TabsBar />);
-    fireEvent.click(screen.getByTitle("关闭"));
+    await fireEvent.click(screen.getByTitle("关闭"));
     expect(closeTab).toHaveBeenCalledWith("/test.md");
   });
 

@@ -15,7 +15,7 @@ describe("useAutoSave hook", () => {
       saving: false,
       currentFile: "/path/to/test.md",
       activeTabPath: "/path/to/test.md",
-      openTabs: [{ path: "/path/to/test.md", title: "test.md", isDirty: false, isUntitled: false }],
+      openTabs: [{ path: "/path/to/test.md", content: "", dirty: false, isUntitled: false, cursorPos: null, scrollTop: null, lastSavedAt: null }],
       saveCurrent: vi.fn().mockResolvedValue(undefined),
     });
   });
@@ -52,7 +52,7 @@ describe("useAutoSave hook", () => {
       saveCurrent: saveCurrentMock,
       activeTabPath: "untitled-1",
       currentFile: null,
-      openTabs: [{ path: "untitled-1", title: "未命名", isDirty: true, isUntitled: true }],
+      openTabs: [{ path: "untitled-1", content: "", dirty: true, isUntitled: true, cursorPos: null, scrollTop: null, lastSavedAt: null }],
       dirty: true,
     });
 

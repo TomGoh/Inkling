@@ -33,8 +33,8 @@ describe("exporter lib unit tests", () => {
     // Mock URL.createObjectURL and click
     const createObjectURLMock = vi.fn().mockReturnValue("blob:mock-url");
     const revokeObjectURLMock = vi.fn();
-    global.URL.createObjectURL = createObjectURLMock;
-    global.URL.revokeObjectURL = revokeObjectURLMock;
+    (globalThis as unknown as { URL: { createObjectURL: unknown; revokeObjectURL: unknown } }).URL.createObjectURL = createObjectURLMock;
+    (globalThis as unknown as { URL: { createObjectURL: unknown; revokeObjectURL: unknown } }).URL.revokeObjectURL = revokeObjectURLMock;
 
     let clicked = false;
     let downloadedFileName = "";

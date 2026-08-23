@@ -19,6 +19,8 @@ export interface OpenTab {
   lastSavedAt: number | null;
   /** 最近从磁盘读取/写入时的原始内容（用于外部修改冲突检测） */
   diskContent?: string;
+  /** 最近从磁盘读取/写入时的文件 mtime 毫秒时间戳（用于保存冲突快速路径） */
+  diskMtime?: number;
   /** 编辑位置记忆：光标在文档中的偏移（null 表示未记录） */
   cursorPos: number | null;
   /** 编辑位置记忆：编辑器滚动条垂直偏移（null 表示未记录） */

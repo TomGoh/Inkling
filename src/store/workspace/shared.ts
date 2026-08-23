@@ -60,6 +60,20 @@ export function loadDeletedSnapshots(): DeletedFileSnapshot[] {
   return loadJSON<DeletedFileSnapshot[]>(DELETED_FILE_SNAPSHOTS_KEY, [], Array.isArray);
 }
 
+/** 清空被删除文件的快照备份 */
+export function clearDeletedSnapshots(): void {
+  writeJSON(DELETED_FILE_SNAPSHOTS_KEY, []);
+}
+
+/** 移除单条快照备份 */
+export function removeDeletedSnapshot(path: string): void {
+  const list = loadJSON<DeletedFileSnapshot[]>(DELETED_FILE_SNAPSHOTS_KEY, [], Array.isArray);
+  writeJSON(
+    DELETED_FILE_SNAPSHOTS_KEY,
+    list.filter((item) => item.path !== path),
+  );
+}
+
 /** 读取持久化的书签列表 */
 export function loadBookmarks(): string[] {
   return loadJSON<string[]>(BOOKMARKS_KEY, [], Array.isArray);

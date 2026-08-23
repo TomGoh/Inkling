@@ -75,6 +75,7 @@ test.describe("设置面板", () => {
     await openSettings(page);
     const focusToggle = page.locator(".settings-row", { hasText: "专注模式" }).locator(".settings-toggle");
     const before = await focusToggle.isChecked();
+    void before;
     await focusToggle.check({ force: true });
     await expect(focusToggle).toBeChecked();
     // 持久化到 localStorage

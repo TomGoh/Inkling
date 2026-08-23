@@ -30,8 +30,8 @@ let teardown: () => Promise<unknown>;
 // 提取插件 props.decorations(state) —— 与 Milkdown 在渲染时调用的一致
 function decorationsOf(state: EditorState) {
   const plugin = editorModesPlugin();
-  const fn = plugin.spec.props.decorations as (s: EditorState) => unknown;
-  return fn(state);
+  const fn = plugin.spec.props?.decorations as ((s: EditorState) => unknown) | undefined;
+  return fn ? fn(state) : undefined;
 }
 
 /** 深度优先找第一个指定类型节点的起始位置；找不到返回 -1 */

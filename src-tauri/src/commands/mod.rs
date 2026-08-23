@@ -7,10 +7,25 @@ pub use pandoc::{pandoc_check, pandoc_export_docx};
 pub mod search;
 pub use search::search_in_workspace;
 
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+static TEMP_WRITE_SEQ: AtomicU64 = AtomicU64::new(0);
+
+fn generate_atomic_temp_path(parent: &Path, file_name: &str) -> std::path::PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let seq = TEMP_WRITE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    parent.join(format!(".{}.tmp.{}-{}-{}", file_name, pid, nonce, seq))
+}
 
 const IGNORED_DIR_NAMES: &[&str] = &["node_modules", "target", "dist", "build", "out"];
 
@@ -315,15 +330,18 @@ mod tests {
             "# Hello World\nLine 2"
         );
 
-        // 4. 测试 file_mtime 获取时间戳
+        // 4. 测试 file_mtime 获取毫秒时间戳
         let mtime = file_mtime_sync(test_file_str.clone()).unwrap();
-        assert!(mtime > 0.0);
+        // 毫秒时间戳应该远大于 1,700,000,000,000 (2023年)
+        assert!(mtime > 1_700_000_000_000.0);
 
         // 5. 测试 write_binary_file
         let bin_file = temp.path.join("nested/folder/image.png");
         let bin_file_str = bin_file.to_string_lossy().to_string();
         let bin_data = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
-        write_binary_file_sync(bin_file_str.clone(), bin_data.clone()).unwrap();
+        let bin_data_base64 =
+            base64::engine::general_purpose::STANDARD.encode(&bin_data);
+        write_binary_file_sync(bin_file_str.clone(), bin_data_base64).unwrap();
         let read_bin = fs::read(&bin_file).unwrap();
         assert_eq!(read_bin, bin_data);
 
@@ -385,6 +403,37 @@ mod tests {
         // 覆盖写入
         write_text_file_sync(file_str.clone(), "Updated content".into()).unwrap();
         assert_eq!(read_text_file_sync(file_str.clone()).unwrap(), "Updated content");
+
+        // 二进制原子写入测试（含父目录自动创建、覆盖与临时文件不残留）
+        let bin_file = temp.path.join("deep/sub/dir/image.bin");
+        let bin_file_str = bin_file.to_string_lossy().to_string();
+        let bin_data = vec![0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0];
+        let bin_base64 = base64::engine::general_purpose::STANDARD.encode(&bin_data);
+        write_binary_file_sync(bin_file_str.clone(), bin_base64).unwrap();
+        assert_eq!(fs::read(&bin_file).unwrap(), bin_data);
+
+        // 覆盖二进制文件
+        let bin_data_updated = vec![0xfe, 0xdc, 0xba, 0x98];
+        let bin_base64_updated =
+            base64::engine::general_purpose::STANDARD.encode(&bin_data_updated);
+        write_binary_file_sync(bin_file_str.clone(), bin_base64_updated).unwrap();
+        assert_eq!(fs::read(&bin_file).unwrap(), bin_data_updated);
+
+        // 验证没有残留的 .tmp 临时文件
+        let deep_dir = temp.path.join("deep/sub/dir");
+        let entries = fs::read_dir(&deep_dir).unwrap();
+        for entry in entries {
+            let entry = entry.unwrap();
+            let name = entry.file_name().to_string_lossy().to_string();
+            assert!(!name.starts_with('.'), "不应存在残留临时文件: {name}");
+        }
+
+        // 写入非法 base64 应失败且不触碰/创建无效文件
+        let invalid_file = temp.path.join("deep/sub/dir/invalid.bin");
+        let invalid_file_str = invalid_file.to_string_lossy().to_string();
+        let err = write_binary_file_sync(invalid_file_str, "not-valid-base64!@#$".into()).unwrap_err();
+        assert!(err.contains("Base64 解码失败"));
+        assert!(!invalid_file.exists());
     }
 }
 
@@ -403,15 +452,11 @@ fn write_text_file_sync(file_path: String, content: String) -> Result<(), String
         fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
     }
 
-    let nonce = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
     let file_name = path
         .file_name()
         .map(|n| n.to_string_lossy())
         .unwrap_or_default();
-    let temp_path = parent.join(format!(".{}.tmp.{}", file_name, nonce));
+    let temp_path = generate_atomic_temp_path(parent, &file_name);
 
     let mut temp_file = fs::File::create(&temp_path)
         .map_err(|e| format!("创建临时文件失败 {}: {}", temp_path.display(), e))?;
@@ -446,22 +491,61 @@ fn write_text_file_sync(file_path: String, content: String) -> Result<(), String
     Ok(())
 }
 
-/// 写入二进制文件（图片等），覆盖写入，不存在则创建
+/// 写入二进制文件（图片等，原子写入：Base64 解码后写入临时文件再重命名，避免截断损坏和 IPC 膨胀）
 #[tauri::command]
-pub async fn write_binary_file(file_path: String, data: Vec<u8>) -> Result<(), String> {
+pub async fn write_binary_file(file_path: String, data: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || write_binary_file_sync(file_path, data))
         .await
         .map_err(|e| format!("二进制写入任务失败: {e}"))?
 }
 
-fn write_binary_file_sync(file_path: String, data: Vec<u8>) -> Result<(), String> {
+fn write_binary_file_sync(file_path: String, data_base64: String) -> Result<(), String> {
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(data_base64.trim())
+        .map_err(|e| format!("Base64 解码失败: {e}"))?;
+
     let path = Path::new(&file_path);
-    if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
-        }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    if !parent.exists() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e))?;
     }
-    fs::write(path, data).map_err(|e| format!("写入失败 {}: {}", file_path, e))
+
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default();
+    let temp_path = generate_atomic_temp_path(parent, &file_name);
+
+    let mut temp_file = fs::File::create(&temp_path)
+        .map_err(|e| format!("创建临时文件失败 {}: {}", temp_path.display(), e))?;
+    if let Err(e) = temp_file.write_all(&decoded) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("写入临时文件失败 {}: {}", temp_path.display(), e));
+    }
+    if let Err(e) = temp_file.sync_all() {
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("临时文件物理落盘(sync_all)失败 {}: {}", temp_path.display(), e));
+    }
+    drop(temp_file);
+
+    // 重命名原子替换目标文件
+    if let Err(e) = fs::rename(&temp_path, path) {
+        #[cfg(windows)]
+        {
+            if path.exists() {
+                let _ = fs::remove_file(path);
+                if let Err(e2) = fs::rename(&temp_path, path) {
+                    let _ = fs::remove_file(&temp_path);
+                    return Err(format!("替换目标文件失败 {}: {}", file_path, e2));
+                }
+                return Ok(());
+            }
+        }
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("替换目标文件失败 {}: {}", file_path, e));
+    }
+
+    Ok(())
 }
 
 /// 读取文本文件内容（UTF-8）
@@ -480,7 +564,7 @@ fn read_text_file_sync(file_path: String) -> Result<String, String> {
     fs::read_to_string(path).map_err(|e| format!("读取失败 {}: {}", file_path, e))
 }
 
-/// 读取文件的最后修改时间（Unix 秒，浮点）
+/// 读取文件的最后修改时间（Unix 毫秒，浮点）
 /// 用于前端轮询检测外部修改，提示用户重新加载
 #[tauri::command]
 pub async fn file_mtime(file_path: String) -> Result<f64, String> {
@@ -498,11 +582,11 @@ fn file_mtime_sync(file_path: String) -> Result<f64, String> {
     let mtime = meta
         .modified()
         .map_err(|e| format!("读取修改时间失败: {}", e))?;
-    let secs = mtime
+    let millis = mtime
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
+        .map(|d| d.as_millis() as f64)
         .map_err(|e| e.to_string())?;
-    Ok(secs)
+    Ok(millis)
 }
 
 /// 重命名/移动文件或目录

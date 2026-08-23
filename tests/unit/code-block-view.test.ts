@@ -47,12 +47,8 @@ function makeSchema() {
 
 /** 用 mock IO 立即触发 CM 创建 */
 function setupIntersectionObserver() {
-  const observe = vi.fn((cb_target: Element) => {
-    // 同步触发 intersecting
-    vi.advanceTimersByTime(0);
-  });
   const disconnect = vi.fn();
-  const ctor = vi.fn((cb: (entries: any[]) => void) => ({
+  const ctor = vi.fn((cb: (entries: unknown[]) => void) => ({
     observe: (target: Element) => {
       // 立即回调，让 CM 创建
       cb([{ isIntersecting: true, target }]);
@@ -60,7 +56,7 @@ function setupIntersectionObserver() {
     disconnect,
     unobserve: vi.fn(),
   }));
-  (global as any).IntersectionObserver = ctor;
+  (globalThis as unknown as { IntersectionObserver: unknown }).IntersectionObserver = ctor;
   return { ctor, disconnect };
 }
 

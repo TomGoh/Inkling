@@ -10,6 +10,7 @@ import {
   copyMarkdown,
   copyRichText,
 } from "../../lib/exporter";
+import { showMessage } from "../../lib/dialogs";
 import { IconDownload, IconChevronDown } from "../icons";
 
 interface ExportMenuProps {
@@ -24,7 +25,7 @@ export function ExportMenu({ open, onOpenChange, getEditor, sourceMode }: Export
   /** 富文本类导出的源码模式守卫；被拦截时返回 true */
   const blockedBySourceMode = () => {
     if (sourceMode) {
-      alert("请先退出源代码模式再导出富文本格式");
+      void showMessage("请先退出源代码模式再导出富文本格式", { kind: "info" });
       return true;
     }
     return false;
@@ -51,7 +52,7 @@ export function ExportMenu({ open, onOpenChange, getEditor, sourceMode }: Export
                 onOpenChange(false);
                 if (blockedBySourceMode()) return;
                 void copyRichText(getEditor).then((ok) => {
-                  if (!ok) alert("复制失败，请检查浏览器剪贴板权限");
+                  if (!ok) void showMessage("复制失败，请检查浏览器剪贴板权限", { kind: "error" });
                 });
               }}
             >
@@ -62,7 +63,7 @@ export function ExportMenu({ open, onOpenChange, getEditor, sourceMode }: Export
               onClick={() => {
                 onOpenChange(false);
                 void copyMarkdown().then((ok) => {
-                  if (!ok) alert("复制失败，请检查浏览器剪贴板权限");
+                  if (!ok) void showMessage("复制失败，请检查浏览器剪贴板权限", { kind: "error" });
                 });
               }}
             >
@@ -85,7 +86,7 @@ export function ExportMenu({ open, onOpenChange, getEditor, sourceMode }: Export
                 onOpenChange(false);
                 if (blockedBySourceMode()) return;
                 void exportDocx().then((r) => {
-                  if (!r.ok && r.error) alert(r.error);
+                  if (!r.ok && r.error) void showMessage(r.error, { kind: "error" });
                 });
               }}
             >

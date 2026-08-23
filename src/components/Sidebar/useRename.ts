@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "../../store/workspace";
 import { joinPath, renamePath, type FileNode } from "../../lib/fs";
+import { showMessage } from "../../lib/dialogs";
 import { dirname } from "./treeShared";
 
 export function useRename() {
@@ -36,7 +37,7 @@ export function useRename() {
       await renamePath(node.path, to);
       onFileRenamed(node.path, to);
     } catch (e) {
-      alert(`重命名失败：${e instanceof Error ? e.message : String(e)}`);
+      await showMessage(`重命名失败：${e instanceof Error ? e.message : String(e)}`, { kind: "error" });
     }
   }, [renamingNode, renameValue, onFileRenamed]);
 

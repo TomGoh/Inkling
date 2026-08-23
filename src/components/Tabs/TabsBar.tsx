@@ -10,6 +10,7 @@ import { flushAllMarkdownPublishers } from "../Editor/markdown-publisher";
 import { TabContextMenu } from "./TabContextMenu";
 import { IconX } from "../icons";
 import { baseName } from "../../lib/path-utils";
+import { askConfirmation } from "../../lib/dialogs";
 import "./TabsBar.css";
 
 /** tab 显示名：未命名草稿显示「未命名 N」，普通文件显示文件名 */
@@ -123,15 +124,16 @@ export function TabsBar() {
 
   const pathDescriptions = tabPathDescriptions(openTabs);
 
-  const handleClose = (tab: OpenTab) => {
+  const handleClose = async (tab: OpenTab) => {
     // 先 flush 防抖窗口内的发布，关闭决策看到真实 dirty 与内容，
     // 否则窗口内关闭会静默丢弃未发布编辑（PR #34）
     flushAllMarkdownPublishers();
     const fresh =
       useWorkspace.getState().openTabs.find((t) => t.path === tab.path) ?? tab;
     if (fresh.dirty) {
-      const ok = window.confirm(
+      const ok = await askConfirmation(
         `「${tabLabel(fresh)}」有未保存的修改，确定关闭吗？`,
+        { title: "未保存修改确认", kind: "warning" },
       );
       if (!ok) return;
     }

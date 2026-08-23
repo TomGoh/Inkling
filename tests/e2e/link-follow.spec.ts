@@ -47,6 +47,7 @@ test.describe("链接跟随", () => {
 
     const scroll = page.locator(".editor-scroll");
     const before = await scroll.evaluate((el) => el.scrollTop);
+    void before;
 
     // Ctrl/Cmd + click 锚点链接
     await anchorLink.click({ modifiers: [MOD === "Meta" ? "Meta" : "Control"] });

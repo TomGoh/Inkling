@@ -24,6 +24,7 @@ describe("Tabs Store: reloadFile & openingFiles 健壮性测试", () => {
           path: "/test/doc.md",
           content: "initial",
           dirty: true,
+          isUntitled: false,
           lastSavedAt: null,
           cursorPos: null,
           scrollTop: null,
@@ -34,7 +35,6 @@ describe("Tabs Store: reloadFile & openingFiles 健壮性测试", () => {
       activeTabPath: "/test/doc.md",
       currentContent: "initial",
       dirty: true,
-      revision: 0,
     });
 
     const store = useWorkspace.getState();
@@ -54,11 +54,11 @@ describe("Tabs Store: reloadFile & openingFiles 健壮性测试", () => {
 
   it("openingFiles 在打开文件失败时通过 finally 清理", async () => {
     useWorkspace.setState({
-      openingFiles: { "/invalid/path.md": true },
+      openingFiles: new Set(["/invalid/path.md"]),
     });
 
     // 验证 openingFiles 初始状态
-    expect(useWorkspace.getState().openingFiles["/invalid/path.md"]).toBe(true);
+    expect(useWorkspace.getState().openingFiles.has("/invalid/path.md")).toBe(true);
 
     try {
       await useWorkspace.getState().openFile("/non_existent_file_xxx_12345.md");
@@ -67,6 +67,6 @@ describe("Tabs Store: reloadFile & openingFiles 健壮性测试", () => {
     }
 
     // 确保被清理
-    expect(useWorkspace.getState().openingFiles["/non_existent_file_xxx_12345.md"]).toBeUndefined();
+    expect(useWorkspace.getState().openingFiles.has("/non_existent_file_xxx_12345.md")).toBe(false);
   });
 });

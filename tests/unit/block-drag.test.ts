@@ -65,7 +65,7 @@ describe("blockDragPlugin 装饰集增量更新", () => {
     expect(after).toHaveLength(3);
     // 实例同一 → WidgetType.eq 命中 → 视图层复用 DOM 而非销毁重建
     after.forEach((deco, i) => {
-      expect(deco.type).toBe(before[i].type);
+      expect((deco as unknown as { type: unknown }).type).toBe((before[i] as unknown as { type: unknown }).type);
     });
     // 首个块起点不变，后续块因插入 2 字符右移
     expect(after.map((h) => h.from)).toEqual([0, 5, 8]);
@@ -81,8 +81,8 @@ describe("blockDragPlugin 装饰集增量更新", () => {
     expect(after).toHaveLength(3);
     expect(after.map((h) => h.from)).toEqual([0, 3, 6]);
     // 旧手柄随映射平移到新块起点，实例复用；仅新增块补建手柄
-    expect(after[0].type).toBe(before[0].type);
-    expect(after[1].type).toBe(before[1].type);
+    expect((after[0] as unknown as { type: unknown }).type).toBe((before[0] as unknown as { type: unknown }).type);
+    expect((after[1] as unknown as { type: unknown }).type).toBe((before[1] as unknown as { type: unknown }).type);
   });
 
   it("结构事务包裹块后清除映射到非顶层位置的旧手柄", () => {
