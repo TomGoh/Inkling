@@ -11,6 +11,7 @@ import {
   findEditorHeadingPos,
   type EditorOutlineHeading,
 } from "../../lib/outline";
+import { runSourceModeScrollToHeading } from "../../lib/source-mode-scroll";
 import { selectOutlineForFile, useOutline } from "../../store/outline";
 import { useWorkspace } from "../../store/workspace";
 import "./OutlinePanel.css";
@@ -115,7 +116,14 @@ function animateScrollTo(scroller: HTMLElement, targetTop: number) {
 function scrollToHeading(
   getEditor: () => Editor | undefined,
   heading: EditorOutlineHeading,
+  currentFile: string | null,
 ) {
+  // 如果是源码模式，尝试走源码模式滚动路由（Issue #118）
+  if (currentFile) {
+    const sourceScrolled = runSourceModeScrollToHeading(currentFile, heading);
+    if (sourceScrolled) return;
+  }
+
   const editor = getEditor();
   if (!editor) return;
   editor.action((ctx) => {
@@ -162,8 +170,9 @@ export function OutlinePanel({ getEditor }: OutlinePanelProps) {
     activeItemRef.current = el;
   }, []);
   const handleClick = useCallback(
-    (heading: EditorOutlineHeading) => scrollToHeading(getEditor, heading),
-    [getEditor],
+    (heading: EditorOutlineHeading) =>
+      scrollToHeading(getEditor, heading, currentFile),
+    [getEditor, currentFile],
   );
 
   useEffect(() => {

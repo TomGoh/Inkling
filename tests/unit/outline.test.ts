@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import {
   parseOutline,
+  extractMarkdownOutline,
   findActiveHeadingIndex,
   type EditorOutlineHeading,
 } from "../../src/lib/outline";
@@ -100,9 +101,28 @@ describe("parseOutline", () => {
   it("缩进的 # 不算标题", () => {
     const md = "  # 缩进标题\n# 真标题";
     const hs = parseOutline(md);
-    // trimmed 会去掉前导空格，所以 "  # 缩进标题" trim 后 "# 缩进标题" 会匹配
-    // 这是已知行为：parseOutline 用 trim() 后匹配
+    // 缩进 2 空格或制表符的不算 ATX 标题（CommonMark 规范允许最多 3 空格，但 trim() 会匹配）
     expect(hs).toHaveLength(2);
+  });
+
+  it("extractMarkdownOutline 返回与 EditorOutlineHeading 一致的结构", () => {
+    const md = "# 标题一\n内容\n## 标题二\n更多内容";
+    const hs = extractMarkdownOutline(md);
+    expect(hs).toHaveLength(2);
+    expect(hs[0]).toMatchObject({
+      index: 0,
+      level: 1,
+      text: "标题一",
+      pos: 0,
+      id: "h-0-标题一",
+    });
+    expect(hs[1]).toMatchObject({
+      index: 1,
+      level: 2,
+      text: "标题二",
+      id: "h-1-标题二",
+    });
+    expect(hs[1].pos).toBeGreaterThan(0);
   });
 });
 

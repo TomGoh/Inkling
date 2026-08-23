@@ -173,7 +173,23 @@ export function useSourceModeTransition({
                   (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
                   view.dom.closest(".editor-scroll");
                 if (scrollEl instanceof HTMLElement) {
-                  scrollEl.scrollTop = snap.scrollTop;
+                  const targetTop = snap.scrollTop;
+                  const applyScroll = () => {
+                    if (scrollEl.isConnected) scrollEl.scrollTop = targetTop;
+                  };
+                  applyScroll();
+                  let frames = 0;
+                  const settle = () => {
+                    if (!scrollEl.isConnected) return;
+                    if (
+                      Math.abs(scrollEl.scrollTop - targetTop) < 1 ||
+                      ++frames > 30
+                    )
+                      return;
+                    applyScroll();
+                    requestAnimationFrame(settle);
+                  };
+                  requestAnimationFrame(settle);
                 }
               });
             });

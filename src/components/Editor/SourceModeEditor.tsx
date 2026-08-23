@@ -6,6 +6,14 @@ import { EditorView } from "@codemirror/view";
 import { openSearchPanel, replaceNext } from "@codemirror/search";
 import { createSourceModeExtensions } from "../../lib/codemirror-shared";
 import {
+  extractMarkdownOutline,
+  type EditorOutlineSnapshot,
+} from "../../lib/outline";
+import {
+  registerSourceModeScroll,
+  unregisterSourceModeScroll,
+} from "../../lib/source-mode-scroll";
+import {
   registerSourceModeSearch,
   unregisterSourceModeSearch,
 } from "../../lib/source-mode-search";
@@ -28,6 +36,8 @@ export interface SourceModeEditorProps {
   spellcheck: boolean;
   /** 卸载前回传 CM 光标与滚动位置 */
   onUnmountSnapshot?: (snapshot: SourceModeSnapshot) => void;
+  /** 大纲变更通知（Issue #118） */
+  onOutlineChange?: (snapshot: EditorOutlineSnapshot) => void;
 }
 
 export function SourceModeEditor({
@@ -38,6 +48,7 @@ export function SourceModeEditor({
   initialScrollTop = 0,
   spellcheck,
   onUnmountSnapshot,
+  onOutlineChange,
 }: SourceModeEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -45,6 +56,8 @@ export function SourceModeEditor({
   onChangeRef.current = onChange;
   const onUnmountRef = useRef(onUnmountSnapshot);
   onUnmountRef.current = onUnmountSnapshot;
+  const onOutlineChangeRef = useRef(onOutlineChange);
+  onOutlineChangeRef.current = onOutlineChange;
   const lastEmittedRef = useRef(value);
   const themeCompRef = useRef(new Compartment());
 
@@ -55,22 +68,128 @@ export function SourceModeEditor({
     if (!hostRef.current) return;
     const safeCursor = Math.max(0, Math.min(initialCursor, value.length));
     const themeComp = themeCompRef.current;
+
+    // 辅助函数：根据当前滚动条位置估算当前活动标题
+    const computeActiveHeadingIndex = (
+      view: EditorView,
+      headings: ReturnType<typeof extractMarkdownOutline>,
+    ): number => {
+      if (headings.length === 0) return -1;
+      const scroller = view.scrollDOM;
+      const targetTop = scroller.scrollTop + 12;
+
+      let bestIndex = 0;
+      for (let i = 0; i < headings.length; i++) {
+        const lineInfo = view.lineBlockAt(
+          Math.min(headings[i].pos, view.state.doc.length),
+        );
+        if (lineInfo.top <= targetTop) {
+          bestIndex = i;
+        } else {
+          break;
+        }
+      }
+      return bestIndex;
+    };
+
+    let scrollRaf: number | null = null;
+    let activeHeadings = extractMarkdownOutline(value);
+    let currentActiveIndex = -1;
+
+    const notifyOutline = (view: EditorView) => {
+      const activeIdx = computeActiveHeadingIndex(view, activeHeadings);
+      currentActiveIndex = activeIdx;
+      onOutlineChangeRef.current?.({
+        headings: activeHeadings,
+        activeIndex: activeIdx,
+      });
+    };
+
     const state = EditorState.create({
       doc: value,
       selection: { anchor: safeCursor, head: safeCursor },
       extensions: [
         themeComp.of(createSourceModeExtensions({ codeBlockTheme, spellcheck })),
         EditorView.updateListener.of((update) => {
-          if (!update.docChanged) return;
-          const md = update.state.doc.toString();
-          if (md === lastEmittedRef.current) return;
-          lastEmittedRef.current = md;
-          onChangeRef.current(md);
+          if (update.docChanged) {
+            const md = update.state.doc.toString();
+            if (md !== lastEmittedRef.current) {
+              lastEmittedRef.current = md;
+              onChangeRef.current(md);
+            }
+            activeHeadings = extractMarkdownOutline(md);
+            notifyOutline(update.view);
+          }
         }),
       ],
     });
     const view = new EditorView({ state, parent: hostRef.current });
     viewRef.current = view;
+
+    // 注册大纲点击滚动与跳转（Issue #118）
+    registerSourceModeScroll(filePath, {
+      scrollToHeading: (heading) => {
+        const v = viewRef.current;
+        if (!v) return;
+        let targetPos = -1;
+        const currentDoc = v.state.doc.toString();
+        // 如果当前 heading.pos 处的文本刚好匹配
+        if (
+          heading.pos >= 0 &&
+          heading.pos < currentDoc.length
+        ) {
+          targetPos = heading.pos;
+        }
+        // 如果位置偏移，从当前文档重新提取大纲进行匹配
+        if (targetPos === -1 || targetPos > currentDoc.length) {
+          const freshHeadings = extractMarkdownOutline(currentDoc);
+          const matched =
+            freshHeadings.find((h) => h.id === heading.id) ||
+            freshHeadings.find(
+              (h) => h.text === heading.text && h.level === heading.level,
+            ) ||
+            freshHeadings[heading.index];
+          if (matched) {
+            targetPos = matched.pos;
+          }
+        }
+        if (targetPos < 0) return;
+
+        // 移动光标并平滑滚动到该行
+        v.dispatch({
+          selection: { anchor: targetPos, head: targetPos },
+          effects: EditorView.scrollIntoView(targetPos, { y: "start", yMargin: 20 }),
+        });
+        v.focus();
+      },
+      getScrollAndCursor: () => ({
+        scrollTop: view.scrollDOM.scrollTop,
+        cursor: view.state.selection.main.head,
+      }),
+    });
+
+    // 监听滚动更新大纲高亮（Issue #118）
+    const handleScroll = () => {
+      if (scrollRaf !== null) return;
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = null;
+        const v = viewRef.current;
+        if (!v) return;
+        const nextActive = computeActiveHeadingIndex(v, activeHeadings);
+        if (nextActive !== currentActiveIndex) {
+          currentActiveIndex = nextActive;
+          onOutlineChangeRef.current?.({
+            headings: activeHeadings,
+            activeIndex: nextActive,
+          });
+        }
+      });
+    };
+    view.scrollDOM.addEventListener("scroll", handleScroll, { passive: true });
+
+    // 初始通知大纲
+    notifyOutline(view);
+
     // 注册查找命令路由：全局 Ctrl+F/Ctrl+R 在源码模式打开 CM 内置面板（issue #29）
     registerSourceModeSearch(filePath, (opts) => {
       const v = viewRef.current;
@@ -87,7 +206,10 @@ export function SourceModeEditor({
     requestAnimationFrame(() => view.focus());
 
     return () => {
+      unregisterSourceModeScroll(filePath);
       unregisterSourceModeSearch(filePath);
+      view.scrollDOM.removeEventListener("scroll", handleScroll);
+      if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
       onUnmountRef.current?.({
         cursor: view.state.selection.main.head,
         scrollTop: view.scrollDOM.scrollTop,
