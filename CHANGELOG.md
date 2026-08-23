@@ -2,6 +2,40 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.6.1] - 2026-08-23
+
+### 新增功能与架构加固
+
+- **P0 严重缺陷修复与安全防线加固**：
+  - **保存死锁根治（#91）**：对话框插件加载与文件另存完全移入 `try` 块内部，确保 `finally` 必定释放 `saving: false` 互斥锁，彻底杜绝全局保存死锁。
+  - **冲突弹窗异常防御（#100/#91）**：冲突确认弹窗被取消或异常时明确视为放弃覆盖，立即释放保存锁并安全退出，杜绝数据静默覆盖。
+  - **CSS 16 进制转义注入拦截（#86）**：实现 `unescapeCss` 对 CSS 样式值进行反转义还原后匹配过滤，拦截 `u\72 l(...)` 变形注入；给 SVG `xlink:href` 增加 `isSafeUrl` 协议白名单。
+  - **严格 CSP 与权限收紧（#111）**：配置严格 CSP 策略，收紧 Tauri `assetProtocol` 静态访问范围为仅应用数据目录。
+  - **隔离 Mock 数据（#113）**：`src/lib/fs.ts` 改为按需动态导入 `mockFs`，防止浏览器 Mock 污染生产包。
+
+### 修复与优化
+
+- **P1 架构与稳定性优化**：
+  - **自动保存指数退避与非阻塞（#100）**：`useAutoSave` 实现 2s ➔ 4s ➔ 8s ... 最长 60s 指数退避；`saveCurrent` 增加非阻塞模式（遇到冲突静默跳过不弹窗）。
+  - **Rust 原子写盘物理落盘与 Pandoc 异步化（#89）**：写入临时文件后强制调用 `file.sync_all()` 确保物理刷盘；`pandoc_check` 与 `pandoc_export_docx` 异步化并卸载至 `spawn_blocking` 线程池。
+  - **跨 Tab saveError 隔离（#92）**：保存报错仅在活跃 Tab 一致时更新顶层状态，杜绝切换 Tab 报错漂移。
+  - **删除文件内存保护快照（#93）**：删除存在未保存修改的文件时自动写入 `localStorage` 快照备灾。
+  - **修复 fileRequests 泄漏（#98）**：文件重命名时同步迁移 `fileRequests` 缓存键。
+  - **监听容差精度优化（#96）**：外部修改监听防抖时间容差精度优化至毫秒级（0.001s）。
+  - **Store 校验与死 mock 清理（#97）**：`ui.ts` 与 `shortcuts.ts` 补充逐字段防御校验；清理测试中失效的 `resolveAssetUrl` 引用。
+  - **右键菜单边界防溢出与防闪烁（#108）**：图片菜单接入 `clampMenuPosition`，`useContextMenuClamping` 升级为 `useLayoutEffect`。
+  - **路径工具统一收敛与 UNC 兼容（#115）**：统一使用 `path-utils.ts` 的 `baseName` 并补充 Windows UNC 路径测试。
+
+### 测试与重构
+
+- **真实测试重构与覆盖率提升**：
+  - 重写 `tests/unit/issue-91-save-guard.test.ts`（真实测试并发保存互斥与异常释放）。
+  - 重写 `tests/unit/issue-95-slash-menu.test.ts`（真实测试斜杠菜单匹配、选择与精确范围回退）。
+  - 重写 `tests/unit/issue-105-diff.test.ts`（真实断言 LCS / Diff 行算法对不同修改、新增、删除边界的准确性）。
+  - 增强 `tests/unit/issue-86-html-sanitize.test.ts`（转义注入与 SVG `<use xlink:href>` 安全测试）。
+  - 增强 `tests/unit/issue-92-tab-save-isolation.test.ts`（跨 Tab 状态隔离测试）。
+  - 增强 `tests/unit/issue-94-export-flush.test.ts`（Spy 验证 `flushAllMarkdownPublishers`）。
+
 ## [2.6.0] - 2026-08-23
 
 ### 新增功能与架构加固
@@ -9,7 +43,7 @@
 - **32 项 GitHub Issues 全面攻坚与架构加固（#85 ~ #116）**：
   - **数据安全与持久化（#85/#89/#91/#92/#93/#100/#102）**：Rust 端实现原子写盘（临时文件写入 + 原子替换重命名覆盖），消除掉电/崩溃截断损坏；保存期间引入 `saving` 状态防重入与快照隔离；多 Tab 保存回写精准按路径隔离；外部删除带修改文件弹窗确认；自动保存错误指数退避与非阻塞提示。
   - **交互与编辑体验（#94/#95/#98/#99/#103）**：导出与复制（富文本/Markdown/Docx/PNG/大纲）前统一强同步 flush 编辑器发布器；斜杠菜单 Esc 取消仅精准删除关键字范围；文件重命名原子化状态迁移（Tab/书签/展开态/光标位置同步迁移）；右键菜单视口边缘自动翻转与防溢出钳制。
-  - **安全与防护（#86/#87/#96/#111）**：收紧 DOMPurify 白名单，彻底拦截 `<style>` 注入、外联 CSS `@import` 与追踪信标 `url()`；`reloadFile` 全链路异常捕获与友好通知；Rust 搜索跳过 `node_modules`、`.git`、`target` 等依赖目录并增加符号链接防死循环环路检测。
+  - **安全与防护（#86/#87/#96/#111）**：收紧 DOM-based Sanitizer 白名单，彻底拦截 `<style>` 注入、外联 CSS `@import` 与追踪信标 `url()`；`reloadFile` 全链路异常捕获与友好通知；Rust 搜索跳过 `node_modules`、`.git`、`target` 等依赖目录并增加符号链接防死循环环路检测。
   - **性能与底层模块（#105/#113/#114/#115/#116）**：Diff 算法优化为 $O(N)$ 空间 Myers / LCS 滚动数组；提取统一的 `path-utils.ts` 与 `storage.ts` 工具；浏览器端 `fs-mock.ts` 独立抽离；修复全部测试 TypeScript 类型定义与全面覆盖。
 
 ## [2.5.8] - 2026-08-23

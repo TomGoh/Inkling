@@ -4,14 +4,6 @@
 
 import { invoke, isTauri, convertFileSrc } from "@tauri-apps/api/core";
 import { resolve as resolvePath } from "@tauri-apps/api/path";
-import {
-  MOCK_TREE,
-  MOCK_FILE_CONTENT,
-  findNode,
-  findParent,
-  rebasePath,
-  splitPath,
-} from "./mockFs";
 import { dirNameOf, joinPath, normalizePath } from "./path";
 
 export { joinPath, normalizePath, dirNameOf };
@@ -29,7 +21,8 @@ export async function listDir(dirPath: string): Promise<FileNode> {
   if (isTauri()) {
     return invoke<FileNode>("list_dir", { dirPath });
   }
-  // 浏览器 mock
+  // 浏览器 mock 降级分支按需动态导入，避免打包到生产桌面端
+  const { MOCK_TREE, findNode } = await import("./mockFs");
   await new Promise((r) => setTimeout(r, 100));
   const node = findNode(MOCK_TREE, dirPath);
   if (!node) throw new Error(`路径不存在: ${dirPath}`);
@@ -48,6 +41,7 @@ export async function readTextFile(filePath: string): Promise<string> {
   if (isTauri()) {
     return invoke<string>("read_text_file", { filePath });
   }
+  const { MOCK_FILE_CONTENT } = await import("./mockFs");
   await new Promise((r) => setTimeout(r, 50));
   return MOCK_FILE_CONTENT[filePath] ?? "";
 }
@@ -61,6 +55,7 @@ export async function writeTextFile(
     return invoke<void>("write_text_file", { filePath, content });
   }
   // 浏览器 mock：只在内存里记录
+  const { MOCK_FILE_CONTENT } = await import("./mockFs");
   MOCK_FILE_CONTENT[filePath] = content;
 }
 
@@ -78,6 +73,7 @@ export async function renamePath(from: string, to: string): Promise<void> {
     return invoke<void>("rename_path", { from, to });
   }
   // 浏览器 mock：更新内容键
+  const { MOCK_FILE_CONTENT, MOCK_TREE, findNode, splitPath, rebasePath } = await import("./mockFs");
   if (MOCK_FILE_CONTENT[from] !== undefined) {
     MOCK_FILE_CONTENT[to] = MOCK_FILE_CONTENT[from];
     delete MOCK_FILE_CONTENT[from];
@@ -96,6 +92,7 @@ export async function deletePath(path: string): Promise<void> {
   if (isTauri()) {
     return invoke<void>("delete_path", { path });
   }
+  const { MOCK_FILE_CONTENT, MOCK_TREE, findParent } = await import("./mockFs");
   for (const k of Object.keys(MOCK_FILE_CONTENT)) {
     if (k === path || k.startsWith(path + "/")) delete MOCK_FILE_CONTENT[k];
   }
@@ -111,6 +108,7 @@ export async function createFile(filePath: string): Promise<void> {
   if (isTauri()) {
     return invoke<void>("create_file", { filePath });
   }
+  const { MOCK_FILE_CONTENT, MOCK_TREE, findNode, splitPath } = await import("./mockFs");
   MOCK_FILE_CONTENT[filePath] = "";
   // 同步 mock 目录树：在父目录下新增文件节点
   const { dir, base } = splitPath(filePath);
@@ -126,6 +124,7 @@ export async function createDir(dirPath: string): Promise<void> {
     return invoke<void>("create_dir", { dirPath });
   }
   // 浏览器 mock：在父目录下新增目录节点
+  const { MOCK_TREE, findNode, splitPath } = await import("./mockFs");
   const { dir, base } = splitPath(dirPath);
   const parent = dir ? findNode(MOCK_TREE, dir) : null;
   if (parent && !parent.children.some((c) => c.path === dirPath)) {
@@ -157,6 +156,7 @@ export async function searchInWorkspace(
     });
   }
   // 浏览器 mock：扫描内存中的 mock 文件
+  const { MOCK_FILE_CONTENT } = await import("./mockFs");
   const hits: SearchHit[] = [];
   const q = useRegex ? query : query;
   let re: RegExp;

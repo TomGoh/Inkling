@@ -39,7 +39,11 @@ const DEFAULTS: PersistedUI = {
 };
 
 function loadPersisted(): PersistedUI {
-  return loadJSON<PersistedUI>(STORAGE_KEY, DEFAULTS);
+  const loaded = loadJSON<Partial<PersistedUI>>(STORAGE_KEY, DEFAULTS);
+  return {
+    sidebarVisible: typeof loaded?.sidebarVisible === "boolean" ? loaded.sidebarVisible : DEFAULTS.sidebarVisible,
+    outlineVisible: typeof loaded?.outlineVisible === "boolean" ? loaded.outlineVisible : DEFAULTS.outlineVisible,
+  };
 }
 
 function persist(s: PersistedUI): void {

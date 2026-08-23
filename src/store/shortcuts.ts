@@ -43,8 +43,22 @@ interface Persisted {
   overrides: Partial<Record<ShortcutId, string>>;
 }
 
+const VALID_SHORTCUT_IDS = new Set<ShortcutId>(SHORTCUT_DEFS.map((d) => d.id));
+
+function sanitizeOverrides(raw: unknown): Partial<Record<ShortcutId, string>> {
+  if (!raw || typeof raw !== "object") return {};
+  const clean: Partial<Record<ShortcutId, string>> = {};
+  for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (VALID_SHORTCUT_IDS.has(key as ShortcutId) && typeof val === "string") {
+      clean[key as ShortcutId] = val;
+    }
+  }
+  return clean;
+}
+
 function loadPersisted(): Persisted {
-  return loadJSON<Persisted>(STORAGE_KEY, { overrides: {} });
+  const raw = loadJSON<Persisted>(STORAGE_KEY, { overrides: {} });
+  return { overrides: sanitizeOverrides(raw?.overrides) };
 }
 
 function persist(p: Persisted): void {
@@ -72,7 +86,7 @@ export const useShortcuts = create<ShortcutsState>((set, get) => {
       if (e.key === STORAGE_KEY && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue) as Partial<Persisted>;
-          set({ overrides: parsed.overrides ?? {} });
+          set({ overrides: sanitizeOverrides(parsed?.overrides) });
         } catch {
           // 忽略非法 JSON
         }

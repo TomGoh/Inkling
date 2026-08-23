@@ -45,6 +45,7 @@ const ALLOWED_GLOBAL_ATTRS = new Set([
 const ALLOWED_TAG_ATTRS: Record<string, Set<string>> = {
   a: new Set(["href", "target", "rel"]),
   img: new Set(["src", "alt", "width", "height"]),
+  use: new Set(["xlink:href", "href"]),
   time: new Set(["datetime"]),
   td: new Set(["colspan", "rowspan"]),
   th: new Set(["colspan", "rowspan", "scope"]),
@@ -81,6 +82,29 @@ function isSafeUrl(url: string): boolean {
   return false;
 }
 
+/**
+ * 反转义 CSS 字符串（处理 Unicode 16进制转义如 \72 或 \000072 以及字符转义 \( ），并移除注释
+ */
+export function unescapeCss(str: string): string {
+  // 移除 CSS 注释 /* ... */
+  const withoutComments = str.replace(/\/\*[\s\S]*?\*\//g, "");
+  // CSS 转义：\72, \000072 (1-6位16进制加可选空格) 或 \( 非16进制字符
+  return withoutComments.replace(/\\(?:([0-9a-fA-F]{1,6})\s?|([\s\S]))/g, (_, hex, char) => {
+    if (hex) {
+      const code = parseInt(hex, 16);
+      if (code === 0 || (code >= 0xd800 && code <= 0xdfff) || code > 0x10ffff) {
+        return "\uFFFD";
+      }
+      try {
+        return String.fromCodePoint(code);
+      } catch {
+        return "\uFFFD";
+      }
+    }
+    return char || "";
+  });
+}
+
 /** 过滤 style 字符串，仅保留白名单 CSS 属性，移除危险值（expression/url(javascript:)） */
 function sanitizeStyle(style: string): string {
   const decls: string[] = [];
@@ -91,14 +115,14 @@ function sanitizeStyle(style: string): string {
     const val = raw.slice(idx + 1).trim();
     if (!prop || !val) continue;
     if (!ALLOWED_CSS_PROPS.has(prop)) continue;
-    // 拦截 CSS 注入：expression()、javascript:、behavior、@import、url() 外链
-    const valLower = val.toLowerCase();
-    if (valLower.includes("expression(")) continue;
-    if (valLower.includes("javascript:")) continue;
-    if (valLower.includes("behavior:")) continue;
-    if (valLower.includes("-moz-binding")) continue;
-    if (valLower.includes("@import")) continue;
-    if (valLower.includes("url(") || valLower.includes("image(")) continue;
+    // 拦截 CSS 注入：expression()、javascript:、behavior、@import、url() 外链（先 unescapeCss 反转义）
+    const valUnescaped = unescapeCss(val).toLowerCase();
+    if (valUnescaped.includes("expression(")) continue;
+    if (valUnescaped.includes("javascript:")) continue;
+    if (valUnescaped.includes("behavior:")) continue;
+    if (valUnescaped.includes("-moz-binding")) continue;
+    if (valUnescaped.includes("@import")) continue;
+    if (valUnescaped.includes("url(") || valUnescaped.includes("image(")) continue;
     decls.push(`${prop}: ${val}`);
   }
   return decls.join("; ");
@@ -171,8 +195,8 @@ export function sanitizeHTML(value: string): globalThis.Node {
       if (!allowed) continue;
 
       let val = attr.value;
-      // href/src 做协议检查
-      if ((lowerName === "href" || lowerName === "src") && !isSafeUrl(val)) continue;
+      // href/src/xlink:href 做协议检查
+      if ((lowerName === "href" || lowerName === "src" || lowerName === "xlink:href") && !isSafeUrl(val)) continue;
       // style 单独过滤
       if (lowerName === "style") {
         val = sanitizeStyle(val);

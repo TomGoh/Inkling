@@ -12,11 +12,8 @@ import { useWorkspace } from "../../store/workspace";
 import { writeTextFile, listDir } from "../../lib/fs";
 import { diffLines, nextBackupPath } from "../../lib/diff";
 import { IconAlertTriangle, IconX } from "../icons";
+import { baseName } from "../../lib/path-utils";
 import "./ConflictDialog.css";
-
-function baseName(path: string): string {
-  return path.split(/[\\/]/).pop() || path;
-}
 
 /** 把本地内容另存为同目录副本文件，返回副本路径 */
 async function saveLocalBackup(

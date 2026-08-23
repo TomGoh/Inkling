@@ -7,6 +7,7 @@ import { useWorkspace, type OpenTab } from "../../store/workspace";
 import { flushAllMarkdownPublishers } from "../Editor/markdown-publisher";
 import { openInNewWindow } from "../../lib/newWindow";
 import { useContextMenuClamping } from "../../hooks/useContextMenuClamping";
+import { baseName } from "../../lib/path-utils";
 import "./TabContextMenu.css";
 
 interface TabContextMenuProps {
@@ -16,11 +17,6 @@ interface TabContextMenuProps {
   x: number;
   y: number;
   onClose: () => void;
-}
-
-/** 取文件名（去目录路径） */
-function baseName(path: string): string {
-  return path.split(/[\\/]/).pop() || path;
 }
 
 export function TabContextMenu({ tab, x, y, onClose }: TabContextMenuProps) {

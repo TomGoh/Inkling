@@ -39,6 +39,27 @@ export function persistExpandedDirs(dirs: Set<string>): void {
 /** 书签列表的持久化 key */
 const BOOKMARKS_KEY = "inkling-bookmarks";
 
+/** 删除文件时未保存修改的内存快照备份 key */
+const DELETED_FILE_SNAPSHOTS_KEY = "inkling-deleted-snapshots";
+
+export interface DeletedFileSnapshot {
+  path: string;
+  content: string;
+  deletedAt: number;
+}
+
+/** 持久化被删除 dirty 文件的快照备份 */
+export function persistDeletedSnapshot(path: string, content: string): void {
+  const list = loadJSON<DeletedFileSnapshot[]>(DELETED_FILE_SNAPSHOTS_KEY, [], Array.isArray);
+  const next = [{ path, content, deletedAt: Date.now() }, ...list.filter((item) => item.path !== path)].slice(0, 20);
+  writeJSON(DELETED_FILE_SNAPSHOTS_KEY, next);
+}
+
+/** 读取被删除文件的快照备份 */
+export function loadDeletedSnapshots(): DeletedFileSnapshot[] {
+  return loadJSON<DeletedFileSnapshot[]>(DELETED_FILE_SNAPSHOTS_KEY, [], Array.isArray);
+}
+
 /** 读取持久化的书签列表 */
 export function loadBookmarks(): string[] {
   return loadJSON<string[]>(BOOKMARKS_KEY, [], Array.isArray);

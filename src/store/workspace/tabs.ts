@@ -94,7 +94,7 @@ export interface TabsSlice {
   /** 更新指定分屏文件的内容（绑定文件，避免 swap/close 后串写，PR #34） */
   setSplitContentFor: (path: string, content: string) => void;
   /** 保存当前文件到磁盘 */
-  saveCurrent: () => Promise<void>;
+  saveCurrent: (options?: { interactive?: boolean }) => Promise<void>;
   /** 设置当前光标所在标题 slug（编辑器选区变化时调用） */
   setCurrentHeadingSlug: (slug: string | null) => void;
   /** 保存指定 tab 的编辑位置（光标 pos + 滚动 offset）。绑定文件路径，
@@ -531,7 +531,8 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       get().setContentFor(path, content);
     },
 
-    saveCurrent: async () => {
+    saveCurrent: async (options) => {
+      const interactive = options?.interactive ?? true;
       flushAllMarkdownPublishers();
       const { dirty, saving, activeTabPath, openTabs } = get();
       if (!activeTabPath) return;
@@ -546,45 +547,66 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       // 记录本次保存发起时快照内容
       const contentToSave = tab.content;
 
-      // 未命名草稿：首次保存弹另存为对话框选择保存位置
-      if (tab.isUntitled) {
-        if (!isTauri()) {
-          // 浏览器 mock 模式：直接用原虚拟路径写内存
-          savePath = tab.path;
-        } else {
-          const { save } = await import("@tauri-apps/plugin-dialog");
-          const picked = await save({
-            defaultPath: "未命名.md",
-            filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
-          });
-          if (!picked) {
+      try {
+        // 未命名草稿：首次保存弹另存为对话框选择保存位置
+        if (tab.isUntitled) {
+          if (!interactive) {
+            // 非交互模式（如自动保存）：未命名文件跳过弹窗保存
             set({ saving: false });
-            return; // 用户取消
+            return;
           }
-          savePath = picked;
-        }
-      } else if (isTauri()) {
-        // 普通文件保存前与磁盘基线比对：外部已改动且未被冲突对话框处理过时二次确认，
-        // 防止 Ctrl+S 静默覆盖外部修改（直接读磁盘，不触发 openingFiles 打开态副作用）
-        try {
-          const latestOnDisk = await readTextFile(savePath);
-          if (tab.diskContent !== undefined && latestOnDisk !== tab.diskContent) {
-            const { ask } = await import("@tauri-apps/plugin-dialog");
-            const confirmed = await ask(
-              "文件已被外部程序修改。覆盖保存将丢失外部修改，是否继续覆盖？",
-              { title: "保存冲突提示", kind: "warning" },
-            );
-            if (!confirmed) {
+          if (!isTauri()) {
+            // 浏览器 mock 模式：直接用原虚拟路径写内存
+            savePath = tab.path;
+          } else {
+            const { save } = await import("@tauri-apps/plugin-dialog");
+            const picked = await save({
+              defaultPath: "未命名.md",
+              filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
+            });
+            if (!picked) {
+              set({ saving: false });
+              return; // 用户取消
+            }
+            savePath = picked;
+          }
+        } else if (isTauri()) {
+          // 普通文件保存前与磁盘基线比对：外部已改动且未被冲突对话框处理过时二次确认，
+          // 防止 Ctrl+S 静默覆盖外部修改（直接读磁盘，不触发 openingFiles 打开态副作用）
+          let shouldCheckConflict = false;
+          try {
+            const latestOnDisk = await readTextFile(savePath);
+            if (tab.diskContent !== undefined && latestOnDisk !== tab.diskContent) {
+              shouldCheckConflict = true;
+            }
+          } catch {
+            // 文件可能被删除或不可读，继续尝试保存
+          }
+
+          if (shouldCheckConflict) {
+            if (!interactive) {
+              // 自动保存等非交互场景遇到冲突，静默跳过不弹窗也不覆盖
+              set({ saving: false });
+              return;
+            }
+            try {
+              const { ask } = await import("@tauri-apps/plugin-dialog");
+              const confirmed = await ask(
+                "文件已被外部程序修改。覆盖保存将丢失外部修改，是否继续覆盖？",
+                { title: "保存冲突提示", kind: "warning" },
+              );
+              if (!confirmed) {
+                set({ saving: false });
+                return;
+              }
+            } catch {
+              // 弹窗异常或被 reject/取消时，视为放弃覆盖并安全退出
               set({ saving: false });
               return;
             }
           }
-        } catch {
-          // 文件可能被删除或不可读，继续尝试保存
         }
-      }
 
-      try {
         await writeTextFile(savePath, contentToSave);
         const now = Date.now();
         // 异步窗口结束后重新获取最新 store 状态，避免覆盖窗口期间其他 tab / 分屏并发发布的编辑内容
@@ -614,14 +636,15 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
           currentFile: latestState.currentFile === activeTabPath ? savePath : latestState.currentFile,
           saving: false,
           dirty: currentActiveTab ? currentActiveTab.dirty : false,
-          saveError: null,
+          saveError: latestState.activeTabPath === activeTabPath ? null : latestState.saveError,
           lastSavedAt: latestState.activeTabPath === activeTabPath ? now : latestState.lastSavedAt,
           recentFiles: nextRecent,
         });
       } catch (e) {
+        const latestState = get();
         set({
           saving: false,
-          saveError: e instanceof Error ? e.message : String(e),
+          saveError: latestState.activeTabPath === activeTabPath ? (e instanceof Error ? e.message : String(e)) : latestState.saveError,
         });
       }
     },

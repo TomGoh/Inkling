@@ -11,11 +11,13 @@ import {
 } from "../../lib/fileTree";
 import {
   directoryRequests,
+  fileRequests,
   forcedDirectoryRequests,
   intents,
   loadExpandedDirs,
   parentDir,
   persistBookmarks,
+  persistDeletedSnapshot,
   persistExpandedDirs,
   persistRecentFiles,
   rebasePathPrefix,
@@ -295,6 +297,13 @@ export const createFileTreeSlice: StateCreator<
       nextFileOpenErrors.set(to, err);
     }
 
+    // 迁移 fileRequests Promise 映射
+    if (fileRequests.has(from)) {
+      const req = fileRequests.get(from)!;
+      fileRequests.delete(from);
+      fileRequests.set(to, req);
+    }
+
     const patch: Partial<WorkspaceState> = {
       openTabs: nextTabs,
       recentFiles: rf,
@@ -325,7 +334,18 @@ export const createFileTreeSlice: StateCreator<
   },
 
   onFileDeleted: (path) => {
-    const { openTabs, expandedDirs, loadedDirs, loadingDirs, directoryErrors } = get();
+    const { openTabs, currentContent, expandedDirs, loadedDirs, loadingDirs, directoryErrors } = get();
+    // 内存保护：若被删除文件包含未保存的 dirty 内容，先写入临时快照
+    const affectedTabs = openTabs.filter(
+      (t) => t.path === path || t.path.startsWith(path + "/") || t.path.startsWith(path + "\\"),
+    );
+    for (const tab of affectedTabs) {
+      if (tab.dirty) {
+        const contentToSave = tab.path === get().activeTabPath ? currentContent : (tab.content ?? "");
+        persistDeletedSnapshot(tab.path, contentToSave);
+      }
+    }
+
     const affected = openTabs.find((t) => t.path === path);
     if (affected) {
       get().closeTab(path);

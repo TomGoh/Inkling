@@ -1,15 +1,16 @@
-// 保存逻辑：Ctrl/Cmd+S 手动保存 + dirty 变化后防抖 2 秒自动保存
+// 保存逻辑：Ctrl/Cmd+S 手动保存 + dirty 变化后防抖自动保存（支持连续失败指数退避与非阻塞模式）
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { flushAllMarkdownPublishers } from "../components/Editor/markdown-publisher";
 import { useWorkspace } from "../store/workspace";
 
-const AUTOSAVE_DEBOUNCE_MS = 2000;
+const BASE_AUTOSAVE_DEBOUNCE_MS = 2000;
+const MAX_AUTOSAVE_DEBOUNCE_MS = 60000;
 
 /**
  * 挂载后监听：
  * - 全局 Ctrl/Cmd+S 键盘事件 → 立即保存
- * - dirty 变为 true 后 2 秒仍 dirty → 自动保存（未命名草稿除外）
+ * - dirty 变为 true 后防抖自动保存（未命名草稿除外；支持连续失败指数退避 2s -> 4s -> 8s... -> 60s；非阻塞静默跳过冲突）
  */
 export function useAutoSave() {
   const dirty = useWorkspace((s) => s.dirty);
@@ -22,32 +23,51 @@ export function useAutoSave() {
   });
   const saveCurrent = useWorkspace((s) => s.saveCurrent);
 
+  // 连续失败次数计数器
+  const failCountRef = useRef(0);
+
   // 手动保存快捷键
   useEffect(() => {
     function onKeydown(e: KeyboardEvent) {
       const mod = e.ctrlKey || e.metaKey;
       // 排除 Alt/Shift，避免与 Ctrl/Cmd+Alt+S（源代码模式）等组合键冲突
-        if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "s") {
-          e.preventDefault();
-          // 先 flush 防抖窗口内的序列化，再保存，否则可能保存旧内容
-          flushAllMarkdownPublishers();
-          void saveCurrent();
-        }
+      if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        // 先 flush 防抖窗口内的序列化，再保存，否则可能保存旧内容
+        flushAllMarkdownPublishers();
+        void saveCurrent({ interactive: true });
+      }
     }
     window.addEventListener("keydown", onKeydown);
     return () => window.removeEventListener("keydown", onKeydown);
   }, [saveCurrent]);
 
-  // 自动保存：dirty 且非保存中且非未命名草稿时，防抖 2 秒触发
+  // 自动保存：dirty 且非保存中且非未命名草稿时，防抖触发（指数退避）
   useEffect(() => {
     if (!dirty || saving || !currentFile) return;
     if (activeTabIsUntitled) return;
-    const timer = window.setTimeout(() => {
+
+    // 指数退避：failCount = 0 -> 2s, failCount = 1 -> 4s, failCount = 2 -> 8s... 最大 60s
+    const delay = failCountRef.current === 0
+      ? BASE_AUTOSAVE_DEBOUNCE_MS
+      : Math.min(MAX_AUTOSAVE_DEBOUNCE_MS, BASE_AUTOSAVE_DEBOUNCE_MS * Math.pow(2, failCountRef.current));
+
+    const timer = window.setTimeout(async () => {
       // 脏状态可能来自上一次保存；定时器到点时最新编辑或仍在防抖窗口内，
       // 与手动保存同样先 flush，避免保存旧内容（PR #34 review）
       flushAllMarkdownPublishers();
-      void saveCurrent();
-    }, AUTOSAVE_DEBOUNCE_MS);
+      try {
+        await saveCurrent({ interactive: false });
+        const state = useWorkspace.getState();
+        if (!state.dirty && !state.saveError) {
+          failCountRef.current = 0;
+        } else if (state.saveError) {
+          failCountRef.current = Math.min(failCountRef.current + 1, 6);
+        }
+      } catch {
+        failCountRef.current = Math.min(failCountRef.current + 1, 6);
+      }
+    }, delay);
     return () => window.clearTimeout(timer);
   }, [dirty, saving, currentFile, activeTabIsUntitled, saveCurrent]);
 }

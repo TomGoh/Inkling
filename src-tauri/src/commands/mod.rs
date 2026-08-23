@@ -9,6 +9,7 @@ pub use search::search_in_workspace;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 const IGNORED_DIR_NAMES: &[&str] = &["node_modules", "target", "dist", "build", "out"];
@@ -412,10 +413,17 @@ fn write_text_file_sync(file_path: String, content: String) -> Result<(), String
         .unwrap_or_default();
     let temp_path = parent.join(format!(".{}.tmp.{}", file_name, nonce));
 
-    if let Err(e) = fs::write(&temp_path, &content) {
+    let mut temp_file = fs::File::create(&temp_path)
+        .map_err(|e| format!("创建临时文件失败 {}: {}", temp_path.display(), e))?;
+    if let Err(e) = temp_file.write_all(content.as_bytes()) {
         let _ = fs::remove_file(&temp_path);
         return Err(format!("写入临时文件失败 {}: {}", temp_path.display(), e));
     }
+    if let Err(e) = temp_file.sync_all() {
+        let _ = fs::remove_file(&temp_path);
+        return Err(format!("临时文件物理落盘(sync_all)失败 {}: {}", temp_path.display(), e));
+    }
+    drop(temp_file);
 
     // 重命名原子替换目标文件
     if let Err(e) = fs::rename(&temp_path, path) {

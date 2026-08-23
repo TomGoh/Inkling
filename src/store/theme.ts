@@ -26,6 +26,11 @@ interface ThemeState {
 
 const STORAGE_KEY = "inkling-theme";
 
+// 设计决策说明：
+// 使用同步 localStorage 存储纯字符串 ("light" | "dark")，
+// 确保应用在 index.html 初始脚本或 React 首次渲染前可同步读取并设置 documentElement 的 data-theme，
+// 从而彻底避免异步存储（如 IndexedDB/Tauri Store）导致的白屏/黑屏首屏闪烁 (FOUC)。
+
 /** 从 localStorage 恢复主题，无记录时跟随系统偏好 */
 function getInitialMode(): ThemeMode {
   try {

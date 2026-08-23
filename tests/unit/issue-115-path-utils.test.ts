@@ -1,7 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { parentDir, dirNameOf, joinPath, normalizePath, isPathWithin } from "../../src/lib/path";
+import { parentDir, dirNameOf, joinPath, normalizePath, isPathWithin, baseName } from "../../src/lib/path-utils";
 
 describe("Issue #115: Unified Path Utilities", () => {
+  it("baseName handles POSIX, Windows, and Windows UNC paths correctly", () => {
+    expect(baseName("/foo/bar/baz.md")).toBe("baz.md");
+    expect(baseName("C:\\foo\\bar\\baz.md")).toBe("baz.md");
+    expect(baseName("\\\\server\\share\\folder\\file.md")).toBe("file.md");
+    expect(baseName("\\\\server\\share\\file.md")).toBe("file.md");
+    expect(baseName("singlefile.md")).toBe("singlefile.md");
+    expect(baseName("")).toBe("");
+  });
+
   it("parentDir and dirNameOf handle POSIX and Windows root correctly", () => {
     expect(parentDir("/a/b/c.md")).toBe("/a/b");
     expect(parentDir("/file.md")).toBe("/");

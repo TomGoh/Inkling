@@ -9,12 +9,8 @@ import { useWorkspace, type OpenTab } from "../../store/workspace";
 import { flushAllMarkdownPublishers } from "../Editor/markdown-publisher";
 import { TabContextMenu } from "./TabContextMenu";
 import { IconX } from "../icons";
+import { baseName } from "../../lib/path-utils";
 import "./TabsBar.css";
-
-/** 取文件名（去目录路径） */
-function baseName(path: string): string {
-  return path.split(/[\\/]/).pop() || path;
-}
 
 /** tab 显示名：未命名草稿显示「未命名 N」，普通文件显示文件名 */
 function tabLabel(tab: OpenTab): string {

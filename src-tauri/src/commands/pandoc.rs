@@ -29,7 +29,13 @@ fn make_temp_export_path() -> PathBuf {
 
 /// 检查系统是否安装 pandoc
 #[tauri::command]
-pub fn pandoc_check() -> Result<bool, String> {
+pub async fn pandoc_check() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(pandoc_check_sync)
+        .await
+        .map_err(|e| format!("pandoc 检查任务失败: {e}"))?
+}
+
+fn pandoc_check_sync() -> Result<bool, String> {
     let output = build_pandoc_locate_command()
         .output()
         .map_err(|e| format!("查找 pandoc 失败: {}", e))?;
@@ -54,7 +60,19 @@ fn build_pandoc_locate_command() -> Command {
 /// - output_path：导出文件路径（用户选择）
 /// - resource_dir：可选，当前 Markdown 文件目录，用于解析图片相对路径
 #[tauri::command]
-pub fn pandoc_export_docx(
+pub async fn pandoc_export_docx(
+    markdown: String,
+    output_path: String,
+    resource_dir: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        pandoc_export_docx_sync(markdown, output_path, resource_dir)
+    })
+    .await
+    .map_err(|e| format!("pandoc 导出任务失败: {e}"))?
+}
+
+fn pandoc_export_docx_sync(
     markdown: String,
     output_path: String,
     resource_dir: Option<String>,

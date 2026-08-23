@@ -5,7 +5,7 @@ import { useWorkspace } from "../../src/store/workspace";
 vi.mock("../../src/lib/fs", () => ({
   readTextFile: vi.fn(async () => "disk content"),
   writeTextFile: vi.fn(async () => {}),
-  resolveAssetUrl: vi.fn((p: string) => p),
+  resolveImageSrc: vi.fn((p: string) => p),
 }));
 
 describe("退出时批量保存与 Tab 还原逻辑", () => {

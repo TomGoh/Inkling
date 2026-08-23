@@ -9,7 +9,7 @@ import { Plugin, PluginKey, NodeSelection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 
 /** 插件状态 */
-interface SlashState {
+export interface SlashState {
   active: boolean;
   /** `/` 字符所在位置 */
   anchorPos: number;
@@ -19,8 +19,7 @@ interface SlashState {
   selectedIndex: number;
 }
 
-/** 命令定义 */
-interface SlashCommand {
+export interface SlashCommand {
   label: string;
   keywords: string;
   icon: string;
@@ -37,7 +36,7 @@ const initialState: SlashState = {
 };
 
 /** 判断光标是否在不应触发的节点内 */
-function isInForbiddenNode(view: EditorView): boolean {
+export function isInForbiddenNode(view: EditorView): boolean {
   const { $head } = view.state.selection;
   for (let d = $head.depth; d > 0; d--) {
     const name = $head.node(d).type.name;
@@ -56,7 +55,7 @@ function isInForbiddenNode(view: EditorView): boolean {
 }
 
 /** 计算光标前是否符合斜杠触发条件 */
-function detectSlash(view: EditorView): { anchorPos: number; query: string } | null {
+export function detectSlash(view: EditorView): { anchorPos: number; query: string } | null {
   const { selection } = view.state;
   if (!selection.empty) return null;
   if (isInForbiddenNode(view)) return null;
@@ -69,7 +68,7 @@ function detectSlash(view: EditorView): { anchorPos: number; query: string } | n
 }
 
 /** 从文档推导状态（不依赖 selectedIndex） */
-function deriveState(view: EditorView, prev: SlashState): SlashState {
+export function deriveState(view: EditorView, prev: SlashState): SlashState {
   const detected = detectSlash(view);
   if (!detected) {
     return { ...initialState };
@@ -84,7 +83,7 @@ function deriveState(view: EditorView, prev: SlashState): SlashState {
   };
 }
 
-function matchCommand(cmd: SlashCommand, query: string): boolean {
+export function matchCommand(cmd: SlashCommand, query: string): boolean {
   if (!query) return true;
   const q = query.toLowerCase();
   return (
@@ -94,7 +93,7 @@ function matchCommand(cmd: SlashCommand, query: string): boolean {
 }
 
 /** 创建命令列表 */
-function buildCommands(view: EditorView): SlashCommand[] {
+export function buildCommands(view: EditorView): SlashCommand[] {
   const schema = view.state.schema;
   const cmds: SlashCommand[] = [];
 

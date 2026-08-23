@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 interface UseContextMenuClampingOptions {
   x: number;
@@ -33,7 +33,7 @@ export function useContextMenuClamping<T extends HTMLElement>({
 }: UseContextMenuClampingOptions) {
   const ref = useRef<T>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
 

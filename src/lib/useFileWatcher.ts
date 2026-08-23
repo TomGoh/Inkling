@@ -12,13 +12,10 @@ import { isTauri } from "@tauri-apps/api/core";
 import { useWorkspace } from "../store/workspace";
 import { useConflict } from "../store/conflict";
 import { fileMtime, readTextFile } from "./fs";
+import { baseName } from "./path-utils";
 
 const POLL_INTERVAL = 3000;
 const SAVE_IGNORE_WINDOW = 2000;
-
-function baseName(path: string): string {
-  return path.split(/[\\/]/).pop() || path;
-}
 
 export function useFileWatcher(): void {
   const knownMtimeRef = useRef<number | null>(null);

@@ -11,6 +11,7 @@ import type { Node } from "@milkdown/kit/prose/model";
 import { $view } from "@milkdown/kit/utils";
 import { imageSchema } from "@milkdown/kit/preset/commonmark";
 import { resolveImageSrc } from "../../lib/fs";
+import { clampMenuPosition } from "../../hooks/useContextMenuClamping";
 
 /** 图片对齐方式 */
 type ImageAlign = "left" | "center" | "right";
@@ -230,10 +231,23 @@ class ImageNodeView implements NodeView {
       this.updateNodeAttrs(null, this.align);
     });
 
-    // 定位菜单
+    // 定位菜单并进行视口边界钳制
+    menu.style.position = "fixed";
     menu.style.left = `${e.clientX}px`;
     menu.style.top = `${e.clientY}px`;
     document.body.appendChild(menu);
+
+    const rect = menu.getBoundingClientRect();
+    const { x: clampedX, y: clampedY } = clampMenuPosition(
+      e.clientX,
+      e.clientY,
+      rect.width,
+      rect.height,
+      window.innerWidth,
+      window.innerHeight,
+    );
+    menu.style.left = `${clampedX}px`;
+    menu.style.top = `${clampedY}px`;
 
     const close = (ev: MouseEvent) => {
       if (!menu.contains(ev.target as globalThis.Node)) {
