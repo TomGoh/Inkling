@@ -131,29 +131,28 @@ export function SourceModeEditor({
       scrollToHeading: (heading) => {
         const v = viewRef.current;
         if (!v) return;
-        let targetPos = -1;
         const currentDoc = v.state.doc.toString();
-        // 如果当前 heading.pos 处的文本刚好匹配
-        if (
-          heading.pos >= 0 &&
-          heading.pos < currentDoc.length
-        ) {
-          targetPos = heading.pos;
-        }
-        // 如果位置偏移，从当前文档重新提取大纲进行匹配
-        if (targetPos === -1 || targetPos > currentDoc.length) {
-          const freshHeadings = extractMarkdownOutline(currentDoc);
-          const matched =
-            freshHeadings.find((h) => h.id === heading.id) ||
-            freshHeadings.find(
-              (h) => h.text === heading.text && h.level === heading.level,
-            ) ||
-            freshHeadings[heading.index];
-          if (matched) {
-            targetPos = matched.pos;
+        const freshHeadings = extractMarkdownOutline(currentDoc);
+
+        // 优先通过 heading.id 精准匹配，其次按 text + level 匹配，最后回退按 index 兜底
+        const matched =
+          freshHeadings.find((h) => h.id === heading.id) ||
+          freshHeadings.find(
+            (h) => h.text === heading.text && h.level === heading.level,
+          ) ||
+          (heading.index >= 0 && heading.index < freshHeadings.length
+            ? freshHeadings[heading.index]
+            : undefined);
+
+        let targetPos = matched?.pos ?? -1;
+        if (targetPos < 0 || targetPos > currentDoc.length) {
+          // 若大纲匹配未命中，且原 heading.pos 合法，则尝试原 heading.pos
+          if (heading.pos >= 0 && heading.pos <= currentDoc.length) {
+            targetPos = heading.pos;
+          } else {
+            return;
           }
         }
-        if (targetPos < 0) return;
 
         // 移动光标并平滑滚动到该行
         v.dispatch({
@@ -206,10 +205,10 @@ export function SourceModeEditor({
     requestAnimationFrame(() => view.focus());
 
     return () => {
+      if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
       unregisterSourceModeScroll(filePath);
       unregisterSourceModeSearch(filePath);
       view.scrollDOM.removeEventListener("scroll", handleScroll);
-      if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
       onUnmountRef.current?.({
         cursor: view.state.selection.main.head,
         scrollTop: view.scrollDOM.scrollTop,

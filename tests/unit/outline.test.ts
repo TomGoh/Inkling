@@ -124,6 +124,16 @@ describe("parseOutline", () => {
     });
     expect(hs[1].pos).toBeGreaterThan(0);
   });
+
+  it("未闭合 frontmatter 超过行数上限自动退出，不影响后续标题解析", () => {
+    const md =
+      "---\ntitle: 未闭合\n" +
+      "line\n".repeat(110) +
+      "# 正常标题\n正文内容";
+    const hs = extractMarkdownOutline(md);
+    expect(hs.length).toBeGreaterThan(0);
+    expect(hs[0].text).toBe("正常标题");
+  });
 });
 
 describe("findActiveHeadingIndex", () => {

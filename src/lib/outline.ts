@@ -249,6 +249,12 @@ function cleanMarkdownText(raw: string): string {
 }
 
 /**
+ * frontmatter 最大扫描行数上限（防止用户首行写了 `---` 却未闭合时导致整篇文档所有标题被吞）。
+ * 真实 YAML frontmatter 通常远小于 100 行。
+ */
+export const MAX_FRONTMATTER_SCAN_LINES = 100;
+
+/**
  * 从 Markdown 文本中提取大纲条目（包含 offset、行号 line 等元数据）
  * 供源码模式（Source Mode）下的 OutlinePanel 渲染及同步。
  */
@@ -260,6 +266,7 @@ export function extractMarkdownOutline(
   let offset = 0;
   let inFence: string | null = null;
   let inFrontmatter = false;
+  let frontmatterStartLine = -1;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -268,11 +275,15 @@ export function extractMarkdownOutline(
     // 文档首部 frontmatter 区域检测
     if (i === 0 && trimmed === "---") {
       inFrontmatter = true;
+      frontmatterStartLine = 0;
       offset += line.length + 1;
       continue;
     }
     if (inFrontmatter) {
       if (trimmed === "---" || trimmed === "...") {
+        inFrontmatter = false;
+      } else if (i - frontmatterStartLine > MAX_FRONTMATTER_SCAN_LINES) {
+        // 超出合理行数上限视作未闭合 frontmatter，退出 frontmatter 状态回退为普通文本
         inFrontmatter = false;
       }
       offset += line.length + 1;
@@ -332,6 +343,7 @@ export function parseOutline(markdown: string): OutlineHeading[] {
   let offset = 0;
   let inFence: string | null = null; // 当前围栏标记（``` 或 ~~~）
   let inFrontmatter = false;
+  let frontmatterStartLine = -1;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -340,11 +352,15 @@ export function parseOutline(markdown: string): OutlineHeading[] {
     // 文档首部 frontmatter 区域检测
     if (i === 0 && trimmed === "---") {
       inFrontmatter = true;
+      frontmatterStartLine = 0;
       offset += line.length + 1;
       continue;
     }
     if (inFrontmatter) {
       if (trimmed === "---" || trimmed === "...") {
+        inFrontmatter = false;
+      } else if (i - frontmatterStartLine > MAX_FRONTMATTER_SCAN_LINES) {
+        // 超出合理行数上限视作未闭合 frontmatter，退出 frontmatter 状态回退为普通文本
         inFrontmatter = false;
       }
       offset += line.length + 1;
