@@ -330,9 +330,10 @@ mod tests {
             "# Hello World\nLine 2"
         );
 
-        // 4. 测试 file_mtime 获取时间戳
+        // 4. 测试 file_mtime 获取毫秒时间戳
         let mtime = file_mtime_sync(test_file_str.clone()).unwrap();
-        assert!(mtime > 0.0);
+        // 毫秒时间戳应该远大于 1,700,000,000,000 (2023年)
+        assert!(mtime > 1_700_000_000_000.0);
 
         // 5. 测试 write_binary_file
         let bin_file = temp.path.join("nested/folder/image.png");
@@ -563,7 +564,7 @@ fn read_text_file_sync(file_path: String) -> Result<String, String> {
     fs::read_to_string(path).map_err(|e| format!("读取失败 {}: {}", file_path, e))
 }
 
-/// 读取文件的最后修改时间（Unix 秒，浮点）
+/// 读取文件的最后修改时间（Unix 毫秒，浮点）
 /// 用于前端轮询检测外部修改，提示用户重新加载
 #[tauri::command]
 pub async fn file_mtime(file_path: String) -> Result<f64, String> {
@@ -581,11 +582,11 @@ fn file_mtime_sync(file_path: String) -> Result<f64, String> {
     let mtime = meta
         .modified()
         .map_err(|e| format!("读取修改时间失败: {}", e))?;
-    let secs = mtime
+    let millis = mtime
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs_f64())
+        .map(|d| d.as_millis() as f64)
         .map_err(|e| e.to_string())?;
-    Ok(secs)
+    Ok(millis)
 }
 
 /// 重命名/移动文件或目录
