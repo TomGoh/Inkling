@@ -48,25 +48,32 @@ test.describe("大纲面板", () => {
   });
 
   test("O3 点击大纲项滚动并高亮", async ({ page }) => {
-    // 追加多标题
+    // 调小 viewport 高度以确保内容超出视口产生真实滚动
+    await page.setViewportSize({ width: 1280, height: 480 });
+    // 追加多标题与多段落
     await page.locator(".ProseMirror").click();
     await moveCaretToDocEnd(page);
-    await page.keyboard.press("Enter");
-    await page.keyboard.type("## 第二段");
-    await page.keyboard.press("Enter");
-    await page.keyboard.type("内容内容内容");
-    await page.keyboard.press("Enter");
-    await page.keyboard.type("## 第三段");
+    for (let i = 1; i <= 8; i++) {
+      await page.keyboard.press("Enter");
+      await page.keyboard.type(`## 第 ${i} 章节`);
+      await page.keyboard.press("Enter");
+      await page.keyboard.type("这是较长的段落内容用于撑开编辑区域产生滚动条。".repeat(4));
+    }
+    // 将编辑器滚动回顶部
+    await page.locator(".editor-scroll").evaluate((el) => {
+      el.scrollTop = 0;
+    });
     await ensureOutlineVisible(page);
     const scrollTopBefore = await page.locator(".editor-scroll").evaluate((el) => el.scrollTop);
+    expect(scrollTopBefore).toBe(0);
     // 点击最后一个大纲项
     const lastItem = page.locator(".outline-item").last();
     await lastItem.click();
-    // 等待 280ms 滚动动画
-    await page.waitForTimeout(400);
+    // 等待滚动与高亮
+    await page.waitForTimeout(500);
     const scrollTopAfter = await page.locator(".editor-scroll").evaluate((el) => el.scrollTop);
-    // 滚动位置应有变化（或已到底）
-    expect(scrollTopAfter).not.toBe(scrollTopBefore);
+    // 滚动位置应有明显向下滚动
+    expect(scrollTopAfter).toBeGreaterThan(0);
   });
 
   test("O4 单标题文件大纲只有一项", async ({ page }) => {

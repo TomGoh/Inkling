@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v2.6.1
+> 文档版本：v2.6.2
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -312,12 +312,18 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | 3.3 文件与工作区 | 保存死锁防御与冲突安全退出 | ✅ | v2.6.1 | issue #91/#100：对话框与插件加载移入 try 块，finally 必释放 saving 锁；冲突弹窗取消或异常时安全退出拒绝静默覆盖 |
 | 3.3 文件与工作区 | 自动保存指数退避与非阻塞模式 | ✅ | v2.6.1 | issue #100：自动保存失败指数退避（最高 60s），非阻塞模式遇到外部冲突静默跳过不弹窗打扰 |
 | 3.3 文件与工作区 | Rust 物理落盘 (fsync) 与 Pandoc 异步化 | ✅ | v2.6.1 | issue #89：临时文件写入后强制 sync_all 物理落盘再 rename，Pandoc 命令卸载至 spawn_blocking 避免阻塞 |
+| 3.3 文件与工作区 | 外部删除快照恢复面板 | ✅ | v2.6.2 | 在侧边栏新增误删文件快照管理与一键恢复为未命名标签页面板 |
+| 3.3 文件与工作区 | Rust 强原子写盘与 Nonce 隔离 | ✅ | v2.6.2 | write_binary/text 与 pandoc 加入 PID+时间戳+原子自增 Nonce 与 fsync 强制物理落盘 |
+| 3.3 文件与工作区 | 二进制 IPC 分块 Base64 传输 | ✅ | v2.6.2 | 修复大文件二进制 Uint8Array 传输导致的 JSON 膨胀与栈溢出 |
+| 3.3 文件与工作区 | 毫秒级 mtime 精度与保存 Fast-Path | ✅ | v2.6.2 | Rust 与前端对齐 Unix 毫秒时间戳，保存支持 diskMtime 快速比对跳过冲突确认 |
+| 3.5 样式 | 自定义 CSS 持久化与静默降级 | ✅ | v2.6.2 | customCSS 配置路径持久化保存并在启动时优雅降级 |
 | 3.5 样式 | 菜单边界钳制与闪烁消除 | ✅ | v2.6.1 | issue #108：图片右键菜单接入 clampMenuPosition，useContextMenuClamping 改用 useLayoutEffect 杜绝闪烁 |
 | 3.3 文件与工作区 | 严格 CSP 与 Asset 权限最小化 | ✅ | v2.6.1 | issue #111：配置严格 CSP 白名单，assetProtocol 静态 scope 收敛至应用数据目录 |
 | 3.3 文件与工作区 | 路径工具标准化与 UNC 支持 | ✅ | v2.6.1 | issue #115：全工程统一收敛使用 path-utils 的 baseName 并支持 Windows UNC 路径 |
 
 ### 8.2 发布版本
 
+- **v2.6.2** 评审遗留深度加固、数据可靠性与工程质量修复：①P0 级别写盘与数据恢复防线：Rust 端底层原子写盘（`write_binary_file`/`write_text_file`/`pandoc`）采用 `PID + 时间戳 + AtomicU64` 生成全局唯一临时文件，并在 `rename` 前调用 `file.sync_all()` 强制物理刷盘；前端重构二进制 IPC，采用 32KB 分块 Base64 编解码，彻底杜绝大文件 JSON 膨胀与调用栈溢出；侧边栏新增外部删除文件快照恢复面板（`DeletedSnapshots.tsx`），支持误删内容一键无损还原为未命名标签页。②P1 级别稳定性与精度对齐：Rust `file_mtime` 升级对齐为 Unix 毫秒时间戳，FileWatcher 容差过滤收紧至 `< 5ms`；`saveCurrent` 引入 `diskMtime` 内存比对 Fast-Path，消除无外部篡改时的冗余冲突弹窗；自定义 CSS 路径持久化并在启动初始化时静默容错；`tsconfig.json` 覆盖全部测试目录并修复全量测试代码类型报错。③P2 级别规范与体验收敛：统一前后端搜索忽略列表并引入 `MAX_SEARCH_DEPTH = 64` 防递归溢出；封装统一原生对话框模块（`src/lib/dialogs.ts`），全面替代项目内散落的 `window.confirm` 与 `alert`。详见 `docs/v2.6.2 设计文档.md`
 - **v2.6.1** 架构加固、缺陷修复与测试质量重构：①P0 缺陷彻底修复：解决 #91 保存死锁漏洞，修复 #100/#91 冲突弹窗取消吞咽覆盖风险，修复 #86 CSS 16进制转义注入与 SVG 协议检查，配置 #111 严格 CSP 策略并收紧 asset scope，按需动态导入 mockFs 隔离生产包；②P1 稳定性与性能优化：实现 #100 自动保存失败指数退避与非阻塞模式，#89 Rust 原子写盘物理落盘（`file.sync_all()`）与 Pandoc 异步化（`spawn_blocking`），#92 跨 Tab saveError 状态隔离，#93 删除未保存文件内存快照保护，#98 修复 fileRequests 重命名泄漏，#96 useFileWatcher 监听容差精度提升至毫秒级，#97 Store 校验与死 mock 清理，#108 图片菜单边界防溢出与 `useLayoutEffect` 消除闪烁；③P2 工程与规范：全量收敛 `baseName` 至 `path-utils` 兼容 UNC 路径，补充主题同步存储说明，重写真实测试套件（并发保存、斜杠菜单、Diff 算法、HTML 安全转义、跨 Tab 隔离、导出 Flush）。详见 `docs/v2.6.1 设计文档.md`
 - **v2.6.0** 32 项 GitHub Issues 全面攻坚与架构安全性能加固（#85 ~ #116）：①数据安全（#85/#89/#91/#92/#93/#100/#102）：Rust 端实现原子写盘（`write_text_file` 临时文件 + 原子替换）与大目录异步非阻塞 I/O，前端保存增加 `saving` 防重入与快照隔离；②交互与编辑（#94/#95/#98/#99/#103）：导出与复制操作前全量 flush 发布器，斜杠菜单 Esc 范围精准删除，重命名原子化迁移，菜单边缘防溢出钳制；③安全防御（#86/#87/#96/#111）：收紧 DOM-based Sanitizer 白名单过滤 style 块与外联 CSS，全局安全重载与异常捕获，动态放行 asset 范围；④架构与规范（#105/#106-#116）：$O(N)$ 空间优化 LCS diff，通用 `loadJSON`/`writeJSON` 与统一 `path-utils` 模块；⑤全量测试套件扩充至 470 个单元/集成测试与 152 个 E2E 测试全部 100% 通过。详见 `docs/v2.6.0 设计文档.md`
 - **v2.5.8** 全链路测试场景深度补齐与防护网加固：①补齐 Rust 后端底层文件原子写入边界与异常回退（`save_file_atomic` 父目录不存在自动递归创建）、目录安全扫描与 `search.rs` 超大文件跳过/结果上限截断集成测试；②补齐前端扩展插件与核心状态机单元测试（`footnotes.ts` 双向跳转定位、`formula-numbering.ts` 公式动态重编与清除、`workspace/bookmarks.ts` 与 `workspace/recents.ts` LRU 淘汰与持久化、`useAutoSave` 防抖写盘与草稿跳过、`useStartupFile` 参数启动与单实例唤醒、`useCtrlWheelZoom` 滚轮缩放限制）；③补齐 Playwright 端到端深度场景测试（Tab 鼠标中键关闭与拖拽重排、Tab 右键完整菜单、外部文件变动冲突对话框 Diff/重载/保留全分支、分屏双栏独立渲染、禅模式全屏与段落专注模式样式生效）；全套 26 个 Rust 测试 + 52 个前端单测文件（450 用例）+ 152 个 E2E 测试全部通过。详见 `docs/v2.5.8 设计文档.md`

@@ -2,6 +2,31 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.6.2] - 2026-08-23
+
+### 新增功能与架构加固
+
+- **P0 写入安全与灾难恢复机制**：
+  - **Rust 物理落盘与并发临时文件唯一性**：`write_binary_file`、`write_text_file` 与 Pandoc 临时文件生成引入 `PID + 时间戳 + AtomicU64` 绝对唯一 Nonce，并在 `rename` 原子替换前强制执行 `sync_all()` 物理刷盘，杜绝文件损坏与截断为 0 字节风险。
+  - **大文件 IPC 二进制分块传输**：前端 `writeBinaryFile` 与 `exporter.ts` 采用 32KB 分块 Base64 编码，Rust 端高效解码落盘，彻底解决超大文件通过 IPC 传递时的 JSON 序列化膨胀与 JavaScript 栈溢出（#2）。
+  - **外部删除快照恢复面板与管理**：侧边栏新增 `DeletedSnapshots.tsx` 恢复面板与 Store 动作，支持一键将外部误删文档以未命名标签页形式无损恢复或清理（#3）。
+
+### 修复与优化
+
+- **P1 精度对齐与工程稳定性**：
+  - **毫秒级 mtime 精度统一**：Rust `file_mtime` 升级为 Unix 毫秒时间戳，FileWatcher 容差过滤收紧至 `< 5ms`，消除 5 秒漏检盲区（#4）。
+  - **保存冲突 Fast-Path**：`saveCurrent` 引入 `diskMtime` 内存缓存比对，无外部修改时直接快速安全覆盖，消除冗余弹窗干扰（#5）。
+  - **自定义 CSS 路径持久化**：`customCSS` 路径持久化至本地配置并在启动时通过 `initCustomCSS` 静默容错加载（#6）。
+  - **搜索规则双端对齐与深度防御**：前后端统一共享忽略目录列表，Rust 端新增 `MAX_SEARCH_DEPTH = 64` 防递归溢出（#8）。
+  - **统一原生对话框封装**：封装 `src/lib/dialogs.ts`（`showMessage` / `askConfirmation`），替换全工程散落的 `window.confirm` 与 `alert`，桌面端无缝接入 Tauri 原生 Dialog，Web 端安全降级（#9）。
+
+### 测试与重构
+
+- **P1 全量 TypeScript 测试类型健全**：
+  - `tsconfig.json` 将 `tests/` 目录显式纳入类型检查。
+  - 修复全部 50+ 个测试文件中的隐性类型问题与缺失断言，杜绝 `any` 糊弄，`tsc --noEmit` 0 报错通过。
+  - 修复 Playwright E2E 大纲面板在多时序下的定位等待逻辑。
+
 ## [2.6.1] - 2026-08-23
 
 ### 新增功能与架构加固
