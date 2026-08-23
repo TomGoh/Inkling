@@ -133,7 +133,7 @@ export function useSourceModeTransition({
             "解析失败：无法切换回渲染视图。当前 Markdown 仍保留在编辑器中，并已尝试复制到剪贴板。请检查源码语法后重试。",
             { title: "解析失败", kind: "error" },
           );
-          // 保留快照以便 SourceModeEditor 重新挂载（enterSnapshot 为 null 会空白）
+          // 失败时恢复快照以便 SourceModeEditor 重新就绪
           setEnterSnapshot({
             cursor: snap?.cursor ?? 0,
             scrollTop: snap?.scrollTop ?? 0,

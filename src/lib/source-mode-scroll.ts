@@ -25,6 +25,13 @@ export function unregisterSourceModeScroll(filePath: string) {
   registry.delete(filePath);
 }
 
+/** 在源码模式下获取当前编辑器的滚动位置与光标 */
+export function getSourceModeScroll(filePath: string): { scrollTop: number; cursor: number } | null {
+  const handler = registry.get(filePath);
+  if (!handler || !handler.getScrollAndCursor) return null;
+  return handler.getScrollAndCursor();
+}
+
 /** 在源码模式下滚动到指定大纲标题 */
 export function runSourceModeScrollToHeading(
   filePath: string,

@@ -419,7 +419,7 @@ function EditorInner({
       >
         <Milkdown />
       </div>
-      {sourceMode && enterSnapshot && (
+      {sourceMode && (
         <SourceModeEditor
           filePath={filePath}
           value={value}
@@ -427,8 +427,8 @@ function EditorInner({
             lastSyncedRef.current = md;
             onChangeRef.current?.(md);
           }}
-          initialCursor={enterSnapshot.cursor}
-          initialScrollTop={enterSnapshot.scrollTop}
+          initialCursor={enterSnapshot?.cursor ?? 0}
+          initialScrollTop={enterSnapshot?.scrollTop ?? 0}
           spellcheck={spellcheck}
           onUnmountSnapshot={(snap) => {
             exitSnapshotRef.current = snap;
