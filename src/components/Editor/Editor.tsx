@@ -433,6 +433,9 @@ function EditorInner({
           onUnmountSnapshot={(snap) => {
             exitSnapshotRef.current = snap;
           }}
+          onOutlineChange={(snapshot) => {
+            onOutlineChangeRef.current?.(snapshot);
+          }}
         />
       )}
     </div>

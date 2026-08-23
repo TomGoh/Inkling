@@ -58,4 +58,28 @@ test.describe("源代码模式", () => {
     await page.locator('.topbar-btn[title*="源代码模式"]').click();
     await expect(page.locator(".callout-block").first()).toBeVisible({ timeout: 5_000 });
   });
+
+  test("SM6 源码模式下大纲面板正常解析标题并支持点击跳转", async ({ page }) => {
+    await openFile(page, "outline-demo.md");
+    // 确保大纲面板可见
+    const panel = page.locator(".outline-panel");
+    if (!(await panel.isVisible().catch(() => false))) {
+      await page.keyboard.press(`${MOD}+'`);
+      await expect(panel).toBeVisible({ timeout: 5_000 });
+    }
+
+    // 切换至源码模式
+    await page.keyboard.press(`${MOD}+Alt+KeyS`);
+    await expect(page.getByTestId("source-mode-editor")).toBeVisible({ timeout: 5_000 });
+
+    // 大纲项依然存在且与文档结构对应
+    const outlineItems = panel.locator(".outline-item");
+    await expect(outlineItems.first()).toBeVisible({ timeout: 5_000 });
+    expect(await outlineItems.count()).toBe(3);
+
+    // 点击三级标题大纲项跳转并激活
+    const thirdItem = outlineItems.nth(2);
+    await thirdItem.click();
+    await expect(thirdItem).toHaveClass(/active/, { timeout: 5_000 });
+  });
 });
