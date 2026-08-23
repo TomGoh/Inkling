@@ -17,6 +17,7 @@ import {
   markdownOffsetToProsePos,
   prosePosToMarkdownOffset,
 } from "../../lib/source-mode-cursor";
+import { getSourceModeScroll } from "../../lib/source-mode-scroll";
 import { showMessage } from "../../lib/dialogs";
 
 export interface CursorScrollSnapshot {
@@ -31,6 +32,8 @@ interface SourceModeTransitionOptions {
   getEditor: () => Editor | undefined;
   /** 与编辑器 publisher 共享的最近同步值 ref */
   lastSyncedRef: { current: string };
+  /** 持续缓存的富文本滚动位置（避免在 display:none 时现场读取被浏览器重排钳 0） */
+  getWysiwygScrollTop?: () => number;
 }
 
 /**
@@ -44,6 +47,7 @@ export function useSourceModeTransition({
   value,
   getEditor,
   lastSyncedRef,
+  getWysiwygScrollTop,
 }: SourceModeTransitionOptions) {
   const prevSourceModeRef = useRef(sourceMode);
   const exitSnapshotRef = useRef<CursorScrollSnapshot | null>(null);
@@ -61,7 +65,7 @@ export function useSourceModeTransition({
       if (settings.typewriterMode) settings.setTypewriterMode(false);
 
       let cursor = 0;
-      let scrollTop = 0;
+      let scrollTop = getWysiwygScrollTop ? getWysiwygScrollTop() : 0;
       // 先 flush 防抖窗口内的待发编辑（idle 编辑器自动跳过），store 内容即事实源。
       // 不能无条件「当场序列化」：未编辑文档的序列化结果可能与原文有规范化
       // 差异，会被误当编辑发布、标 dirty 并改写从未编辑的文件
@@ -76,10 +80,12 @@ export function useSourceModeTransition({
           const head = view.state.selection.head;
           const textBefore = view.state.doc.textBetween(0, head, "\n", "\n");
           cursor = prosePosToMarkdownOffset(fresh, textBefore);
-          const scrollEl =
-            (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
-            view.dom.closest(".editor-scroll");
-          scrollTop = scrollEl instanceof HTMLElement ? scrollEl.scrollTop : 0;
+          if (scrollTop === 0) {
+            const scrollEl =
+              (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
+              view.dom.closest(".editor-scroll");
+            scrollTop = scrollEl instanceof HTMLElement ? scrollEl.scrollTop : 0;
+          }
         });
       }
       setEnterSnapshot({ cursor, scrollTop });
@@ -87,7 +93,8 @@ export function useSourceModeTransition({
     }
 
     if (!sourceMode && prev) {
-      const snap = exitSnapshotRef.current;
+      const liveCmScroll = getSourceModeScroll(filePath);
+      const snap = liveCmScroll ?? exitSnapshotRef.current;
       exitSnapshotRef.current = null;
       const editor = getEditor();
       if (editor) {
@@ -173,9 +180,12 @@ export function useSourceModeTransition({
                   (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
                   view.dom.closest(".editor-scroll");
                 if (scrollEl instanceof HTMLElement) {
+                  // 若提供了有效滚动位置，按高度比例与目标高度映射恢复
                   const targetTop = snap.scrollTop;
                   const applyScroll = () => {
-                    if (scrollEl.isConnected) scrollEl.scrollTop = targetTop;
+                    if (scrollEl.isConnected) {
+                      scrollEl.scrollTop = targetTop;
+                    }
                   };
                   applyScroll();
                   let frames = 0;

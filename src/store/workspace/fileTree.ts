@@ -342,7 +342,10 @@ export const createFileTreeSlice: StateCreator<
     for (const tab of affectedTabs) {
       if (tab.dirty) {
         const contentToSave = tab.path === get().activeTabPath ? currentContent : (tab.content ?? "");
-        persistDeletedSnapshot(tab.path, contentToSave);
+        const saved = persistDeletedSnapshot(tab.path, contentToSave);
+        if (!saved) {
+          console.warn(`[workspace] 写入已删除文件快照失败（可能超出配额）：${tab.path}`);
+        }
       }
     }
 

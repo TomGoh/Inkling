@@ -115,6 +115,14 @@
   font-size: 0.7rem;
 }
 
+.search-notice {
+  font-size: 0.75rem;
+  color: var(--accent, #0969da);
+  padding: 0 0.4rem;
+  white-space: nowrap;
+  animation: menu-in 0.15s ease;
+}
+
 /* 匹配高亮样式（ProseMirror Decoration.inline 注入） */
 .search-match {
   background: rgba(255, 213, 79, 0.45);

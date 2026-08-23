@@ -27,6 +27,10 @@ export interface OpenTab {
   scrollTop: number | null;
   /** 未命名草稿：尚未保存到磁盘的新建文件，保存时弹另存为对话框 */
   isUntitled?: boolean;
+  /** 文件在磁盘上已被外部删除或不存在 */
+  deletedOnDisk?: boolean;
+  /** 自动保存等后台保存检测到冲突时置为 true */
+  conflictPending?: boolean;
   /** 该标签页是否处于源代码模式（issue #19） */
   sourceMode?: boolean;
   /** 版本修订计数（reloadFile 强制刷新 DOM 时自增） */

@@ -27,10 +27,12 @@ export function loadJSON<T>(
   }
 }
 
-export function writeJSON<T>(key: string, value: T): void {
+export function writeJSON<T>(key: string, value: T): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // 忽略 localStorage 满或安全限制导致的异常
+    return true;
+  } catch (e) {
+    console.error(`[storage] Failed to write localStorage key "${key}":`, e);
+    return false;
   }
 }

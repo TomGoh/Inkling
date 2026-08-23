@@ -100,6 +100,8 @@ function EditorInner({
 }: EditorProps) {
   // 记录最近一次同步进编辑器的 value，避免 onChange 回写的值又触发覆盖，造成循环
   const lastSyncedRef = useRef(value);
+  // 持续缓存富文本编辑器的滚动位置，避免在 display:none 或切换时现场读取被浏览器重排钳 0
+  const wysiwygScrollTopRef = useRef(0);
   // 标记初始 value 是否已完成同步。publisher 在 view 创建时会把 lastSynced
   // 基线重置为「解析后 doc 的序列化结果」，与原始 value 存在规范化差异，
   // 若不跳过，外部同步 effect 会在每次挂载时把 doc 冗余重灌一遍。
@@ -248,8 +250,33 @@ function EditorInner({
   // 在浏览器绘制可点击的大纲前发布实例；卸载时同步清除旧 getter。
   useLayoutEffect(() => {
     if (loading || !getEditor()) return;
+    const editor = getEditor();
+    let cleanupScroll: (() => void) | undefined;
+    if (editor) {
+      try {
+        editor.action((ctx) => {
+          const view = ctx.get(editorViewCtx);
+          const scrollEl =
+            (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
+            view.dom.closest<HTMLElement>(".editor-scroll");
+          if (scrollEl) {
+            wysiwygScrollTopRef.current = scrollEl.scrollTop;
+            const onScroll = () => {
+              wysiwygScrollTopRef.current = scrollEl.scrollTop;
+            };
+            scrollEl.addEventListener("scroll", onScroll, { passive: true });
+            cleanupScroll = () => scrollEl.removeEventListener("scroll", onScroll);
+          }
+        });
+      } catch {
+        // ignore
+      }
+    }
     onReady?.(getEditor);
-    return () => onReady?.(null);
+    return () => {
+      cleanupScroll?.();
+      onReady?.(null);
+    };
   }, [loading, getEditor, onReady]);
 
   // 公式自动编号 / 专注模式开关切换时，dispatch 空 tr 触发重算（appendTransaction + decorations）
@@ -271,6 +298,7 @@ function EditorInner({
     value,
     getEditor,
     lastSyncedRef,
+    getWysiwygScrollTop: () => wysiwygScrollTopRef.current,
   });
 
   // 点击编辑器空白区域时的光标定位（详见 editor-root-click.ts）
@@ -419,7 +447,7 @@ function EditorInner({
       >
         <Milkdown />
       </div>
-      {sourceMode && (
+      {sourceMode && enterSnapshot && (
         <SourceModeEditor
           filePath={filePath}
           value={value}
@@ -427,8 +455,8 @@ function EditorInner({
             lastSyncedRef.current = md;
             onChangeRef.current?.(md);
           }}
-          initialCursor={enterSnapshot?.cursor ?? 0}
-          initialScrollTop={enterSnapshot?.scrollTop ?? 0}
+          initialCursor={enterSnapshot.cursor}
+          initialScrollTop={enterSnapshot.scrollTop}
           spellcheck={spellcheck}
           onUnmountSnapshot={(snap) => {
             exitSnapshotRef.current = snap;

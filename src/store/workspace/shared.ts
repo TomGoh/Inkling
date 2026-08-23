@@ -48,11 +48,16 @@ export interface DeletedFileSnapshot {
   deletedAt: number;
 }
 
-/** 持久化被删除 dirty 文件的快照备份 */
-export function persistDeletedSnapshot(path: string, content: string): void {
+/** 持久化被删除 dirty 文件的快照备份，返回是否成功写入 */
+export function persistDeletedSnapshot(path: string, content: string): boolean {
   const list = loadJSON<DeletedFileSnapshot[]>(DELETED_FILE_SNAPSHOTS_KEY, [], Array.isArray);
   const next = [{ path, content, deletedAt: Date.now() }, ...list.filter((item) => item.path !== path)].slice(0, 20);
-  writeJSON(DELETED_FILE_SNAPSHOTS_KEY, next);
+  let ok = writeJSON(DELETED_FILE_SNAPSHOTS_KEY, next);
+  if (!ok && next.length > 1) {
+    // 尝试修剪历史备份只保留最新条目
+    ok = writeJSON(DELETED_FILE_SNAPSHOTS_KEY, [{ path, content, deletedAt: Date.now() }]);
+  }
+  return ok;
 }
 
 /** 读取被删除文件的快照备份 */

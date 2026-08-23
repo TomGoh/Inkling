@@ -84,7 +84,6 @@ export function ExportMenu({ open, onOpenChange, getEditor, sourceMode }: Export
               className="export-item"
               onClick={() => {
                 onOpenChange(false);
-                if (blockedBySourceMode()) return;
                 void exportDocx().then((r) => {
                   if (!r.ok && r.error) void showMessage(r.error, { kind: "error" });
                 });

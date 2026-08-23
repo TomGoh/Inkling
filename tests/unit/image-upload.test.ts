@@ -7,14 +7,19 @@ import { Schema } from "@milkdown/kit/prose/model";
 import { EditorState, TextSelection } from "@milkdown/kit/prose/state";
 import { EditorView } from "@milkdown/kit/prose/view";
 
-const { resolvePathFromDocumentMock, writeBinaryFileMock } = vi.hoisted(() => ({
+const { resolvePathFromDocumentMock, writeBinaryFileMock, showMessageMock } = vi.hoisted(() => ({
   resolvePathFromDocumentMock: vi.fn(),
   writeBinaryFileMock: vi.fn(),
+  showMessageMock: vi.fn(),
 }));
 
 vi.mock("../../src/lib/fs", () => ({
   resolvePathFromDocument: resolvePathFromDocumentMock,
   writeBinaryFile: writeBinaryFileMock,
+}));
+
+vi.mock("../../src/lib/dialogs", () => ({
+  showMessage: showMessageMock,
 }));
 
 import { imageUploadPlugin } from "../../src/components/Editor/image-upload";
@@ -127,5 +132,35 @@ describe("imageUploadPlugin 粘贴图片", () => {
     expect(writeBinaryFileMock).not.toHaveBeenCalled();
     const inserted = view.state.doc.firstChild?.content.firstChild;
     expect(inserted?.attrs.src).toMatch(/^data:image\/jpeg;base64,/);
+  });
+
+  it("写入失败时调用 showMessage 报错 (#131)", async () => {
+    writeBinaryFileMock.mockRejectedValueOnce(new Error("Permission denied"));
+    const plugin = imageUploadPlugin("/docs/note.md");
+    const file = new File([new Uint8Array([1, 2])], "denied.png", {
+      type: "image/png",
+    });
+    (plugin.props.handlePaste as any)(view, makePasteEvent(file));
+    await flushAsync();
+
+    expect(showMessageMock).toHaveBeenCalledWith(
+      expect.stringContaining("图片插入失败：denied.png"),
+      { kind: "error" },
+    );
+  });
+
+  it("未保存草稿粘贴超过 512KB 大图给出提示 (#134)", async () => {
+    const largeBuffer = new Uint8Array(600 * 1024);
+    const file = new File([largeBuffer], "big.png", {
+      type: "image/png",
+    });
+    const plugin = imageUploadPlugin("untitled-1");
+    (plugin.props.handlePaste as any)(view, makePasteEvent(file));
+    await flushAsync();
+
+    expect(showMessageMock).toHaveBeenCalledWith(
+      expect.stringContaining("未保存草稿中内联了大图（>512KB）"),
+      { kind: "info" },
+    );
   });
 });

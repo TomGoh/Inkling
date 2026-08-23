@@ -34,6 +34,8 @@ export interface TabsSlice {
   saving: boolean;
   /** 最近一次保存的错误（null 表示无错误） */
   saveError: string | null;
+  /** 自动保存遇冲突暂停标志（非模态，点击可触发冲突处理） */
+  conflictPending: boolean;
   /** 最近一次保存时间戳（ms） */
   lastSavedAt: number | null;
   /** 当前光标所在标题的 slug（用于大纲高亮，null 表示无） */
@@ -211,6 +213,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       currentContent: tab.content,
       dirty: tab.dirty,
       saveError: null,
+      conflictPending: !!tab.conflictPending,
       lastSavedAt: tab.lastSavedAt,
       currentHeadingSlug: null,
       ...(closesSplit ? { splitFile: null, splitContent: "" } : {}),
@@ -245,6 +248,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     dirty: false,
     saving: false,
     saveError: null,
+    conflictPending: false,
     lastSavedAt: null,
     currentHeadingSlug: null,
     openingFiles: new Set(),
@@ -284,6 +288,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
                   dirty: false,
                   diskContent: content,
                   diskMtime: mtime,
+                  deletedOnDisk: false,
                   revision: (t.revision || 0) + 1,
                 }
               : t,
@@ -397,6 +402,34 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       intents.mainFile += 1;
       // 切换 tab 时重置大纲高亮，等编辑器更新后由 tracker 重新计算
       set((current) => mainTabPatch(current, tab));
+
+      // 切换激活时静默核验磁盘状态（若非草稿且处于桌面端）
+      if (!tab.isUntitled) {
+        void (async () => {
+          try {
+            const mtime = await fileMtime(filePath);
+            set((current) => {
+              const target = current.openTabs.find((t) => t.path === filePath);
+              if (!target) return {};
+              return {
+                openTabs: current.openTabs.map((t) =>
+                  t.path === filePath ? { ...t, diskMtime: mtime, deletedOnDisk: false } : t,
+                ),
+              };
+            });
+          } catch {
+            set((current) => {
+              const target = current.openTabs.find((t) => t.path === filePath);
+              if (!target) return {};
+              return {
+                openTabs: current.openTabs.map((t) =>
+                  t.path === filePath ? { ...t, deletedOnDisk: true } : t,
+                ),
+              };
+            });
+          }
+        })();
+      }
     },
 
     closeTab: (filePath) => {
@@ -622,8 +655,14 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
 
           if (shouldCheckConflict) {
             if (!interactive) {
-              // 自动保存等非交互场景遇到冲突，静默跳过不弹窗也不覆盖
-              set({ saving: false });
+              // 自动保存等非交互场景遇到冲突，标记 conflictPending 供状态栏展示，静默跳过不覆盖
+              set((current) => ({
+                saving: false,
+                conflictPending: current.activeTabPath === activeTabPath ? true : current.conflictPending,
+                openTabs: current.openTabs.map((t) =>
+                  t.path === activeTabPath ? { ...t, conflictPending: true } : t,
+                ),
+              }));
               return;
             }
             try {
@@ -663,6 +702,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
               path: savePath,
               isUntitled: false,
               dirty: isStillDirty,
+              conflictPending: false,
               lastSavedAt: now,
               diskContent: contentToSave,
               diskMtime: savedMtime,
@@ -680,6 +720,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
           currentFile: latestState.currentFile === activeTabPath ? savePath : latestState.currentFile,
           saving: false,
           dirty: currentActiveTab ? currentActiveTab.dirty : false,
+          conflictPending: currentActiveTab ? !!currentActiveTab.conflictPending : false,
           saveError: latestState.activeTabPath === activeTabPath ? null : latestState.saveError,
           lastSavedAt: latestState.activeTabPath === activeTabPath ? now : latestState.lastSavedAt,
           recentFiles: nextRecent,

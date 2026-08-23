@@ -114,6 +114,12 @@
   line-height: 1;
 }
 
+/* 外部删除标记：中划线与警示提示 */
+.tab-deleted-on-disk .tab-name {
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
 /* 关闭按钮：默认隐藏，hover tab 时显现（现代编辑器惯例） */
 .tab-close {
   border: none;

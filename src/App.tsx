@@ -11,6 +11,7 @@ import { ShortcutsHelp } from "./components/Shortcuts/ShortcutsHelp";
 import { GlobalSearchPanel } from "./components/GlobalSearch/GlobalSearchPanel";
 import { ConflictDialog } from "./components/FileConflict/ConflictDialog";
 import { ShortcutsCustomize } from "./components/Shortcuts/ShortcutsCustomize";
+import { LinkDialog } from "./components/Editor/LinkDialog";
 import { EditorTopbar } from "./components/Topbar/EditorTopbar";
 import { useWorkspace } from "./store/workspace";
 import { useUI } from "./store/ui";
@@ -102,6 +103,8 @@ function App() {
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   // 快捷键自定义面板展开状态
   const [customizeOpen, setCustomizeOpen] = useState(false);
+  // 插入链接对话框展开状态
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
 
   // UI 可见性状态
   const sidebarVisible = useUI((s) => s.sidebarVisible);
@@ -221,6 +224,7 @@ function App() {
     },
     toggleShortcutsHelp: () => setShortcutsOpen((v) => !v),
     openSettings: () => setSettingsOpen(true),
+    openLinkDialog: () => setLinkDialogOpen(true),
     getEditor,
   });
 
@@ -324,6 +328,12 @@ function App() {
         <GlobalSearchPanel
           getEditor={getEditor}
           onClose={() => setGlobalSearchOpen(false)}
+        />
+      )}
+      {linkDialogOpen && (
+        <LinkDialog
+          getEditor={getEditor}
+          onClose={() => setLinkDialogOpen(false)}
         />
       )}
       <ConflictDialog />

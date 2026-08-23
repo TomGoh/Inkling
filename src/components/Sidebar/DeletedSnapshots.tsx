@@ -10,6 +10,7 @@ import {
 } from "../../store/workspace/shared";
 import { IconChevronDown, IconChevronRight, IconFileText, IconTrash2 } from "../icons";
 import { basename } from "./treeShared";
+import { askConfirmation } from "../../lib/dialogs";
 
 export function DeletedSnapshots() {
   const [snapshots, setSnapshots] = useState<DeletedFileSnapshot[]>([]);
@@ -35,7 +36,16 @@ export function DeletedSnapshots() {
     refresh();
   };
 
-  const handleClearAll = () => {
+  const handleClearAll = async () => {
+    const count = snapshots.length;
+    const ok = await askConfirmation(
+      `确定要清除全部 ${count} 个备份快照吗？\n将永久丢失这些文件的未保存内容，且无法恢复。`,
+      {
+        title: "清除全部可恢复文件",
+        kind: "warning",
+      },
+    );
+    if (!ok) return;
     clearDeletedSnapshots();
     refresh();
   };

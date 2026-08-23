@@ -21,6 +21,8 @@ export interface GlobalShortcutHandlers {
   toggleShortcutsHelp: () => void;
   /** Ctrl/Cmd+, 打开偏好设置 */
   openSettings: () => void;
+  /** 打开插入链接弹窗 */
+  openLinkDialog?: () => void;
   /** 主编辑器实例获取函数 */
   getEditor: () => Editor | undefined;
 }
@@ -70,33 +72,14 @@ export function useGlobalShortcuts(handlers: GlobalShortcutHandlers) {
         handlersRef.current.openFindPanel(true);
         return;
       }
-      // Ctrl/Cmd+K 插入链接（Typora 标准）：选中文本加 link mark，无选中则插入 [文本](url)
+      // Ctrl/Cmd+K 插入链接（Typora 标准）：打开链接插入对话框
       if (!e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         const tabPath = useWorkspace.getState().activeTabPath;
         if (tabPath && useWorkspace.getState().getTabSourceMode(tabPath)) {
           return;
         }
-        const editor = handlersRef.current.getEditor();
-        if (editor) {
-          editor.action((ctx) => {
-            const view = ctx.get(editorViewCtx);
-            const { state } = view;
-            const { from, to, empty } = state.selection;
-            const linkMark = state.schema.marks.link;
-            if (!linkMark) return;
-            const url = window.prompt("输入链接地址：", "https://");
-            if (!url) return;
-            if (empty) {
-              const text = window.prompt("输入链接文本（可留空）：", url) ?? url;
-              const node = state.schema.text(text || url, [linkMark.create({ href: url })]);
-              view.dispatch(state.tr.replaceSelectionWith(node));
-            } else {
-              view.dispatch(state.tr.addMark(from, to, linkMark.create({ href: url })));
-            }
-            view.focus();
-          });
-        }
+        handlersRef.current.openLinkDialog?.();
         return;
       }
       // Ctrl/Cmd+Alt+0 转普通段落（Typora 标准：清除块格式，标题/引用/列表等转回段落）

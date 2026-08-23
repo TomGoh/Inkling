@@ -6,6 +6,7 @@ import { useState, useEffect } from "react";
 import {
   useShortcuts,
   SHORTCUT_DEFS,
+  RESERVED_SHORTCUTS,
   formatBinding,
   captureFromEvent,
   type ShortcutId,
@@ -37,7 +38,15 @@ export function ShortcutsCustomize({ onClose }: { onClose: () => void }) {
       }
       const binding = captureFromEvent(e);
       if (!binding) return; // 仅按修饰键，等待下一个按键
-      // 冲突检测：与其他快捷键的绑定相同则拒绝
+
+      // 1. 保留组合黑名单冲突检测
+      const reserved = RESERVED_SHORTCUTS.find((r) => r.binding === binding);
+      if (reserved) {
+        setError(`该组合为固定快捷键（${reserved.desc}），请换一个组合`);
+        return;
+      }
+
+      // 2. 自定义快捷键冲突检测：与其他快捷键的绑定相同则拒绝
       const conflict = SHORTCUT_DEFS.find(
         (d) => d.id !== capturing && getBinding(d.id) === binding,
       );

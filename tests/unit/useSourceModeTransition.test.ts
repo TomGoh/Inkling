@@ -1,13 +1,43 @@
 import { describe, expect, it, vi } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
 import { useSourceModeTransition } from "../../src/components/Editor/useSourceModeTransition";
+import { editorViewCtx, parserCtx } from "@milkdown/kit/core";
+import { registerSourceModeScroll, unregisterSourceModeScroll } from "../../src/lib/source-mode-scroll";
 
 describe("useSourceModeTransition", () => {
-  it("enters source mode and initializes snapshot", () => {
-    const filePath = "/tmp/test.md";
+  it("enters source mode and captures non-zero cursor & scroll snapshot from WYSIWYG editor", () => {
+    const filePath = "/tmp/test-enter.md";
     const value = "# Title\n\nParagraph 1\n\nParagraph 2";
     const lastSyncedRef = { current: value };
-    const getEditor = () => undefined;
+
+    const mockView = {
+      state: {
+        selection: { head: 15 },
+        doc: {
+          textBetween: (_from: number, _to: number) => "# Title\n\nParagraph",
+        },
+      },
+      dom: {
+        closest: (selector: string) => {
+          if (selector === ".editor-scroll") {
+            return { scrollTop: 120, isConnected: true };
+          }
+          return null;
+        },
+      },
+    };
+
+    const mockEditor: any = {
+      action: (fn: (ctx: any) => void) => {
+        const mockCtx = {
+          get: (key: any) => {
+            if (key === editorViewCtx) return mockView;
+            return null;
+          },
+        };
+        fn(mockCtx);
+      },
+    };
 
     const { result, rerender } = renderHook(
       ({ sourceMode }) =>
@@ -15,66 +45,90 @@ describe("useSourceModeTransition", () => {
           filePath,
           sourceMode,
           value,
-          getEditor,
+          getEditor: () => mockEditor,
           lastSyncedRef,
+          getWysiwygScrollTop: () => 120,
         }),
       {
         initialProps: { sourceMode: false },
       },
     );
 
-    // Initial state: not in source mode
     expect(result.current.enterSnapshot).toBeNull();
 
-    // Simulate switching to source mode
+    // Switch to source mode
     rerender({ sourceMode: true });
 
-    // enterSnapshot should now be populated
-    expect(result.current.enterSnapshot).toBeDefined();
-    expect(result.current.enterSnapshot?.cursor).toBe(0);
-    expect(result.current.enterSnapshot?.scrollTop).toBe(0);
+    expect(result.current.enterSnapshot).not.toBeNull();
+    expect(result.current.enterSnapshot?.cursor).toBeGreaterThan(0);
+    expect(result.current.enterSnapshot?.scrollTop).toBe(120);
   });
 
-  it("handles exit snapshot restoring WYSIWYG editor state", () => {
-    const filePath = "/tmp/test2.md";
+  it("handles exit snapshot and restores PM selection & scroll position", async () => {
+    const rafCallbacks: FrameRequestCallback[] = [];
+    const originalRaf = window.requestAnimationFrame;
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    };
+
+    const filePath = "/tmp/test-exit.md";
     const value = "# Title\n\nParagraph 1\n\nParagraph 2";
     const lastSyncedRef = { current: value };
 
-    let actionCalled = false;
+    const mockScrollEl = { scrollTop: 0, isConnected: true };
+    Object.setPrototypeOf(mockScrollEl, HTMLElement.prototype);
+
+    const mockTr = {
+      replaceWith: vi.fn().mockReturnThis(),
+      setSelection: vi.fn().mockReturnThis(),
+      setMeta: vi.fn().mockReturnThis(),
+    };
+
     const mockView = {
       state: {
         plugins: [],
         doc: {
-          content: { size: 10 },
+          content: { size: 40 },
+          resolve: vi.fn().mockReturnValue({ pos: 18 }),
           textBetween: () => "",
         },
-        tr: {
-          replaceWith: vi.fn().mockReturnThis(),
-          setSelection: vi.fn().mockReturnThis(),
-          setMeta: vi.fn().mockReturnThis(),
-        },
+        tr: mockTr,
       },
       dispatch: vi.fn(),
-      dom: { closest: () => ({ scrollTop: 0 }) },
+      dom: {
+        closest: (selector: string) => {
+          if (selector === ".editor-scroll") {
+            return mockScrollEl;
+          }
+          return null;
+        },
+      },
     };
 
     const mockEditor: any = {
       action: (fn: (ctx: any) => void) => {
-        actionCalled = true;
         const mockCtx = {
-          get: () => {
-            return mockView;
+          get: (key: any) => {
+            if (key === editorViewCtx) return mockView;
+            if (key === parserCtx) return (val: string) => ({ content: { size: val.length } });
+            return null;
           },
         };
-        try {
-          fn(mockCtx);
-        } catch {
-          // ignore inside mock test
-        }
+        fn(mockCtx);
       },
     };
 
-    const { result, rerender } = renderHook(
+    // 注册活跃 CodeMirror 滚动获取实例
+    registerSourceModeScroll(filePath, {
+      scrollToHeading: vi.fn(),
+      getScrollAndCursor: () => ({
+        cursor: 18,
+        scrollTop: 85,
+      }),
+    });
+
+    const { rerender } = renderHook(
       ({ sourceMode }) =>
         useSourceModeTransition({
           filePath,
@@ -88,18 +142,21 @@ describe("useSourceModeTransition", () => {
       },
     );
 
-    // In source mode, record exit snapshot
-    act(() => {
-      result.current.exitSnapshotRef.current = {
-        cursor: 12,
-        scrollTop: 150,
-      };
-    });
-
-    // Switch back to WYSIWYG
+    // Switch back to WYSIWYG mode
     rerender({ sourceMode: false });
 
-    expect(actionCalled).toBe(true);
-    expect(result.current.exitSnapshotRef.current).toBeNull();
+    // Flush all nested requestAnimationFrames
+    while (rafCallbacks.length > 0) {
+      const cb = rafCallbacks.shift();
+      cb?.(0);
+    }
+
+    // Verify PM transaction replaced content and restored selection
+    expect(mockTr.replaceWith).toHaveBeenCalled();
+    expect(mockView.dispatch).toHaveBeenCalled();
+    expect(mockScrollEl.scrollTop).toBe(85);
+
+    unregisterSourceModeScroll(filePath);
+    window.requestAnimationFrame = originalRaf;
   });
 });
