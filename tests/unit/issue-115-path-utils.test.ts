@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parentDir, dirNameOf, joinPath, normalizePath, isPathWithin, baseName } from "../../src/lib/path-utils";
+import { parentDir, dirNameOf, joinPath, isPathWithin, baseName } from "../../src/lib/path-utils";
 
 describe("Issue #115: Unified Path Utilities", () => {
   it("baseName handles POSIX, Windows, and Windows UNC paths correctly", () => {

@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from "vitest";
 import { Schema } from "@milkdown/kit/prose/model";
-import { EditorState, TextSelection, Plugin, PluginKey } from "@milkdown/kit/prose/state";
+import { EditorState, TextSelection } from "@milkdown/kit/prose/state";
 import { EditorView } from "@milkdown/kit/prose/view";
 import {
   searchKey,

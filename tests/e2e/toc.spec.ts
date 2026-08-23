@@ -29,6 +29,7 @@ test.describe("TOC 目录", () => {
     await expect(page.locator(".toc-block")).toBeVisible({ timeout: 10_000 });
     const scroll = page.locator(".editor-scroll");
     const before = await scroll.evaluate((el) => el.scrollTop);
+    void before;
     // 点击最后一个 TOC 项
     const lastItem = page.locator(".toc-list .toc-item a").last();
     await lastItem.click();

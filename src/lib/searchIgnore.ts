@@ -1,4 +1,4 @@
-/** Directories ignored during global text search and file scanning */
+/** 搜索忽略目录：与 Rust 侧 src-tauri/src/commands/search.rs IGNORED_SEARCH_DIRS 保持同步 */
 const IGNORED_DIRS = new Set([
   "node_modules",
   ".git",
@@ -7,6 +7,7 @@ const IGNORED_DIRS = new Set([
   "target",
   "dist",
   "build",
+  "out",
   "coverage",
   ".next",
   ".nuxt",

@@ -39,6 +39,7 @@ function tab(path: string, content: string, diskContent: string): OpenTab {
     dirty: true,
     isUntitled: false,
     diskContent,
+    lastSavedAt: null,
   };
 }
 

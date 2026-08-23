@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { useWorkspace } from "../../store/workspace";
 import { openInNewWindow } from "../../lib/newWindow";
 import { deletePath } from "../../lib/fs";
+import { askConfirmation, showMessage } from "../../lib/dialogs";
 import { useContextMenuClamping } from "../../hooks/useContextMenuClamping";
 import { isMarkdown, TREE_ACTION_EVENT, type MenuPayload, type TreeAction } from "./treeShared";
 
@@ -51,7 +52,11 @@ export function TreeContextMenu({
     const msg = node.is_dir
       ? `确定删除文件夹「${node.name}」及其所有内容吗？`
       : `确定删除「${node.name}」吗？`;
-    if (!window.confirm(msg)) {
+    const confirmed = await askConfirmation(msg, {
+      title: "删除确认",
+      kind: "warning",
+    });
+    if (!confirmed) {
       onClose();
       return;
     }
@@ -60,8 +65,9 @@ export function TreeContextMenu({
       const affected = openTabs.filter((t) => t.path.startsWith(node.path));
       const dirty = affected.filter((t) => t.dirty);
       if (dirty.length > 0) {
-        const ok = window.confirm(
+        const ok = await askConfirmation(
           `文件夹下有 ${dirty.length} 个未保存的文件，删除将丢失这些修改，确定继续吗？`,
+          { title: "未保存修改警告", kind: "warning" },
         );
         if (!ok) {
           onClose();
@@ -71,8 +77,9 @@ export function TreeContextMenu({
     } else {
       const tab = openTabs.find((t) => t.path === node.path);
       if (tab?.dirty) {
-        const ok = window.confirm(
+        const ok = await askConfirmation(
           `「${node.name}」有未保存的修改，删除将丢失修改，确定继续吗？`,
+          { title: "未保存修改警告", kind: "warning" },
         );
         if (!ok) {
           onClose();
@@ -84,7 +91,7 @@ export function TreeContextMenu({
       await deletePath(node.path);
       onFileDeleted(node.path);
     } catch (e) {
-      alert(`删除失败：${e instanceof Error ? e.message : String(e)}`);
+      await showMessage(`删除失败：${e instanceof Error ? e.message : String(e)}`, { kind: "error" });
     }
     onClose();
   };
@@ -108,7 +115,7 @@ export function TreeContextMenu({
         await useWorkspace.getState().openFile(payload.node.path);
       }
     } catch (e) {
-      alert(`打开文件失败：${e instanceof Error ? e.message : String(e)}`);
+      await showMessage(`打开文件失败：${e instanceof Error ? e.message : String(e)}`, { kind: "error" });
     } finally {
       onClose();
     }

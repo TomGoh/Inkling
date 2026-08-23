@@ -24,20 +24,38 @@ pub struct SearchHit {
 
 /// 超过此大小（字节）的文件跳过
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024;
+/// 递归搜索的最大目录深度，防异常深树导致栈溢出
+const MAX_SEARCH_DEPTH: usize = 64;
 
+// 搜索忽略目录：与前端 src/lib/searchIgnore.ts 保持同步
 const IGNORED_SEARCH_DIRS: &[&str] = &[
     "node_modules",
     "target",
     "dist",
     "build",
     "out",
+    "coverage",
+    ".next",
+    ".nuxt",
+    ".cache",
+    ".codegraph",
+    ".obsidian",
     ".git",
     ".svn",
     ".hg",
 ];
 
-/// 递归收集目录下所有 .md/.markdown 文件路径（带循环引用检测和依赖过滤）
-fn collect_md_files(dir: &Path, visited: &mut HashSet<PathBuf>, out: &mut Vec<String>) {
+/// 递归收集目录下所有 .md/.markdown 文件路径（带循环引用检测、深度限制和依赖过滤）
+fn collect_md_files(
+    dir: &Path,
+    visited: &mut HashSet<PathBuf>,
+    out: &mut Vec<String>,
+    current_depth: usize,
+) {
+    if current_depth > MAX_SEARCH_DEPTH {
+        return;
+    }
+
     let canonical = match dir.canonicalize() {
         Ok(c) => c,
         Err(_) => return,
@@ -75,7 +93,7 @@ fn collect_md_files(dir: &Path, visited: &mut HashSet<PathBuf>, out: &mut Vec<St
             if IGNORED_SEARCH_DIRS.iter().any(|&d| d.eq_ignore_ascii_case(&name_str)) {
                 continue;
             }
-            collect_md_files(&path, visited, out);
+            collect_md_files(&path, visited, out, current_depth + 1);
         } else if path.is_file() {
             let lower = name_str.to_lowercase();
             if lower.ends_with(".md") || lower.ends_with(".markdown") {
@@ -136,7 +154,7 @@ fn search_in_workspace_sync(
     let mut files: Vec<String> = Vec::new();
     if root_path.is_dir() {
         let mut visited = HashSet::new();
-        collect_md_files(root_path, &mut visited, &mut files);
+        collect_md_files(root_path, &mut visited, &mut files, 0);
         files.sort();
     } else if root_path.is_file() {
         if let Some(p) = root_path.to_str() {

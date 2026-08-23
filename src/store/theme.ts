@@ -5,7 +5,8 @@
 
 import { create } from "zustand";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, message } from "@tauri-apps/plugin-dialog";
+import { loadJSON, writeJSON } from "../lib/storage";
 
 export type ThemeMode = "light" | "dark";
 
@@ -16,6 +17,8 @@ interface ThemeState {
   customCSS: string | null;
   /** 自定义 CSS 文件路径（用于显示） */
   customCSSPath: string | null;
+  /** 初始化加载持久化的自定义 CSS */
+  initCustomCSS: () => Promise<void>;
   /** 切换明暗主题 */
   setMode: (mode: ThemeMode) => void;
   /** 加载自定义 CSS 文件 */
@@ -25,6 +28,7 @@ interface ThemeState {
 }
 
 const STORAGE_KEY = "inkling-theme";
+const CUSTOM_CSS_PATH_KEY = "inkling-custom-css-path";
 
 // 设计决策说明：
 // 使用同步 localStorage 存储纯字符串 ("light" | "dark")，
@@ -83,6 +87,25 @@ export const useTheme = create<ThemeState>((set) => {
     customCSS: null,
     customCSSPath: null,
 
+    initCustomCSS: async () => {
+      if (!isTauri()) return;
+      const savedPath = loadJSON<string | null>(CUSTOM_CSS_PATH_KEY, null, (v): v is string => typeof v === "string");
+      if (!savedPath) return;
+
+      try {
+        const css = await invoke<string>("read_text_file", {
+          filePath: savedPath,
+        });
+        applyCustomCSS(css);
+        set({ customCSS: css, customCSSPath: savedPath });
+      } catch {
+        // 文件已被删/移动时静默降级（清除持久化值，回落默认主题）
+        writeJSON(CUSTOM_CSS_PATH_KEY, null);
+        applyCustomCSS(null);
+        set({ customCSS: null, customCSSPath: null });
+      }
+    },
+
     setMode: (mode) => {
       applyMode(mode);
       try {
@@ -95,7 +118,11 @@ export const useTheme = create<ThemeState>((set) => {
 
     loadCustomCSS: async () => {
       if (!isTauri()) {
-        alert("自定义 CSS 仅在桌面端支持");
+        try {
+          await message("自定义 CSS 仅在桌面端支持", { title: "提示", kind: "info" });
+        } catch {
+          // 对话框不可用时不处理
+        }
         return;
       }
       const selected = await open({
@@ -108,15 +135,29 @@ export const useTheme = create<ThemeState>((set) => {
           filePath: selected,
         });
         applyCustomCSS(css);
+        writeJSON(CUSTOM_CSS_PATH_KEY, selected);
         set({ customCSS: css, customCSSPath: selected });
       } catch (e) {
-        alert(`读取 CSS 文件失败：${e}`);
+        try {
+          await message(`读取 CSS 文件失败：${e instanceof Error ? e.message : String(e)}`, {
+            title: "错误",
+            kind: "error",
+          });
+        } catch {
+          // 忽略弹窗异常
+        }
       }
     },
 
     clearCustomCSS: () => {
+      writeJSON(CUSTOM_CSS_PATH_KEY, null);
       applyCustomCSS(null);
       set({ customCSS: null, customCSSPath: null });
     },
   };
 });
+
+// 模块加载时异步尝试初始化自定义 CSS
+if (typeof window !== "undefined") {
+  useTheme.getState().initCustomCSS().catch(() => {});
+}

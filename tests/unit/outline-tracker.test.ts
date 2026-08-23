@@ -134,11 +134,15 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
     const onChange = vi.fn();
     const plugin = outlineTrackerPlugin(onChange);
 
-    let pendingFrame: FrameRequestCallback | null = null;
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    let pendingFrame: ((time: number) => void) | null = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(((callback: (time: number) => void) => {
       pendingFrame = callback;
       return 17;
-    });
+    }) as unknown as typeof window.requestAnimationFrame);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(((callback: (time: number) => void) => {
+      pendingFrame = callback;
+      return 17;
+    }) as unknown as typeof window.requestAnimationFrame);
     const pluginView = plugin.spec.view?.(view);
     // 初始按选区发布 activeIndex 0
     expect(onChange).toHaveBeenLastCalledWith(
@@ -148,7 +152,7 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
 
     // 顶部滚动：scrollTop=0，probe=12 ≥ 第一个标题位置 0 → 仍是 0，不发布
     harness.scroller.dispatchEvent(new Event("scroll"));
-    pendingFrame?.(0);
+    (pendingFrame as ((time: number) => void) | null)?.(0);
     expect(onChange).not.toHaveBeenCalled();
     // 核心契约：绝不进入 posAtCoords 路径
     expect(posAtCoords).not.toHaveBeenCalled();
@@ -159,7 +163,7 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
     // 第二次采样落在 120ms 节流窗口内，由尾随定时器在窗口结束后执行
     harness.setScrollTop(650);
     harness.scroller.dispatchEvent(new Event("scroll"));
-    pendingFrame?.(1);
+    (pendingFrame as ((time: number) => void) | null)?.(1);
     await new Promise((r) => setTimeout(r, 160));
     expect(posAtCoords).not.toHaveBeenCalled();
     expect(onChange).toHaveBeenLastCalledWith(
@@ -177,11 +181,15 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
     const onChange = vi.fn();
     const plugin = outlineTrackerPlugin(onChange);
 
-    let pendingFrame: FrameRequestCallback | null = null;
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    let pendingFrame: ((time: number) => void) | null = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(((callback: (time: number) => void) => {
       pendingFrame = callback;
       return 17;
-    });
+    }) as unknown as typeof window.requestAnimationFrame);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(((callback: (time: number) => void) => {
+      pendingFrame = callback;
+      return 17;
+    }) as unknown as typeof window.requestAnimationFrame);
     plugin.spec.view?.(view);
     onChange.mockClear();
 
@@ -192,7 +200,7 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
     harness.setScrollHeight(1200);
     harness.setScrollTop(650);
     harness.scroller.dispatchEvent(new Event("scroll"));
-    pendingFrame?.(0);
+    (pendingFrame as ((time: number) => void) | null)?.(0);
     // probe=662：重建后位置 0/300/900 中最后一个 ≤662 的是第二个标题
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ activeIndex: 1 }),
@@ -220,7 +228,7 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
     view.state = {
       doc: mockDocument(),
       selection: { head: 1, eq: () => true },
-    };
+    } as unknown as typeof view.state;
     pluginView?.update?.(view, prev as never);
     harness.setScrollTop(650);
     harness.scroller.dispatchEvent(new Event("scroll"));
@@ -244,11 +252,15 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
     const onChange = vi.fn();
     const plugin = outlineTrackerPlugin(onChange);
 
-    let pendingFrame: FrameRequestCallback | null = null;
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    let pendingFrame: ((time: number) => void) | null = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(((callback: (time: number) => void) => {
       pendingFrame = callback;
       return 17;
-    });
+    }) as unknown as typeof window.requestAnimationFrame);
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(((callback: (time: number) => void) => {
+      pendingFrame = callback;
+      return 17;
+    }) as unknown as typeof window.requestAnimationFrame);
     plugin.spec.view?.(view);
     onChange.mockClear();
 
@@ -258,7 +270,7 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
     // 滚到深处：probe=662 落在第三个标题（600）→ activeIndex 2
     harness.setScrollTop(650);
     harness.scroller.dispatchEvent(new Event("scroll"));
-    pendingFrame?.(0);
+    (pendingFrame as ((time: number) => void) | null)?.(0);
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ activeIndex: 2 }),
     );
@@ -269,7 +281,7 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
     await new Promise((r) => setTimeout(r, 160));
     harness.setScrollTop(4);
     harness.scroller.dispatchEvent(new Event("scroll"));
-    pendingFrame?.(1);
+    (pendingFrame as ((time: number) => void) | null)?.(1);
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ activeIndex: 0 }),
     );
@@ -284,7 +296,11 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
     const onChange = vi.fn();
     const plugin = outlineTrackerPlugin(onChange);
 
-    let pendingFrame: FrameRequestCallback | null = null;
+    let pendingFrame: ((time: number) => void) | null = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation(((callback: (time: number) => void) => {
+      pendingFrame = callback;
+      return 17;
+    }) as unknown as typeof window.requestAnimationFrame);
     const requestFrame = vi
       .spyOn(window, "requestAnimationFrame")
       .mockImplementation((callback) => {
@@ -302,7 +318,7 @@ describe("outlineTrackerPlugin 视口跟踪（缓存位置 + 二分）", () => {
     expect(requestFrame).toHaveBeenCalledTimes(2);
     expect(onChange).not.toHaveBeenCalled();
 
-    pendingFrame?.(0);
+    (pendingFrame as ((time: number) => void) | null)?.(0);
     expect(onChange).not.toHaveBeenCalled(); // 顶部仍在标题 1 内
 
     harness.scroller.dispatchEvent(new Event("scroll"));
@@ -342,8 +358,8 @@ describe("outlineTrackerPlugin 编辑防抖", () => {
     // 连续三次 doc 变更：A→B→C，选区视为未变（eq 恒真）
     const sel = { head: 250, eq: () => true };
     const sA = view.state;
-    const sB = { doc: mockDocument(), selection: sel };
-    const sC = { doc: mockDocument(), selection: sel };
+    const sB = { doc: mockDocument(), selection: sel } as unknown as typeof view.state;
+    const sC = { doc: mockDocument(), selection: sel } as unknown as typeof view.state;
     view.state = sB;
     pluginView?.update?.(view as unknown as EditorView, sA as never);
     view.state = sC;
@@ -370,7 +386,7 @@ describe("outlineTrackerPlugin 编辑防抖", () => {
     onChange.mockClear();
 
     const prev = view.state;
-    view.state = { doc: mockDocument(), selection: { head: 1, eq: () => false } };
+    view.state = { doc: mockDocument(), selection: { head: 1, eq: () => false } } as unknown as typeof view.state;
     pluginView?.update?.(view as unknown as EditorView, prev as never);
     pluginView?.destroy?.();
     vi.advanceTimersByTime(300);

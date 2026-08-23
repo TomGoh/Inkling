@@ -1,16 +1,11 @@
 // capabilities 配置防回归测试
-// v1.2.10 修复：alert()/confirm() 在 Tauri webview 中被映射为 dialog.message / dialog.ask
-// 若 capabilities 缺少 dialog:allow-message / dialog:allow-ask 权限，
-// 全部替换（alert 提示）和所有 confirm 弹窗都会报 "command plugin: dialog|message not allowed acl"
 // 此测试确保权限配置不回退
 
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import defaultCap from "../../src-tauri/capabilities/default.json";
 
 function readCapabilities() {
-  const path = resolve(__dirname, "../../src-tauri/capabilities/default.json");
-  return JSON.parse(readFileSync(path, "utf-8"));
+  return defaultCap;
 }
 
 describe("capabilities/default.json ACL 权限配置（v1.2.10 防回归）", () => {

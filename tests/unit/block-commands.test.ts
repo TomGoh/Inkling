@@ -131,7 +131,7 @@ function makeView(schema: Schema, docContent: any[], selection?: { from: number;
   const root = document.createElement("div");
   document.body.appendChild(root);
   const view = new EditorView(root, { state });
-  view.nodeDOM = vi.fn((pos: number) => {
+  view.nodeDOM = vi.fn((_pos: number) => {
     const el = document.createElement("div");
     el.dispatchEvent = vi.fn();
     return el;

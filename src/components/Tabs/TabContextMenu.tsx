@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { useWorkspace, type OpenTab } from "../../store/workspace";
 import { flushAllMarkdownPublishers } from "../Editor/markdown-publisher";
 import { openInNewWindow } from "../../lib/newWindow";
+import { askConfirmation, showMessage } from "../../lib/dialogs";
 import { useContextMenuClamping } from "../../hooks/useContextMenuClamping";
 import { baseName } from "../../lib/path-utils";
 import "./TabContextMenu.css";
@@ -55,11 +56,12 @@ export function TabContextMenu({ tab, x, y, onClose }: TabContextMenuProps) {
   };
 
   /** 关闭单个，未保存时确认 */
-  const handleClose = (t: OpenTab) => {
+  const handleClose = async (t: OpenTab) => {
     const fresh = freshTabs().find((x) => x.path === t.path) ?? t;
     if (fresh.dirty) {
-      const ok = window.confirm(
+      const ok = await askConfirmation(
         `「${baseName(fresh.path)}」有未保存的修改，确定关闭吗？`,
+        { title: "未保存修改确认", kind: "warning" },
       );
       if (!ok) return;
     }
@@ -68,13 +70,14 @@ export function TabContextMenu({ tab, x, y, onClose }: TabContextMenuProps) {
   };
 
   /** 关闭其他，未保存的逐个确认 */
-  const handleCloseOthers = () => {
+  const handleCloseOthers = async () => {
     const tabs = freshTabs();
     const others = tabs.filter((t) => t.path !== tab.path);
     for (const t of others) {
       if (t.dirty) {
-        const ok = window.confirm(
+        const ok = await askConfirmation(
           `「${baseName(t.path)}」有未保存的修改，确定关闭吗？`,
+          { title: "未保存修改确认", kind: "warning" },
         );
         if (!ok) return;
       }
@@ -84,14 +87,15 @@ export function TabContextMenu({ tab, x, y, onClose }: TabContextMenuProps) {
   };
 
   /** 关闭右侧，未保存的逐个确认 */
-  const handleCloseToRight = () => {
+  const handleCloseToRight = async () => {
     const tabs = freshTabs();
     const idx = tabs.findIndex((t) => t.path === tab.path);
     const rights = tabs.slice(idx + 1);
     for (const t of rights) {
       if (t.dirty) {
-        const ok = window.confirm(
+        const ok = await askConfirmation(
           `「${baseName(t.path)}」有未保存的修改，确定关闭吗？`,
+          { title: "未保存修改确认", kind: "warning" },
         );
         if (!ok) return;
       }
@@ -101,11 +105,12 @@ export function TabContextMenu({ tab, x, y, onClose }: TabContextMenuProps) {
   };
 
   /** 关闭全部，未保存的逐个确认 */
-  const handleCloseAll = () => {
+  const handleCloseAll = async () => {
     for (const t of freshTabs()) {
       if (t.dirty) {
-        const ok = window.confirm(
+        const ok = await askConfirmation(
           `「${baseName(t.path)}」有未保存的修改，确定关闭吗？`,
+          { title: "未保存修改确认", kind: "warning" },
         );
         if (!ok) return;
       }
@@ -140,7 +145,7 @@ export function TabContextMenu({ tab, x, y, onClose }: TabContextMenuProps) {
     const ok = await openInNewWindow(tab.path);
     if (!ok) {
       // 浏览器端无多窗口能力，提示用户
-      alert("多窗口仅在桌面端可用");
+      await showMessage("多窗口仅在桌面端可用", { kind: "info" });
     }
     onClose();
   };

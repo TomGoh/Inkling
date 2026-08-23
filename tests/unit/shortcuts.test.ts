@@ -5,7 +5,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   matchBinding,
-  formatBinding,
   captureFromEvent,
   SHORTCUT_DEFS,
 } from "../../src/store/shortcuts";

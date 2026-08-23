@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWorkspace } from "../../store/workspace";
 import { createDir, createFile, joinPath } from "../../lib/fs";
+import { showMessage } from "../../lib/dialogs";
 import type { NewItemState } from "./treeShared";
 
 export function useNewItem() {
@@ -48,7 +49,7 @@ export function useNewItem() {
       }
       await refreshTree(item.parentPath);
     } catch (e) {
-      alert(`新建失败：${e instanceof Error ? e.message : String(e)}`);
+      await showMessage(`新建失败：${e instanceof Error ? e.message : String(e)}`, { kind: "error" });
     }
   }, [newItem, newItemValue, openFile, refreshTree]);
 

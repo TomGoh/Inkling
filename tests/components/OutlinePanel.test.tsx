@@ -63,7 +63,7 @@ describe("OutlinePanel 自动跟随", () => {
       return 1;
     });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockImplementation(function () {
+      .mockImplementation(function (this: HTMLElement) {
         if (this.classList.contains("outline-tree")) return rect(100, 300);
         if (this.classList.contains("outline-item-active")) return rect(230, 250);
         return rect(0, 0);
@@ -92,7 +92,7 @@ describe("OutlinePanel 自动跟随", () => {
       return 1;
     });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockImplementation(function () {
+      .mockImplementation(function (this: HTMLElement) {
         if (this.classList.contains("outline-tree")) return rect(100, 300);
         if (this.classList.contains("outline-item-active")) return rect(120, 140);
         return rect(0, 0);
@@ -152,7 +152,7 @@ describe("OutlinePanel 自动跟随", () => {
       return 1;
     });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockImplementation(function () {
+      .mockImplementation(function (this: HTMLElement) {
         if (this.classList.contains("outline-tree")) return rect(100, 300);
         if (this.classList.contains("outline-item-active")) return rect(270, 290);
         return rect(0, 0);

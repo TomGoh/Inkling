@@ -11,7 +11,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createMermaidView } from "../../src/components/Editor/mermaid-view";
-import type { Node, NodeView } from "@milkdown/kit/prose/model";
+import type { Node } from "@milkdown/kit/prose/model";
+import type { NodeView } from "@milkdown/kit/prose/view";
 
 // mock mermaid：render 返回固定 svg，initialize 空实现
 vi.mock("mermaid", () => ({

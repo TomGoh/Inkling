@@ -14,6 +14,7 @@ import {
   type SearchOpts,
 } from "./search";
 import { IconChevronDown, IconChevronRight, IconX } from "../icons";
+import { showMessage } from "../../lib/dialogs";
 import "./SearchPanel.css";
 
 interface Props {
@@ -112,7 +113,7 @@ export function SearchPanel({ getEditor, onClose, showReplace, onShowReplaceChan
       const view = ctx.get(editorViewCtx);
       const n = replaceAll(view);
       readState();
-      if (n > 0) alert(`已替换 ${n} 处`);
+      if (n > 0) void showMessage(`已替换 ${n} 处`, { kind: "info" });
     });
   };
 
