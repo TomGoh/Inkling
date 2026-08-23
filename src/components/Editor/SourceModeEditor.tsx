@@ -7,6 +7,7 @@ import { openSearchPanel, replaceNext } from "@codemirror/search";
 import { createSourceModeExtensions } from "../../lib/codemirror-shared";
 import {
   extractMarkdownOutline,
+  findSourceModeHeadingOffset,
   type EditorOutlineSnapshot,
 } from "../../lib/outline";
 import {
@@ -132,19 +133,9 @@ export function SourceModeEditor({
         const v = viewRef.current;
         if (!v) return;
         const currentDoc = v.state.doc.toString();
-        const freshHeadings = extractMarkdownOutline(currentDoc);
+        const offset = findSourceModeHeadingOffset(currentDoc, heading);
 
-        // 优先通过 heading.id 精准匹配，其次按 text + level 匹配，最后回退按 index 兜底
-        const matched =
-          freshHeadings.find((h) => h.id === heading.id) ||
-          freshHeadings.find(
-            (h) => h.text === heading.text && h.level === heading.level,
-          ) ||
-          (heading.index >= 0 && heading.index < freshHeadings.length
-            ? freshHeadings[heading.index]
-            : undefined);
-
-        let targetPos = matched?.pos ?? -1;
+        let targetPos = offset ?? -1;
         if (targetPos < 0 || targetPos > currentDoc.length) {
           // 若大纲匹配未命中，且原 heading.pos 合法，则尝试原 heading.pos
           if (heading.pos >= 0 && heading.pos <= currentDoc.length) {
