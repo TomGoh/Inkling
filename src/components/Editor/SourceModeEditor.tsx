@@ -23,6 +23,8 @@ import { useSettings } from "../../store/settings";
 export interface SourceModeSnapshot {
   cursor: number;
   scrollTop: number;
+  /** CM 滚动容器总高度，用于退出时按比例映射到印记容器滚动位置 */
+  scrollHeight: number;
 }
 
 export interface SourceModeEditorProps {
@@ -155,6 +157,7 @@ export function SourceModeEditor({
       getScrollAndCursor: () => ({
         scrollTop: view.scrollDOM.scrollTop,
         cursor: view.state.selection.main.head,
+        scrollHeight: view.scrollDOM.scrollHeight,
       }),
     });
 
@@ -203,6 +206,7 @@ export function SourceModeEditor({
       onUnmountRef.current?.({
         cursor: view.state.selection.main.head,
         scrollTop: view.scrollDOM.scrollTop,
+        scrollHeight: view.scrollDOM.scrollHeight,
       });
       view.destroy();
       viewRef.current = null;

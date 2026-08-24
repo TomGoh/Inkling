@@ -46,6 +46,7 @@ export interface ReservedShortcutDef {
 }
 
 export const RESERVED_SHORTCUTS: ReservedShortcutDef[] = [
+  { binding: "mod+s", desc: "保存当前文件" },
   { binding: "mod+n", desc: "新建未命名草稿" },
   { binding: "mod+shift+f", desc: "全局搜索" },
   { binding: "mod+r", desc: "查找与替换" },

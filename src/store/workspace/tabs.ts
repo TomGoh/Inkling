@@ -7,6 +7,7 @@ import type { StateCreator } from "zustand";
 import { isTauri } from "@tauri-apps/api/core";
 import { fileMtime, readTextFile, writeTextFile } from "../../lib/fs";
 import { flushAllMarkdownPublishers } from "../../components/Editor/markdown-publisher";
+import { useConflict } from "../conflict";
 import {
   fileRequests,
   intents,
@@ -403,20 +404,15 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       // 切换 tab 时重置大纲高亮，等编辑器更新后由 tracker 重新计算
       set((current) => mainTabPatch(current, tab));
 
-      // 切换激活时静默核验磁盘状态（若非草稿且处于桌面端）
+      // 切换激活时核验磁盘状态（若非草稿且处于桌面端）：
+      // - 文件被外部删除：标记 deletedOnDisk
+      // - 文件被外部修改：无本地改动 → 直接 reloadFile 到磁盘最新；有本地改动 → 走 conflictPending 调冲突
       if (!tab.isUntitled) {
         void (async () => {
+          const knownDiskMtime = tab.diskMtime;
+          let mtime: number;
           try {
-            const mtime = await fileMtime(filePath);
-            set((current) => {
-              const target = current.openTabs.find((t) => t.path === filePath);
-              if (!target) return {};
-              return {
-                openTabs: current.openTabs.map((t) =>
-                  t.path === filePath ? { ...t, diskMtime: mtime, deletedOnDisk: false } : t,
-                ),
-              };
-            });
+            mtime = await fileMtime(filePath);
           } catch {
             set((current) => {
               const target = current.openTabs.find((t) => t.path === filePath);
@@ -427,6 +423,54 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
                 ),
               };
             });
+            return;
+          }
+          set((current) => {
+            const target = current.openTabs.find((t) => t.path === filePath);
+            if (!target) return {};
+            return {
+              openTabs: current.openTabs.map((t) =>
+                t.path === filePath ? { ...t, diskMtime: mtime, deletedOnDisk: false } : t,
+              ),
+            };
+          });
+          // 浏览器 mock 环境无真实磁盘 mtime（每次调用返回当前时间），
+          // 若在此检测会误判"外部修改"并触发 reloadFile 重置内容，因此仅在桌面端做外部修改检测。
+          if (!isTauri()) return;
+          // 磁盘 mtime 无变化 → 无需后续处理
+          if (knownDiskMtime !== undefined && Math.abs(mtime - knownDiskMtime) < 5) {
+            return;
+          }
+          // 获取切换后的最新状态（上方 set 可能已改变活跃 tab）
+          const currentState = get();
+          const latestTab = currentState.openTabs.find((t) => t.path === filePath);
+          const stillActive = currentState.activeTabPath === filePath;
+          if (!latestTab || !stillActive) return;
+
+          if (!latestTab.dirty) {
+            // 本地无修改：直接以磁盘内容为准重载，不打扰用户
+            await get().reloadFile(filePath);
+            return;
+          }
+          // 本地有未保存改动：读磁盘内容并打开冲突对话框；同时置 conflictPending 让状态栏可见
+          try {
+            const diskContent = await readTextFile(filePath);
+            const stillNow = get();
+            if (stillNow.activeTabPath !== filePath) return;
+            set((current) => ({
+              conflictPending: true,
+              openTabs: current.openTabs.map((t) =>
+                t.path === filePath ? { ...t, conflictPending: true } : t,
+              ),
+            }));
+            useConflict.getState().openConflict({
+              filePath,
+              localContent: latestTab.content,
+              diskContent,
+              detectedAt: Date.now(),
+            });
+          } catch {
+            // 磁盘不可读（罕见竞态：读之前被删），交给 deletedOnDisk 展示
           }
         })();
       }

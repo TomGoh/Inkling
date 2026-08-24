@@ -103,11 +103,11 @@ describe("source-mode-navigation", () => {
   it("getSourceModeScroll 获取与清理正常工作", () => {
     registerSourceModeScroll("/test.md", {
       scrollToHeading: () => true,
-      getScrollAndCursor: () => ({ scrollTop: 150, cursor: 42 }),
+      getScrollAndCursor: () => ({ scrollTop: 150, cursor: 42, scrollHeight: 300 }),
     });
 
     const scroll = getSourceModeScroll("/test.md");
-    expect(scroll).toEqual({ scrollTop: 150, cursor: 42 });
+    expect(scroll).toEqual({ scrollTop: 150, cursor: 42, scrollHeight: 300 });
 
     unregisterSourceModeScroll("/test.md");
     expect(getSourceModeScroll("/test.md")).toBeNull();

@@ -5,21 +5,27 @@ import { useWorkspace } from "../../store/workspace";
 import {
   clearDeletedSnapshots,
   loadDeletedSnapshots,
+  probeSnapshotStorageHealth,
   removeDeletedSnapshot,
   type DeletedFileSnapshot,
 } from "../../store/workspace/shared";
-import { IconChevronDown, IconChevronRight, IconFileText, IconTrash2 } from "../icons";
+import { IconAlertTriangle, IconChevronDown, IconChevronRight, IconFileText, IconTrash2 } from "../icons";
 import { basename } from "./treeShared";
 import { askConfirmation } from "../../lib/dialogs";
 
 export function DeletedSnapshots() {
   const [snapshots, setSnapshots] = useState<DeletedFileSnapshot[]>([]);
   const [expanded, setExpanded] = useState(true);
+  const [health, setHealth] = useState<{
+    sizeChars: number;
+    writable: boolean;
+  } | null>(null);
   const openUntitledTabWithContent = useWorkspace((s) => s.openUntitledTabWithContent);
 
-  // 定期或初始同步 localStorage 快照
+  // 定期或初始同步 localStorage 快照与健康状态
   const refresh = () => {
     setSnapshots(loadDeletedSnapshots());
+    setHealth(probeSnapshotStorageHealth());
   };
 
   useEffect(() => {
@@ -65,6 +71,36 @@ export function DeletedSnapshots() {
           <span className="recent-title" style={{ color: "var(--accent, #e5a50a)" }}>
             可恢复文件 ({snapshots.length})
           </span>
+          {health && !health.writable && (
+            <span
+              title="存储配额不足：下次删除文件时将无法创建恢复备份，建议尽快清理或恢复现有条目"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                marginLeft: 6,
+                color: "var(--color-danger, #e74c3c)",
+                fontSize: 12,
+              }}
+            >
+              <IconAlertTriangle size={12} style={{ marginRight: 3 }} />
+              备份存储空间不足
+            </span>
+          )}
+          {health && health.writable && health.sizeChars > 2 * 1024 * 1024 && (
+            <span
+              title="当前备份快照占用较大，建议及时清理以避免配额溢出"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                marginLeft: 6,
+                color: "var(--color-warning, #f39c12)",
+                fontSize: 12,
+              }}
+            >
+              <IconAlertTriangle size={12} style={{ marginRight: 3 }} />
+              备份占用较多
+            </span>
+          )}
         </button>
         {expanded && (
           <button

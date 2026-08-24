@@ -14,6 +14,7 @@ import {
 import { useSettings } from "../../store/settings";
 import { useWorkspace } from "../../store/workspace";
 import {
+  mapScrollTop,
   markdownOffsetToProsePos,
   prosePosToMarkdownOffset,
 } from "../../lib/source-mode-cursor";
@@ -23,6 +24,8 @@ import { showMessage } from "../../lib/dialogs";
 export interface CursorScrollSnapshot {
   cursor: number;
   scrollTop: number;
+  /** 源容器（WYSIWYG/CM）滚动容器总高度，用于退出时按高度比例映射到目标印记容器 */
+  scrollHeight?: number;
 }
 
 interface SourceModeTransitionOptions {
@@ -180,8 +183,12 @@ export function useSourceModeTransition({
                   (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
                   view.dom.closest(".editor-scroll");
                 if (scrollEl instanceof HTMLElement) {
-                  // 若提供了有效滚动位置，按高度比例与目标高度映射恢复
-                  const targetTop = snap.scrollTop;
+                  // CM（源码）与 PM（印记）布局不同导致滚动容器高度不同，若两侧高度
+                  // 均可读，则按高度比例把源码滚动位置映射到印记容器，避免等像素赋值造成错位。
+                  const targetTop =
+                    snap.scrollHeight && scrollEl.scrollHeight > 0
+                      ? mapScrollTop(snap.scrollTop, snap.scrollHeight, scrollEl.scrollHeight)
+                      : snap.scrollTop;
                   const applyScroll = () => {
                     if (scrollEl.isConnected) {
                       scrollEl.scrollTop = targetTop;

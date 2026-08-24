@@ -6,8 +6,8 @@ import type { EditorOutlineHeading } from "./outline";
 export interface SourceModeScrollHandler {
   /** 滚动并聚焦到指定大纲标题所在行 */
   scrollToHeading: (heading: EditorOutlineHeading) => void;
-  /** 获取当前 CodeMirror 编辑器的滚动位置和选区 */
-  getScrollAndCursor?: () => { scrollTop: number; cursor: number };
+  /** 获取当前 CodeMirror 编辑器的滚动位置、选区与容器总高度（用于跨容器按比例映射滚动偏移） */
+  getScrollAndCursor?: () => { scrollTop: number; cursor: number; scrollHeight: number };
 }
 
 const registry = new Map<string, SourceModeScrollHandler>();
@@ -26,7 +26,9 @@ export function unregisterSourceModeScroll(filePath: string) {
 }
 
 /** 在源码模式下获取当前编辑器的滚动位置与光标 */
-export function getSourceModeScroll(filePath: string): { scrollTop: number; cursor: number } | null {
+export function getSourceModeScroll(filePath: string):
+  | { scrollTop: number; cursor: number; scrollHeight: number }
+  | null {
   const handler = registry.get(filePath);
   if (!handler || !handler.getScrollAndCursor) return null;
   return handler.getScrollAndCursor();

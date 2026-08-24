@@ -76,7 +76,7 @@ describe("useSourceModeTransition", () => {
     const value = "# Title\n\nParagraph 1\n\nParagraph 2";
     const lastSyncedRef = { current: value };
 
-    const mockScrollEl = { scrollTop: 0, isConnected: true };
+    const mockScrollEl = { scrollTop: 0, isConnected: true, scrollHeight: 200 };
     Object.setPrototypeOf(mockScrollEl, HTMLElement.prototype);
 
     const mockTr = {
@@ -124,7 +124,8 @@ describe("useSourceModeTransition", () => {
       scrollToHeading: vi.fn(),
       getScrollAndCursor: () => ({
         cursor: 18,
-        scrollTop: 85,
+        scrollTop: 50,
+        scrollHeight: 100,
       }),
     });
 
@@ -154,7 +155,8 @@ describe("useSourceModeTransition", () => {
     // Verify PM transaction replaced content and restored selection
     expect(mockTr.replaceWith).toHaveBeenCalled();
     expect(mockView.dispatch).toHaveBeenCalled();
-    expect(mockScrollEl.scrollTop).toBe(85);
+    // 比例映射：source 50/100 → target 200 期望映射为 100
+    expect(mockScrollEl.scrollTop).toBe(100);
 
     unregisterSourceModeScroll(filePath);
     window.requestAnimationFrame = originalRaf;
