@@ -2,6 +2,34 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.7.0] - 2026-08-25
+
+### 新增功能
+
+- **Ctrl+K 应用内插入链接对话框（#122）**：新增 `LinkDialog.tsx`，支持同时输入链接文本与 URL，选中文本预填，Esc / backdrop 关闭，替换原生阻塞 `window.prompt`。
+- **外部文件修改盲区与 switchTab 重载/冲突（#124）**：监听范围扩大至全部 `openTabs`，`switchTab` 核验磁盘 mtime，外部修改且本地无改动时以磁盘为准重载、有本地改动时置 `conflictPending` 并拉起冲突对话框。
+- **多窗口 Storage 同步 E2E（#133）**：重写 `multi-window-sync.spec.ts`，用浏览器原生 storage 事件驱动，断言窗口 B 应用更新 DOM `data-theme`（真实应用行为）。
+
+### 修复与优化
+
+- **模式切换视口与滚动比例映射还原（#121）**：恢复 `sourceMode && enterSnapshot` 渲染守卫，缓存 `wysiwygScrollTopRef` 规避 `display:none` 重排钳 0，退出源码模式按两端 `scrollHeight` 比例映射还原滚动位置。
+- **删除快照配额保护与写入失败用户提示（#123）**：新增 `probeSnapshotStorageHealth` 健康探测，快照写入失败时向用户展示 `showMessage` error 告警（不再静默），`DeletedSnapshots` 面板展示不可写/接近配额状态。
+- **快捷键自定义冲突黑名单补全（#125）**：`RESERVED_SHORTCUTS` 补齐全部硬编码组合（`mod+s`/`mod+n`/`mod+shift+f`/`mod+r`/`mod+k`/`mod+alt+0`/`mod+0`/`f11`），杜绝与核心功能冲突。
+- **全局搜索异步竞态守卫（#126）**：递增 `seq` 序列号，丢弃过期搜索结果。
+- **源码模式导出 Word 解绑（#127）**：移除 `exportDocx` 上的 `blockedBySourceMode` 拦截。
+- **全部替换提示非阻塞化（#128）**：以面板内 `search-notice` 状态徽章替代阻塞模态提示。
+- **清空删除快照二次确认（#129）**：`DeletedSnapshots` 清空操作接入 `askConfirmation` 警告确认。
+- **设置面板 Esc 键关闭（#130）**：`SettingsPanel` 增加 Escape 监听触发 `onClose`。
+- **图片插入与上传异常反馈（#131）**：`image-upload` 捕获保存/写入异常并弹出带文件名的错误提示。
+- **自动保存冲突状态呈现（#132）**：非交互自动保存遇外部冲突时置 `conflictPending`，`SaveIndicator` 展示"自动保存已暂停"并可点击拉起冲突对话框。
+- **未命名草稿内联大图体积护栏（#134）**：未命名草稿粘贴/拖入超 512KB 内联图片输出体积警告。
+
+### 测试与质量
+
+- 新增 `tests/store/filetree-snapshot-feedback.test.ts`，真实 QuotaExceededError 驱动快照写入失败告警与健康探测分支。
+- `tests/unit/file-watcher-opentabs.test.tsx` 补齐 #124 switchTab 外部修改 → reload / conflict 两分支用例。
+- 全套 79 个单测文件（518 用例）、154 个 E2E、27 个 Rust 用例与 `npm run build` 100% PASS。
+
 ## [2.6.3] - 2026-08-23
 
 ### 新增功能

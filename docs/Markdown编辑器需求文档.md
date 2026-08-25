@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v2.6.3
+> 文档版本：v2.7.0
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -156,6 +156,20 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 | PRD 章节 | 需求 | 状态 | 落地版本 | 说明 |
 |---|---|---|---|---|
+| 3.1 编辑器内核 | 模式切换视口与滚动比例映射还原 | ✅ | v2.7.0 | issue #121：恢复 sourceMode 快照守卫，缓存 wysiwygScrollTopRef，退出模式按两端 scrollHeight 用 mapScrollTop 比例映射恢复 |
+| 3.1 编辑器内核 | Ctrl+K 应用内插入链接对话框 | ✅ | v2.7.0 | issue #122：新增 LinkDialog.tsx，文本与 URL 双输入、选中预填、Esc/backdrop 关闭，替换原生 window.prompt |
+| 3.3 文件与工作区 | 删除快照配额告警与写入失败用户提示 | ✅ | v2.7.0 | issue #123：probeSnapshotStorageHealth 健康探测 + 快照写入失败 showMessage error 告警（不再静默）+ DeletedSnapshots 面板展示 |
+| 3.3 文件与工作区 | 外部修改盲区与 switchTab 重载/冲突 | ✅ | v2.7.0 | issue #124：监听全量 openTabs，switchTab 核验 mtime，外部修改非 dirty→reloadFile、dirty→conflictPending + 冲突对话框 |
+| 3.1 快捷键体系 | 自定义快捷键冲突黑名单补全 | ✅ | v2.7.0 | issue #125：RESERVED_SHORTCUTS 补齐 mod+s/n/shift+f/r/k/alt+0/0/f11 硬编码组合 |
+| 3.5 搜索 | 全局搜索异步竞态守卫 | ✅ | v2.7.0 | issue #126：GlobalSearchPanel 递增 seq 序列号，丢弃过期请求结果 |
+| 3.2 导出 | 源码模式导出 Word (.docx) 解绑 | ✅ | v2.7.0 | issue #127：移除 exportDocx 的 blockedBySourceMode 拦截 |
+| 3.5 搜索 | 全部替换完成提示非阻塞化 | ✅ | v2.7.0 | issue #128：search-notice 状态徽章替代阻塞模态 |
+| 3.3 文件与工作区 | 清空删除快照二次确认 | ✅ | v2.7.0 | issue #129：DeletedSnapshots 清空操作 askConfirmation 警告确认 |
+| 3.5 样式 | 设置面板 Esc 键关闭 | ✅ | v2.7.0 | issue #130：SettingsPanel 增加 Escape 监听触发 onClose |
+| 3.2 图片 | 图片插入与上传异常反馈 | ✅ | v2.7.0 | issue #131：image-upload 捕获保存/写入异常弹出带文件名的错误提示 |
+| 3.3 文件与工作区 | 自动保存冲突状态呈现 | ✅ | v2.7.0 | issue #132：冲突时置 conflictPending，SaveIndicator 展示"已暂停"并可拉起冲突对话框 |
+| 3.5 跨端 | 多窗口 Storage 同步 E2E | ✅ | v2.7.0 | issue #133：重写 multi-window-sync.spec.ts，原生 storage 事件 + DOM 断言 |
+| 3.2 图片 | 未命名草稿内联大图体积护栏 | ✅ | v2.7.0 | issue #134：未命名草稿图片超 512KB 输出体积警告 |
 | 3.1 | 实时所见即所得渲染 | ✅ | v0.1.0 | 基于 Milkdown 7 / ProseMirror |
 | 3.1 | 撤销/重做 | ✅ | v0.1.0 | Milkdown 内置 |
 | 3.2 基础 | 标题/加粗/斜体/删除线/行内代码/引用/分割线 | ✅ | v0.1.0 | commonmark + gfm preset |
@@ -325,6 +339,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 ### 8.2 发布版本
 
+- **v2.7.0** 多领域可靠性、交互体验与数据安全批量修复（#121~#134）：①模式切换视口与滚动比例映射还原（#121）与 Ctrl+K 应用内插入链接对话框（#122）；②数据安全防线——删除快照配额告警与写入失败用户可见提示（#123）、外部文件修改盲区与 switchTab 重载/冲突（#124）、清空删除快照二次确认（#129）、自动保存冲突状态呈现（#132）；③工程体验——快捷键冲突黑名单补全（#125）、全局搜索异步竞态守卫（#126）、源码模式导出 Word 解绑（#127）、全部替换提示非阻塞化（#128）、设置面板 Esc 关闭（#130）、图片插入异常反馈与草稿大图护栏（#131/#134）；④测试——重写多窗口 Storage 同步真实断言（#133）。全套 79 个单测文件（518 用例）与 154 个 E2E、27 个 Rust 用例 Build 100% 通过。详见 `docs/v2.7.0 设计文档.md`
 - **v2.6.3** 源码模式大纲联动与模式切换滚动精确同步修复（#117, #118）：①修复 #117 模式切换滚动位置漂移与视口丢失——在富文本与源码模式双向切换链路中引入连续 RAF 布局沉降检测与渐进重试机制，待 DOM 排版与高度完全稳定后精确还原 `scrollTop` 与光标选择区；②实现 #118 源码模式大纲点击跳转与阅读定位联动——重构纯 Markdown 大纲解析器 `extractMarkdownOutline`（过滤 YAML Front Matter 与围栏代码块内部伪标题，具备 100 行异常中断防御），基于 CodeMirror 滚动通道实现点击大纲平滑居中滚动与光标定位，并在源码滚动与选区更新时实时高亮大纲对应阅读层级；③测试与质量——新增 2 个源码模式导航与大纲追踪单元测试套件，扩充 Playwright 端到端测试用例，全套测试与类型检查 100% 通过。详见 `docs/v2.6.3 设计文档.md`
 - **v2.6.2** 评审遗留深度加固、数据可靠性与工程质量修复：①P0 级别写盘与数据恢复防线：Rust 端底层原子写盘（`write_binary_file`/`write_text_file`/`pandoc`）采用 `PID + 时间戳 + AtomicU64` 生成全局唯一临时文件，并在 `rename` 前调用 `file.sync_all()` 强制物理刷盘；前端重构二进制 IPC，采用 32KB 分块 Base64 编解码，彻底杜绝大文件 JSON 膨胀与调用栈溢出；侧边栏新增外部删除文件快照恢复面板（`DeletedSnapshots.tsx`），支持误删内容一键无损还原为未命名标签页。②P1 级别稳定性与精度对齐：Rust `file_mtime` 升级对齐为 Unix 毫秒时间戳，FileWatcher 容差过滤收紧至 `< 5ms`；`saveCurrent` 引入 `diskMtime` 内存比对 Fast-Path，消除无外部篡改时的冗余冲突弹窗；自定义 CSS 路径持久化并在启动初始化时静默容错；`tsconfig.json` 覆盖全部测试目录并修复全量测试代码类型报错。③P2 级别规范与体验收敛：统一前后端搜索忽略列表并引入 `MAX_SEARCH_DEPTH = 64` 防递归溢出；封装统一原生对话框模块（`src/lib/dialogs.ts`），全面替代项目内散落的 `window.confirm` 与 `alert`。详见 `docs/v2.6.2 设计文档.md`
 - **v2.6.1** 架构加固、缺陷修复与测试质量重构：①P0 缺陷彻底修复：解决 #91 保存死锁漏洞，修复 #100/#91 冲突弹窗取消吞咽覆盖风险，修复 #86 CSS 16进制转义注入与 SVG 协议检查，配置 #111 严格 CSP 策略并收紧 asset scope，按需动态导入 mockFs 隔离生产包；②P1 稳定性与性能优化：实现 #100 自动保存失败指数退避与非阻塞模式，#89 Rust 原子写盘物理落盘（`file.sync_all()`）与 Pandoc 异步化（`spawn_blocking`），#92 跨 Tab saveError 状态隔离，#93 删除未保存文件内存快照保护，#98 修复 fileRequests 重命名泄漏，#96 useFileWatcher 监听容差精度提升至毫秒级，#97 Store 校验与死 mock 清理，#108 图片菜单边界防溢出与 `useLayoutEffect` 消除闪烁；③P2 工程与规范：全量收敛 `baseName` 至 `path-utils` 兼容 UNC 路径，补充主题同步存储说明，重写真实测试套件（并发保存、斜杠菜单、Diff 算法、HTML 安全转义、跨 Tab 隔离、导出 Flush）。详见 `docs/v2.6.1 设计文档.md`
