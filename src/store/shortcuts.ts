@@ -37,6 +37,25 @@ export const SHORTCUT_DEFS: ShortcutDef[] = [
   { id: "toggleSourceMode", desc: "切换源代码模式", default: "mod+alt+s" },
 ];
 
+/**
+ * 保留快捷键定义（硬编码内置或固定快捷键，不可被自定义覆盖）
+ */
+export interface ReservedShortcutDef {
+  binding: string;
+  desc: string;
+}
+
+export const RESERVED_SHORTCUTS: ReservedShortcutDef[] = [
+  { binding: "mod+s", desc: "保存当前文件" },
+  { binding: "mod+n", desc: "新建未命名草稿" },
+  { binding: "mod+shift+f", desc: "全局搜索" },
+  { binding: "mod+r", desc: "查找与替换" },
+  { binding: "mod+k", desc: "插入超链接" },
+  { binding: "mod+alt+0", desc: "转普通段落" },
+  { binding: "mod+0", desc: "重置编辑器缩放" },
+  { binding: "f11", desc: "切换禅模式" },
+];
+
 const STORAGE_KEY = "inkling-shortcuts";
 
 interface Persisted {

@@ -2,6 +2,7 @@
 // 集中展示可由用户开关的编辑器行为，直接读写 settings store，实时生效。
 // 包含：专注模式、打字机模式、公式自动编号、代码块语法高亮主题。
 
+import { useEffect } from "react";
 import { useSettings, type CodeBlockTheme } from "../../store/settings";
 import { IconX } from "../icons";
 import "./SettingsPanel.css";
@@ -26,6 +27,15 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const setAutoPair = useSettings((s) => s.setAutoPair);
   const setSpellcheck = useSettings((s) => s.setSpellcheck);
   const reset = useSettings((s) => s.reset);
+
+  // Esc 键关闭面板
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   return (
     <div className="settings-backdrop" onClick={onClose}>

@@ -19,7 +19,7 @@ const POLL_INTERVAL = 3000;
 const SAVE_IGNORE_WINDOW = 2000;
 
 export function useFileWatcher(): void {
-  const knownMtimeRef = useRef<number | null>(null);
+  const knownMtimesRef = useRef<Map<string, number>>(new Map());
   const ignoreUntilRef = useRef<number>(0);
   const lastSavedAtRef = useRef<number | null>(null);
 
@@ -31,71 +31,94 @@ export function useFileWatcher(): void {
 
     const check = async () => {
       if (cancelled) return;
-      const { currentFile, dirty, reloadFile } = useWorkspace.getState();
-      if (!currentFile) return;
-      // 冲突对话框已打开时不重复检测，避免轮询期间再次弹窗
-      if (useConflict.getState().conflict) return;
+      const { openTabs, currentFile, dirty, reloadFile } = useWorkspace.getState();
+      if (openTabs.length === 0) return;
       if (Date.now() < ignoreUntilRef.current) return;
 
-      let mtime: number;
-      try {
-        mtime = await fileMtime(currentFile);
-      } catch {
-        return;
-      }
-      if (cancelled) return;
+      const tabsToCheck = openTabs.filter((t) => !t.isUntitled);
+      const isConflictOpen = Boolean(useConflict.getState().conflict);
 
-      if (knownMtimeRef.current === null) {
-        knownMtimeRef.current = mtime;
-        return;
-      }
-      if (Math.abs(mtime - knownMtimeRef.current) < 5) return;
-      knownMtimeRef.current = mtime;
+      for (const tab of tabsToCheck) {
+        if (cancelled) return;
+        const filePath = tab.path;
+        const isActive = filePath === currentFile;
 
-      if (dirty) {
-        // 本地有未保存修改：读取磁盘最新内容，弹冲突对话框（三选项 + Diff）
+        let mtime: number;
         try {
-          const diskContent = await readTextFile(currentFile);
-          if (cancelled) return;
-          // 等待读取期间用户可能已切文件，按路径再核对一次
-          if (useWorkspace.getState().currentFile !== currentFile) return;
-          useConflict.getState().openConflict({
-            filePath: currentFile,
-            localContent: useWorkspace.getState().currentContent,
-            diskContent,
-            detectedAt: Date.now(),
-          });
+          mtime = await fileMtime(filePath);
+          if (tab.deletedOnDisk) {
+            useWorkspace.setState((current) => ({
+              openTabs: current.openTabs.map((t) =>
+                t.path === filePath ? { ...t, deletedOnDisk: false } : t,
+              ),
+            }));
+          }
         } catch {
-          // 磁盘读取失败（文件被删除等）：使用统一 dialog 提示
-          const shouldReload = await askConfirmation(
-            `「${baseName(currentFile)}」已被外部修改或删除，且当前有未保存的修改。\n是否丢弃当前修改并重新加载？`,
-            { title: "文件冲突", kind: "warning" },
-          );
-          if (shouldReload) {
-            // reloadFile 强制从磁盘重读；openFile 对已打开 tab 只切缓存，不会真正重载
+          // 获取 mtime 失败，说明文件在磁盘上可能被删除或无法访问
+          if (!tab.deletedOnDisk) {
+            useWorkspace.setState((current) => ({
+              openTabs: current.openTabs.map((t) =>
+                t.path === filePath ? { ...t, deletedOnDisk: true } : t,
+              ),
+            }));
+          }
+          continue;
+        }
+
+        const knownMtime = knownMtimesRef.current.get(filePath);
+        if (knownMtime === undefined) {
+          knownMtimesRef.current.set(filePath, mtime);
+          continue;
+        }
+
+        if (Math.abs(mtime - knownMtime) < 5) continue;
+        knownMtimesRef.current.set(filePath, mtime);
+
+        // 如果是当前活跃文件且未打开冲突对话框，则触发相应处理
+        if (isActive && !isConflictOpen) {
+          if (dirty) {
+            // 本地有未保存修改：读取磁盘最新内容，弹冲突对话框（三选项 + Diff）
             try {
-              await reloadFile(currentFile);
-            } catch (err) {
-              console.warn("reloadFile failed", err);
+              const diskContent = await readTextFile(filePath);
+              if (cancelled) return;
+              if (useWorkspace.getState().currentFile !== filePath) return;
+              useConflict.getState().openConflict({
+                filePath,
+                localContent: useWorkspace.getState().currentContent,
+                diskContent,
+                detectedAt: Date.now(),
+              });
+            } catch {
+              // 磁盘读取失败（文件被删除等）：使用统一 dialog 提示
+              const shouldReload = await askConfirmation(
+                `「${baseName(filePath)}」已被外部修改或删除，且当前有未保存的修改。\n是否丢弃当前修改并重新加载？`,
+                { title: "文件冲突", kind: "warning" },
+              );
+              if (shouldReload) {
+                try {
+                  await reloadFile(filePath);
+                } catch (err) {
+                  console.warn("reloadFile failed", err);
+                }
+                knownMtimesRef.current.delete(filePath);
+              }
             }
-            knownMtimeRef.current = null;
+          } else {
+            // 本地无修改：询问重载
+            const shouldReload = await askConfirmation(
+              `「${baseName(filePath)}」已被外部修改，是否重新加载？`,
+              { title: "文件已被外部修改", kind: "info" },
+            );
+            if (shouldReload) {
+              try {
+                await reloadFile(filePath);
+              } catch (err) {
+                console.warn("reloadFile failed", err);
+              }
+              knownMtimesRef.current.delete(filePath);
+            }
           }
         }
-        return;
-      }
-
-      // 本地无修改：询问重载
-      const shouldReload = await askConfirmation(
-        `「${baseName(currentFile)}」已被外部修改，是否重新加载？`,
-        { title: "文件已被外部修改", kind: "info" },
-      );
-      if (shouldReload) {
-        try {
-          await reloadFile(currentFile);
-        } catch (err) {
-          console.warn("reloadFile failed", err);
-        }
-        knownMtimeRef.current = null;
       }
     };
 
@@ -114,11 +137,9 @@ export function useFileWatcher(): void {
       if (s.lastSavedAt && s.lastSavedAt !== lastSavedAtRef.current) {
         lastSavedAtRef.current = s.lastSavedAt;
         ignoreUntilRef.current = Date.now() + SAVE_IGNORE_WINDOW;
-        knownMtimeRef.current = null;
       }
       if (s.currentFile !== lastFile) {
         lastFile = s.currentFile;
-        knownMtimeRef.current = null;
         // 切走文件时关掉残留的冲突对话框（上下文已失配）
         if (useConflict.getState().conflict) {
           useConflict.getState().dismiss();

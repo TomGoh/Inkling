@@ -63,4 +63,24 @@ describe("源代码模式 tab 状态", () => {
     });
     expect(useWorkspace.getState().getTabSourceMode("/a.md")).toBe(false);
   });
+
+  it("Tab 切换时各 tab 源码模式与常规模式状态完全隔离", () => {
+    useWorkspace.setState({
+      openTabs: [
+        { ...tab("/tab1.md"), sourceMode: true },
+        { ...tab("/tab2.md"), sourceMode: false },
+      ],
+      activeTabPath: "/tab1.md",
+      currentFile: "/tab1.md",
+    });
+
+    expect(useWorkspace.getState().getTabSourceMode("/tab1.md")).toBe(true);
+    expect(useWorkspace.getState().getTabSourceMode("/tab2.md")).toBe(false);
+
+    useWorkspace.getState().switchTab("/tab2.md");
+    expect(useWorkspace.getState().getTabSourceMode()).toBe(false);
+
+    useWorkspace.getState().switchTab("/tab1.md");
+    expect(useWorkspace.getState().getTabSourceMode()).toBe(true);
+  });
 });

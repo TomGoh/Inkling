@@ -7,6 +7,7 @@ import { openSearchPanel, replaceNext } from "@codemirror/search";
 import { createSourceModeExtensions } from "../../lib/codemirror-shared";
 import {
   extractMarkdownOutline,
+  findSourceModeHeadingOffset,
   type EditorOutlineSnapshot,
 } from "../../lib/outline";
 import {
@@ -22,6 +23,8 @@ import { useSettings } from "../../store/settings";
 export interface SourceModeSnapshot {
   cursor: number;
   scrollTop: number;
+  /** CM 滚动容器总高度，用于退出时按比例映射到印记容器滚动位置 */
+  scrollHeight: number;
 }
 
 export interface SourceModeEditorProps {
@@ -132,19 +135,9 @@ export function SourceModeEditor({
         const v = viewRef.current;
         if (!v) return;
         const currentDoc = v.state.doc.toString();
-        const freshHeadings = extractMarkdownOutline(currentDoc);
+        const offset = findSourceModeHeadingOffset(currentDoc, heading);
 
-        // 优先通过 heading.id 精准匹配，其次按 text + level 匹配，最后回退按 index 兜底
-        const matched =
-          freshHeadings.find((h) => h.id === heading.id) ||
-          freshHeadings.find(
-            (h) => h.text === heading.text && h.level === heading.level,
-          ) ||
-          (heading.index >= 0 && heading.index < freshHeadings.length
-            ? freshHeadings[heading.index]
-            : undefined);
-
-        let targetPos = matched?.pos ?? -1;
+        let targetPos = offset ?? -1;
         if (targetPos < 0 || targetPos > currentDoc.length) {
           // 若大纲匹配未命中，且原 heading.pos 合法，则尝试原 heading.pos
           if (heading.pos >= 0 && heading.pos <= currentDoc.length) {
@@ -164,6 +157,7 @@ export function SourceModeEditor({
       getScrollAndCursor: () => ({
         scrollTop: view.scrollDOM.scrollTop,
         cursor: view.state.selection.main.head,
+        scrollHeight: view.scrollDOM.scrollHeight,
       }),
     });
 
@@ -212,6 +206,7 @@ export function SourceModeEditor({
       onUnmountRef.current?.({
         cursor: view.state.selection.main.head,
         scrollTop: view.scrollDOM.scrollTop,
+        scrollHeight: view.scrollDOM.scrollHeight,
       });
       view.destroy();
       viewRef.current = null;

@@ -14,7 +14,6 @@ import {
   type SearchOpts,
 } from "./search";
 import { IconChevronDown, IconChevronRight, IconX } from "../icons";
-import { showMessage } from "../../lib/dialogs";
 import "./SearchPanel.css";
 
 interface Props {
@@ -32,7 +31,15 @@ export function SearchPanel({ getEditor, onClose, showReplace, onShowReplaceChan
   const [useRegex, setUseRegex] = useState(false);
   const [count, setCount] = useState(0);
   const [current, setCurrent] = useState(0);
+  const [replaceNotice, setReplaceNotice] = useState<string | null>(null);
   const findRef = useRef<HTMLInputElement>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     findRef.current?.focus();
@@ -113,7 +120,11 @@ export function SearchPanel({ getEditor, onClose, showReplace, onShowReplaceChan
       const view = ctx.get(editorViewCtx);
       const n = replaceAll(view);
       readState();
-      if (n > 0) void showMessage(`已替换 ${n} 处`, { kind: "info" });
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+      setReplaceNotice(n > 0 ? `已替换 ${n} 处` : "未找到可替换内容");
+      noticeTimerRef.current = setTimeout(() => {
+        setReplaceNotice(null);
+      }, 2000);
     });
   };
 
@@ -194,6 +205,7 @@ export function SearchPanel({ getEditor, onClose, showReplace, onShowReplaceChan
           <button className="search-btn" title="全部替换" onClick={doReplaceAll}>
             全部
           </button>
+          {replaceNotice && <span className="search-notice" role="status">{replaceNotice}</span>}
         </div>
       )}
     </div>

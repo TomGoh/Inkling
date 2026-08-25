@@ -6,8 +6,12 @@
 import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { resolvePathFromDocument, writeBinaryFile } from "../../lib/fs";
+import { showMessage } from "../../lib/dialogs";
 
 const key = new PluginKey("inkling-image-upload");
+
+/** 草稿内联大图阈值（512KB） */
+const UNTITLED_INLINE_WARN_THRESHOLD = 512 * 1024;
 
 /** 支持的图片扩展名 */
 const IMAGE_EXTS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"];
@@ -65,6 +69,8 @@ async function insertImages(
   if (imageFiles.length === 0) return;
 
   let insertPos = pos;
+  const failedFiles: { name: string; reason: string }[] = [];
+  let hasLargeDraftImage = false;
 
   for (const file of imageFiles) {
     try {
@@ -83,6 +89,9 @@ async function insertImages(
       } else {
         // 未命名草稿（untitled-N 虚拟路径）没有可解析的本地目录，转 Data URL 内联插入；
         // 草稿另存到任意目录后图片依然随文档自带，不会产生失效的相对路径
+        if (file.size > UNTITLED_INLINE_WARN_THRESHOLD) {
+          hasLargeDraftImage = true;
+        }
         relSrc = await fileToDataUrl(file);
       }
 
@@ -98,9 +107,31 @@ async function insertImages(
       }
       view.dispatch(tr);
     } catch (e) {
+      const reason = e instanceof Error ? e.message : String(e);
       console.error("图片插入失败:", file.name, e);
+      failedFiles.push({ name: file.name, reason });
     }
   }
+
+  if (failedFiles.length > 0) {
+    if (failedFiles.length === 1) {
+      void showMessage(`图片插入失败：${failedFiles[0].name}（${failedFiles[0].reason}）`, {
+        kind: "error",
+      });
+    } else {
+      const summary = failedFiles.map((f) => f.name).join("、");
+      void showMessage(
+        `${imageFiles.length} 张图片中 ${failedFiles.length} 张插入失败：${summary}`,
+        { kind: "error" },
+      );
+    }
+  } else if (hasLargeDraftImage) {
+    void showMessage(
+      "未保存草稿中内联了大图（>512KB），建议先保存文档以自动使用 assets/ 相对路径管理图片资源。",
+      { kind: "info" },
+    );
+  }
+
   view.focus();
 }
 

@@ -4,6 +4,7 @@
 
 import type { StateCreator } from "zustand";
 import { listDir, type FileNode } from "../../lib/fs";
+import { showMessage } from "../../lib/dialogs";
 import {
   collectDirectoryPaths,
   isPathWithin,
@@ -339,11 +340,22 @@ export const createFileTreeSlice: StateCreator<
     const affectedTabs = openTabs.filter(
       (t) => t.path === path || t.path.startsWith(path + "/") || t.path.startsWith(path + "\\"),
     );
+    let failedSnapshots = 0;
     for (const tab of affectedTabs) {
       if (tab.dirty) {
         const contentToSave = tab.path === get().activeTabPath ? currentContent : (tab.content ?? "");
-        persistDeletedSnapshot(tab.path, contentToSave);
+        const saved = persistDeletedSnapshot(tab.path, contentToSave);
+        if (!saved) {
+          console.warn(`[workspace] 写入已删除文件快照失败（可能超出配额）：${tab.path}`);
+          failedSnapshots += 1;
+        }
       }
+    }
+    if (failedSnapshots > 0) {
+      const msg = failedSnapshots === affectedTabs.filter((t) => t.dirty).length
+        ? "删除时未能为未保存文件创建恢复备份（存储空间不足），这些文件的未保存内容将丢失。"
+        : `删除时有 ${failedSnapshots} 个未保存文件未能创建恢复备份（存储空间不足），其内容无法恢复。`;
+      void showMessage(msg, { kind: "error", title: "恢复备份写入失败" });
     }
 
     const affected = openTabs.find((t) => t.path === path);

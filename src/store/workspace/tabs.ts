@@ -7,6 +7,7 @@ import type { StateCreator } from "zustand";
 import { isTauri } from "@tauri-apps/api/core";
 import { fileMtime, readTextFile, writeTextFile } from "../../lib/fs";
 import { flushAllMarkdownPublishers } from "../../components/Editor/markdown-publisher";
+import { useConflict } from "../conflict";
 import {
   fileRequests,
   intents,
@@ -34,6 +35,8 @@ export interface TabsSlice {
   saving: boolean;
   /** 最近一次保存的错误（null 表示无错误） */
   saveError: string | null;
+  /** 自动保存遇冲突暂停标志（非模态，点击可触发冲突处理） */
+  conflictPending: boolean;
   /** 最近一次保存时间戳（ms） */
   lastSavedAt: number | null;
   /** 当前光标所在标题的 slug（用于大纲高亮，null 表示无） */
@@ -211,6 +214,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       currentContent: tab.content,
       dirty: tab.dirty,
       saveError: null,
+      conflictPending: !!tab.conflictPending,
       lastSavedAt: tab.lastSavedAt,
       currentHeadingSlug: null,
       ...(closesSplit ? { splitFile: null, splitContent: "" } : {}),
@@ -245,6 +249,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     dirty: false,
     saving: false,
     saveError: null,
+    conflictPending: false,
     lastSavedAt: null,
     currentHeadingSlug: null,
     openingFiles: new Set(),
@@ -284,6 +289,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
                   dirty: false,
                   diskContent: content,
                   diskMtime: mtime,
+                  deletedOnDisk: false,
                   revision: (t.revision || 0) + 1,
                 }
               : t,
@@ -397,6 +403,77 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       intents.mainFile += 1;
       // 切换 tab 时重置大纲高亮，等编辑器更新后由 tracker 重新计算
       set((current) => mainTabPatch(current, tab));
+
+      // 切换激活时核验磁盘状态（若非草稿且处于桌面端）：
+      // - 文件被外部删除：标记 deletedOnDisk
+      // - 文件被外部修改：无本地改动 → 直接 reloadFile 到磁盘最新；有本地改动 → 走 conflictPending 调冲突
+      if (!tab.isUntitled) {
+        void (async () => {
+          const knownDiskMtime = tab.diskMtime;
+          let mtime: number;
+          try {
+            mtime = await fileMtime(filePath);
+          } catch {
+            set((current) => {
+              const target = current.openTabs.find((t) => t.path === filePath);
+              if (!target) return {};
+              return {
+                openTabs: current.openTabs.map((t) =>
+                  t.path === filePath ? { ...t, deletedOnDisk: true } : t,
+                ),
+              };
+            });
+            return;
+          }
+          set((current) => {
+            const target = current.openTabs.find((t) => t.path === filePath);
+            if (!target) return {};
+            return {
+              openTabs: current.openTabs.map((t) =>
+                t.path === filePath ? { ...t, diskMtime: mtime, deletedOnDisk: false } : t,
+              ),
+            };
+          });
+          // 浏览器 mock 环境无真实磁盘 mtime（每次调用返回当前时间），
+          // 若在此检测会误判"外部修改"并触发 reloadFile 重置内容，因此仅在桌面端做外部修改检测。
+          if (!isTauri()) return;
+          // 磁盘 mtime 无变化 → 无需后续处理
+          if (knownDiskMtime !== undefined && Math.abs(mtime - knownDiskMtime) < 5) {
+            return;
+          }
+          // 获取切换后的最新状态（上方 set 可能已改变活跃 tab）
+          const currentState = get();
+          const latestTab = currentState.openTabs.find((t) => t.path === filePath);
+          const stillActive = currentState.activeTabPath === filePath;
+          if (!latestTab || !stillActive) return;
+
+          if (!latestTab.dirty) {
+            // 本地无修改：直接以磁盘内容为准重载，不打扰用户
+            await get().reloadFile(filePath);
+            return;
+          }
+          // 本地有未保存改动：读磁盘内容并打开冲突对话框；同时置 conflictPending 让状态栏可见
+          try {
+            const diskContent = await readTextFile(filePath);
+            const stillNow = get();
+            if (stillNow.activeTabPath !== filePath) return;
+            set((current) => ({
+              conflictPending: true,
+              openTabs: current.openTabs.map((t) =>
+                t.path === filePath ? { ...t, conflictPending: true } : t,
+              ),
+            }));
+            useConflict.getState().openConflict({
+              filePath,
+              localContent: latestTab.content,
+              diskContent,
+              detectedAt: Date.now(),
+            });
+          } catch {
+            // 磁盘不可读（罕见竞态：读之前被删），交给 deletedOnDisk 展示
+          }
+        })();
+      }
     },
 
     closeTab: (filePath) => {
@@ -622,8 +699,14 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
 
           if (shouldCheckConflict) {
             if (!interactive) {
-              // 自动保存等非交互场景遇到冲突，静默跳过不弹窗也不覆盖
-              set({ saving: false });
+              // 自动保存等非交互场景遇到冲突，标记 conflictPending 供状态栏展示，静默跳过不覆盖
+              set((current) => ({
+                saving: false,
+                conflictPending: current.activeTabPath === activeTabPath ? true : current.conflictPending,
+                openTabs: current.openTabs.map((t) =>
+                  t.path === activeTabPath ? { ...t, conflictPending: true } : t,
+                ),
+              }));
               return;
             }
             try {
@@ -663,6 +746,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
               path: savePath,
               isUntitled: false,
               dirty: isStillDirty,
+              conflictPending: false,
               lastSavedAt: now,
               diskContent: contentToSave,
               diskMtime: savedMtime,
@@ -680,6 +764,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
           currentFile: latestState.currentFile === activeTabPath ? savePath : latestState.currentFile,
           saving: false,
           dirty: currentActiveTab ? currentActiveTab.dirty : false,
+          conflictPending: currentActiveTab ? !!currentActiveTab.conflictPending : false,
           saveError: latestState.activeTabPath === activeTabPath ? null : latestState.saveError,
           lastSavedAt: latestState.activeTabPath === activeTabPath ? now : latestState.lastSavedAt,
           recentFiles: nextRecent,

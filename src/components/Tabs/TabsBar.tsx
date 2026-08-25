@@ -144,14 +144,17 @@ export function TabsBar() {
     <div className="tabs-bar" ref={barRef}>
       <div className="tabs-list">
         {openTabs.map((tab) => {
-          const active = tab.path === activeTabPath;
-          const isDragOver = dragOverPath === tab.path && dragPath !== null;
-          const pathDescription = pathDescriptions.get(tab.path);
-          return (
-            <div
-              key={tab.path}
-              className={`tab${active ? " tab-active" : ""}${isDragOver ? " tab-drag-over" : ""}${pathDescription ? " tab-disambiguated" : ""}`}
-              title={tab.path}
+            const active = tab.path === activeTabPath;
+            const isDragOver = dragOverPath === tab.path && dragPath !== null;
+            const pathDescription = pathDescriptions.get(tab.path);
+            const title = tab.deletedOnDisk
+              ? `${tab.path} (已在磁盘上被删除)`
+              : tab.path;
+            return (
+              <div
+                key={tab.path}
+                className={`tab${active ? " tab-active" : ""}${isDragOver ? " tab-drag-over" : ""}${pathDescription ? " tab-disambiguated" : ""}${tab.deletedOnDisk ? " tab-deleted-on-disk" : ""}`}
+                title={title}
               draggable
               onDragStart={(e) => {
                 setDragPath(tab.path);

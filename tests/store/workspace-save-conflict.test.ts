@@ -115,6 +115,16 @@ describe("saveCurrent 外部修改冲突保护", () => {
     expect(askMock).not.toHaveBeenCalled();
     expect(writeTextFileMock).toHaveBeenCalledWith("/docs/a.md", "本地编辑");
   });
+  it("自动保存（非交互）：外部冲突时不弹窗，标记 conflictPending", async () => {
+    readTextFileMock.mockResolvedValue("外部新内容");
+
+    await useWorkspace.getState().saveCurrent({ interactive: false });
+
+    expect(askMock).not.toHaveBeenCalled();
+    expect(writeTextFileMock).not.toHaveBeenCalled();
+    expect(useWorkspace.getState().conflictPending).toBe(true);
+    expect(useWorkspace.getState().openTabs[0].conflictPending).toBe(true);
+  });
 });
 
 describe("reloadFile 强制重载", () => {

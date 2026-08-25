@@ -48,16 +48,44 @@ export interface DeletedFileSnapshot {
   deletedAt: number;
 }
 
-/** 持久化被删除 dirty 文件的快照备份 */
-export function persistDeletedSnapshot(path: string, content: string): void {
+/** 持久化被删除 dirty 文件的快照备份，返回是否成功写入 */
+export function persistDeletedSnapshot(path: string, content: string): boolean {
   const list = loadJSON<DeletedFileSnapshot[]>(DELETED_FILE_SNAPSHOTS_KEY, [], Array.isArray);
   const next = [{ path, content, deletedAt: Date.now() }, ...list.filter((item) => item.path !== path)].slice(0, 20);
-  writeJSON(DELETED_FILE_SNAPSHOTS_KEY, next);
+  let ok = writeJSON(DELETED_FILE_SNAPSHOTS_KEY, next);
+  if (!ok && next.length > 1) {
+    // 尝试修剪历史备份只保留最新条目
+    ok = writeJSON(DELETED_FILE_SNAPSHOTS_KEY, [{ path, content, deletedAt: Date.now() }]);
+  }
+  return ok;
 }
 
 /** 读取被删除文件的快照备份 */
 export function loadDeletedSnapshots(): DeletedFileSnapshot[] {
   return loadJSON<DeletedFileSnapshot[]>(DELETED_FILE_SNAPSHOTS_KEY, [], Array.isArray);
+}
+
+/** 估算当前快照占用的字符数与写入状态：sizeChars 越高越接近 localStorage 5MB 上限；writable=false 表明确认写入失败（配额已耗尽） */
+export function probeSnapshotStorageHealth(): {
+  sizeChars: number;
+  entryCount: number;
+  writable: boolean;
+} {
+  const list = loadDeletedSnapshots();
+  const sizeChars = list.reduce(
+    (acc, item) => acc + (item.path?.length ?? 0) + (item.content?.length ?? 0) + 16,
+    0,
+  );
+  // 试探写一个极小哨兵值再恢复，确认剩余写入能力
+  let writable = true;
+  try {
+    const raw = localStorage.getItem(DELETED_FILE_SNAPSHOTS_KEY);
+    localStorage.setItem(DELETED_FILE_SNAPSHOTS_KEY, JSON.stringify(list));
+    if (raw !== null) localStorage.setItem(DELETED_FILE_SNAPSHOTS_KEY, raw);
+  } catch {
+    writable = false;
+  }
+  return { sizeChars, entryCount: list.length, writable };
 }
 
 /** 清空被删除文件的快照备份 */

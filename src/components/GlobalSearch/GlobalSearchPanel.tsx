@@ -80,6 +80,7 @@ export function GlobalSearchPanel({ getEditor, onClose }: GlobalSearchPanelProps
   const [activeIndex, setActiveIndex] = useState(0);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const searchSeqRef = useRef(0);
 
   // 打开时自动聚焦
   useEffect(() => {
@@ -95,16 +96,19 @@ export function GlobalSearchPanel({ getEditor, onClose }: GlobalSearchPanelProps
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // 防抖搜索
+  // 防抖搜索（附带递增 seq 序号守卫，防止慢请求覆盖较新的搜索结果）
   useEffect(() => {
+    const seq = ++searchSeqRef.current;
     if (!query.trim()) {
       setHits([]);
       setError(null);
       setActiveIndex(0);
+      setSearching(false);
       return;
     }
     if (!rootPath) {
       setError("未打开工作区");
+      setSearching(false);
       return;
     }
     setSearching(true);
@@ -112,11 +116,13 @@ export function GlobalSearchPanel({ getEditor, onClose }: GlobalSearchPanelProps
     const timer = setTimeout(() => {
       searchInWorkspace(rootPath, query, caseSensitive, useRegex)
         .then((result) => {
+          if (searchSeqRef.current !== seq) return;
           setHits(result);
           setActiveIndex(0);
           setSearching(false);
         })
         .catch((e) => {
+          if (searchSeqRef.current !== seq) return;
           setError(e instanceof Error ? e.message : String(e));
           setSearching(false);
         });

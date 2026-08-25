@@ -14,14 +14,18 @@ import {
 import { useSettings } from "../../store/settings";
 import { useWorkspace } from "../../store/workspace";
 import {
+  mapScrollTop,
   markdownOffsetToProsePos,
   prosePosToMarkdownOffset,
 } from "../../lib/source-mode-cursor";
+import { getSourceModeScroll } from "../../lib/source-mode-scroll";
 import { showMessage } from "../../lib/dialogs";
 
 export interface CursorScrollSnapshot {
   cursor: number;
   scrollTop: number;
+  /** 源容器（WYSIWYG/CM）滚动容器总高度，用于退出时按高度比例映射到目标印记容器 */
+  scrollHeight?: number;
 }
 
 interface SourceModeTransitionOptions {
@@ -31,6 +35,8 @@ interface SourceModeTransitionOptions {
   getEditor: () => Editor | undefined;
   /** 与编辑器 publisher 共享的最近同步值 ref */
   lastSyncedRef: { current: string };
+  /** 持续缓存的富文本滚动位置（避免在 display:none 时现场读取被浏览器重排钳 0） */
+  getWysiwygScrollTop?: () => number;
 }
 
 /**
@@ -44,6 +50,7 @@ export function useSourceModeTransition({
   value,
   getEditor,
   lastSyncedRef,
+  getWysiwygScrollTop,
 }: SourceModeTransitionOptions) {
   const prevSourceModeRef = useRef(sourceMode);
   const exitSnapshotRef = useRef<CursorScrollSnapshot | null>(null);
@@ -61,7 +68,7 @@ export function useSourceModeTransition({
       if (settings.typewriterMode) settings.setTypewriterMode(false);
 
       let cursor = 0;
-      let scrollTop = 0;
+      let scrollTop = getWysiwygScrollTop ? getWysiwygScrollTop() : 0;
       // 先 flush 防抖窗口内的待发编辑（idle 编辑器自动跳过），store 内容即事实源。
       // 不能无条件「当场序列化」：未编辑文档的序列化结果可能与原文有规范化
       // 差异，会被误当编辑发布、标 dirty 并改写从未编辑的文件
@@ -76,10 +83,12 @@ export function useSourceModeTransition({
           const head = view.state.selection.head;
           const textBefore = view.state.doc.textBetween(0, head, "\n", "\n");
           cursor = prosePosToMarkdownOffset(fresh, textBefore);
-          const scrollEl =
-            (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
-            view.dom.closest(".editor-scroll");
-          scrollTop = scrollEl instanceof HTMLElement ? scrollEl.scrollTop : 0;
+          if (scrollTop === 0) {
+            const scrollEl =
+              (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
+              view.dom.closest(".editor-scroll");
+            scrollTop = scrollEl instanceof HTMLElement ? scrollEl.scrollTop : 0;
+          }
         });
       }
       setEnterSnapshot({ cursor, scrollTop });
@@ -87,7 +96,8 @@ export function useSourceModeTransition({
     }
 
     if (!sourceMode && prev) {
-      const snap = exitSnapshotRef.current;
+      const liveCmScroll = getSourceModeScroll(filePath);
+      const snap = liveCmScroll ?? exitSnapshotRef.current;
       exitSnapshotRef.current = null;
       const editor = getEditor();
       if (editor) {
@@ -133,7 +143,7 @@ export function useSourceModeTransition({
             "解析失败：无法切换回渲染视图。当前 Markdown 仍保留在编辑器中，并已尝试复制到剪贴板。请检查源码语法后重试。",
             { title: "解析失败", kind: "error" },
           );
-          // 保留快照以便 SourceModeEditor 重新挂载（enterSnapshot 为 null 会空白）
+          // 失败时恢复快照以便 SourceModeEditor 重新就绪
           setEnterSnapshot({
             cursor: snap?.cursor ?? 0,
             scrollTop: snap?.scrollTop ?? 0,
@@ -173,9 +183,16 @@ export function useSourceModeTransition({
                   (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
                   view.dom.closest(".editor-scroll");
                 if (scrollEl instanceof HTMLElement) {
-                  const targetTop = snap.scrollTop;
+                  // CM（源码）与 PM（印记）布局不同导致滚动容器高度不同，若两侧高度
+                  // 均可读，则按高度比例把源码滚动位置映射到印记容器，避免等像素赋值造成错位。
+                  const targetTop =
+                    snap.scrollHeight && scrollEl.scrollHeight > 0
+                      ? mapScrollTop(snap.scrollTop, snap.scrollHeight, scrollEl.scrollHeight)
+                      : snap.scrollTop;
                   const applyScroll = () => {
-                    if (scrollEl.isConnected) scrollEl.scrollTop = targetTop;
+                    if (scrollEl.isConnected) {
+                      scrollEl.scrollTop = targetTop;
+                    }
                   };
                   applyScroll();
                   let frames = 0;
