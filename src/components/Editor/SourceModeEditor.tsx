@@ -18,6 +18,7 @@ import {
   registerSourceModeSearch,
   unregisterSourceModeSearch,
 } from "../../lib/source-mode-search";
+import { mapScrollTop } from "../../lib/source-mode-cursor";
 import { useSettings } from "../../store/settings";
 
 export interface SourceModeSnapshot {
@@ -36,6 +37,8 @@ export interface SourceModeEditorProps {
   initialCursor?: number;
   /** 进入时的初始 scrollTop */
   initialScrollTop?: number;
+  /** 进入前 WYSIWYG 滚动容器总高度，用于按比例把阅读进度映射到 CM 容器 */
+  initialScrollHeight?: number;
   spellcheck: boolean;
   /** 卸载前回传 CM 光标与滚动位置 */
   onUnmountSnapshot?: (snapshot: SourceModeSnapshot) => void;
@@ -49,6 +52,7 @@ export function SourceModeEditor({
   onChange,
   initialCursor = 0,
   initialScrollTop = 0,
+  initialScrollHeight = 0,
   spellcheck,
   onUnmountSnapshot,
   onOutlineChange,
@@ -193,12 +197,42 @@ export function SourceModeEditor({
       cmd(v);
       v.focus();
     });
+    // 进入源码模式的滚动恢复（issue #136）：CM6 视口化渲染 + 高度估算，
+    // 挂载瞬间的 scrollHeight 不是最终值，单次赋值会被钳制在错误的
+    // maxScroll 后不再收敛。改为「立即设置 + 逐帧重试直到收敛」（30 帧
+    // 上限，测量稳定后通常 1-2 帧到位）。两容器高度不同（渲染视图 ≠
+    // 源码文本），目标值按高度比例映射，且每帧用当前最新 scrollHeight
+    // 重算，跟随 CM 测量修正。
+    // 注意：收敛后不做「滚动到光标」校正——进入快照里的光标与滚动位置
+    // 采自同一瞬间，映射后两者对应同一阅读位置；强行把视口拽到光标
+    // （如 scrollIntoView）会在「只滚动未动光标」场景下把视口拽回旧
+    // 光标处，覆盖正确的映射结果（#137 实测缺陷根因）。
+    const scroller = view.scrollDOM;
+    let restoreRaf: number | null = null;
+    const computeTarget = () =>
+      initialScrollHeight > 0 && scroller.scrollHeight > 0
+        ? mapScrollTop(initialScrollTop, initialScrollHeight, scroller.scrollHeight)
+        : initialScrollTop;
     if (initialScrollTop > 0) {
-      view.scrollDOM.scrollTop = initialScrollTop;
+      const apply = () => {
+        if (scroller.isConnected) scroller.scrollTop = computeTarget();
+      };
+      apply();
+      let frames = 0;
+      const settle = () => {
+        restoreRaf = null;
+        if (!scroller.isConnected) return;
+        const target = computeTarget();
+        if (Math.abs(scroller.scrollTop - target) < 1 || ++frames > 30) return;
+        apply();
+        restoreRaf = requestAnimationFrame(settle);
+      };
+      restoreRaf = requestAnimationFrame(settle);
     }
     requestAnimationFrame(() => view.focus());
 
     return () => {
+      if (restoreRaf !== null) cancelAnimationFrame(restoreRaf);
       if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
       unregisterSourceModeScroll(filePath);
       unregisterSourceModeSearch(filePath);

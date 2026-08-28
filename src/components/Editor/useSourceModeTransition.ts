@@ -28,6 +28,30 @@ export interface CursorScrollSnapshot {
   scrollHeight?: number;
 }
 
+/**
+ * 读取滚动容器的有效 zoom（editorZoom != 100% 时 EditorBody 会对 .editor-scroll
+ * 施加 CSS zoom）。优先取 computed zoom（标准返回数值 "1.25"，旧实现返回
+ * 百分比 "125%"），不可用时用「视口高度 / 布局高度」几何推断，最终兜底 1。
+ */
+function getScrollZoom(el: HTMLElement, rect: DOMRect): number {
+  try {
+    const raw = window.getComputedStyle(el).zoom;
+    if (typeof raw === "string" && raw.trim()) {
+      const parsed = parseFloat(raw);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return raw.trim().endsWith("%") ? parsed / 100 : parsed;
+      }
+    }
+  } catch {
+    // 走几何兜底
+  }
+  if (el.clientHeight > 0 && rect.height > 0) {
+    const inferred = rect.height / el.clientHeight;
+    if (Number.isFinite(inferred) && inferred > 0) return inferred;
+  }
+  return 1;
+}
+
 interface SourceModeTransitionOptions {
   sourceMode: boolean;
   filePath: string;
@@ -37,6 +61,8 @@ interface SourceModeTransitionOptions {
   lastSyncedRef: { current: string };
   /** 持续缓存的富文本滚动位置（避免在 display:none 时现场读取被浏览器重排钳 0） */
   getWysiwygScrollTop?: () => number;
+  /** 持续缓存的富文本滚动容器总高度（同理：过渡现场读取时容器已塌陷，值不可信） */
+  getWysiwygScrollHeight?: () => number;
 }
 
 /**
@@ -51,6 +77,7 @@ export function useSourceModeTransition({
   getEditor,
   lastSyncedRef,
   getWysiwygScrollTop,
+  getWysiwygScrollHeight,
 }: SourceModeTransitionOptions) {
   const prevSourceModeRef = useRef(sourceMode);
   const exitSnapshotRef = useRef<CursorScrollSnapshot | null>(null);
@@ -69,6 +96,10 @@ export function useSourceModeTransition({
 
       let cursor = 0;
       let scrollTop = getWysiwygScrollTop ? getWysiwygScrollTop() : 0;
+      // 进入瞬间 .md-editor-wysiwyg 已 display:none 塌陷，现场读 scrollHeight
+      // ≈ clientHeight，会让比例映射分母失真、目标被钳到容器底部。与
+      // scrollTop 同策略：读持续缓存的实时高度，无缓存时才退回现场值。
+      let scrollHeight = getWysiwygScrollHeight ? getWysiwygScrollHeight() : 0;
       // 先 flush 防抖窗口内的待发编辑（idle 编辑器自动跳过），store 内容即事实源。
       // 不能无条件「当场序列化」：未编辑文档的序列化结果可能与原文有规范化
       // 差异，会被误当编辑发布、标 dirty 并改写从未编辑的文件
@@ -83,15 +114,16 @@ export function useSourceModeTransition({
           const head = view.state.selection.head;
           const textBefore = view.state.doc.textBetween(0, head, "\n", "\n");
           cursor = prosePosToMarkdownOffset(fresh, textBefore);
-          if (scrollTop === 0) {
-            const scrollEl =
-              (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
-              view.dom.closest(".editor-scroll");
-            scrollTop = scrollEl instanceof HTMLElement ? scrollEl.scrollTop : 0;
+          const scrollEl =
+            (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
+            view.dom.closest(".editor-scroll");
+          if (scrollEl instanceof HTMLElement) {
+            if (scrollTop === 0) scrollTop = scrollEl.scrollTop;
+            if (scrollHeight <= 0) scrollHeight = scrollEl.scrollHeight;
           }
         });
       }
-      setEnterSnapshot({ cursor, scrollTop });
+      setEnterSnapshot({ cursor, scrollTop, scrollHeight });
       lastSyncedRef.current = fresh;
     }
 
@@ -147,6 +179,7 @@ export function useSourceModeTransition({
           setEnterSnapshot({
             cursor: snap?.cursor ?? 0,
             scrollTop: snap?.scrollTop ?? 0,
+            scrollHeight: snap?.scrollHeight,
           });
           useWorkspace.getState().setTabSourceMode(true, filePath);
           prevSourceModeRef.current = true;
@@ -182,6 +215,18 @@ export function useSourceModeTransition({
                 const scrollEl =
                   (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
                   view.dom.closest(".editor-scroll");
+                // 把退出恢复后的光标与滚动位置写回 tab 记忆（单一事实源，#136）：
+                // 之后 tab 切走再切回，恢复的是模式切换结束时的位置，
+                // 而非进入源码模式前被容器塌缩钳 0 污染的旧值
+                const persist = (scrollTop: number) => {
+                  useWorkspace
+                    .getState()
+                    .saveCursorState(
+                      filePath,
+                      Math.max(0, Math.min(pos, docSize)),
+                      scrollTop,
+                    );
+                };
                 if (scrollEl instanceof HTMLElement) {
                   // CM（源码）与 PM（印记）布局不同导致滚动容器高度不同，若两侧高度
                   // 均可读，则按高度比例把源码滚动位置映射到印记容器，避免等像素赋值造成错位。
@@ -195,18 +240,65 @@ export function useSourceModeTransition({
                     }
                   };
                   applyScroll();
+                  // 收敛（或超帧数上限）后的收尾：
+                  // 1) 比例映射以「视口顶部」为基准，scrollTop/scrollHeight 在文档
+                  //    底部恒小于 1，映射会系统性欠滚，光标可能落在折叠线下方。
+                  //    用 coordsAtPos 计算选区实际位置，超出可视区域时做「最小滚动」
+                  //    校正（已可见则不动），保证光标可见（#136）。不依赖 PM 的
+                  //    tr.scrollIntoView：Milkdown 下 PM 内部认定的滚动容器与
+                  //    .editor-scroll 不一致，其滚动不会作用到实际容器。
+                  // 2) 以微调后的实际滚动位置写回 tab 记忆。
+                  const finalize = () => {
+                    try {
+                      // 统一坐标系（#138 review）：coordsAtPos 与
+                      // getBoundingClientRect 返回缩放后的视口坐标，而
+                      // scrollTop/clientHeight 是滚动容器布局单位；editorZoom
+                      // != 100% 时（EditorBody 对 .editor-scroll 施加 CSS zoom）
+                      // 混用会误判可见性。视口偏移除以有效 zoom 换算回布局单位。
+                      const coords = view.coordsAtPos(view.state.selection.head);
+                      const rect = scrollEl.getBoundingClientRect();
+                      const zoom = getScrollZoom(scrollEl, rect);
+                      // 视口偏移先除以 zoom 换算回布局单位，再加 scrollTop 得到
+                      // 光标在内容中的布局偏移
+                      const cursorTop =
+                        scrollEl.scrollTop + (coords.top - rect.top) / zoom;
+                      const cursorBottom =
+                        scrollEl.scrollTop + (coords.bottom - rect.top) / zoom;
+                      const viewTop = scrollEl.scrollTop;
+                      const viewBottom = viewTop + scrollEl.clientHeight;
+                      const margin = 8;
+                      if (cursorTop < viewTop + margin) {
+                        scrollEl.scrollTop = Math.max(0, cursorTop - margin);
+                      } else if (cursorBottom > viewBottom - margin) {
+                        scrollEl.scrollTop =
+                          cursorBottom + margin - scrollEl.clientHeight;
+                      }
+                    } catch {
+                      // 微调失败不影响主流程
+                    }
+                    if (scrollEl.isConnected) {
+                      persist(scrollEl.scrollTop);
+                    } else {
+                      persist(targetTop);
+                    }
+                  };
                   let frames = 0;
                   const settle = () => {
                     if (!scrollEl.isConnected) return;
                     if (
                       Math.abs(scrollEl.scrollTop - targetTop) < 1 ||
                       ++frames > 30
-                    )
+                    ) {
+                      finalize();
                       return;
+                    }
                     applyScroll();
                     requestAnimationFrame(settle);
                   };
                   requestAnimationFrame(settle);
+                } else {
+                  // 无滚动容器（罕见）：仍写回源码侧原值，保持记忆与实际一致
+                  persist(snap.scrollTop);
                 }
               });
             });

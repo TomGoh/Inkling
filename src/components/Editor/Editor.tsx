@@ -34,6 +34,7 @@ import { cursorSaverPlugin } from "./cursor-saver";
 import { tableTrackerPlugin } from "./table-tracker";
 import { selectAllPlugin } from "./select-all";
 import { useSourceModeTransition } from "./useSourceModeTransition";
+import { useCursorStateRestore } from "./useCursorStateRestore";
 import { placeCursorForRootClick } from "./editor-root-click";
 import { useSettings } from "../../store/settings";
 import { useWorkspace } from "../../store/workspace";
@@ -62,7 +63,6 @@ import { slashMenuPlugin } from "./slash-menu";
 import { autoPairPlugin } from "./auto-pair";
 import { SourceModeEditor } from "./SourceModeEditor";
 import type { EditorView } from "@milkdown/kit/prose/view";
-import { TextSelection } from "@milkdown/kit/prose/state";
 
 interface EditorProps {
   /** 当前 Markdown 文件完整路径，用于解析相对图片路径 */
@@ -102,6 +102,9 @@ function EditorInner({
   const lastSyncedRef = useRef(value);
   // 持续缓存富文本编辑器的滚动位置，避免在 display:none 或切换时现场读取被浏览器重排钳 0
   const wysiwygScrollTopRef = useRef(0);
+  // 同理缓存 scrollHeight：进入源码模式的过渡读取它做比例映射，届时容器已
+  // display:none 塌陷，现场读取 ≈ clientHeight，会让映射目标失真（issue #136）
+  const wysiwygScrollHeightRef = useRef(0);
   // 标记初始 value 是否已完成同步。publisher 在 view 创建时会把 lastSynced
   // 基线重置为「解析后 doc 的序列化结果」，与原始 value 存在规范化差异，
   // 若不跳过，外部同步 effect 会在每次挂载时把 doc 冗余重灌一遍。
@@ -261,8 +264,10 @@ function EditorInner({
             view.dom.closest<HTMLElement>(".editor-scroll");
           if (scrollEl) {
             wysiwygScrollTopRef.current = scrollEl.scrollTop;
+            wysiwygScrollHeightRef.current = scrollEl.scrollHeight;
             const onScroll = () => {
               wysiwygScrollTopRef.current = scrollEl.scrollTop;
+              wysiwygScrollHeightRef.current = scrollEl.scrollHeight;
             };
             scrollEl.addEventListener("scroll", onScroll, { passive: true });
             cleanupScroll = () => scrollEl.removeEventListener("scroll", onScroll);
@@ -299,6 +304,7 @@ function EditorInner({
     getEditor,
     lastSyncedRef,
     getWysiwygScrollTop: () => wysiwygScrollTopRef.current,
+    getWysiwygScrollHeight: () => wysiwygScrollHeightRef.current,
   });
 
   // 点击编辑器空白区域时的光标定位（详见 editor-root-click.ts）
@@ -371,52 +377,10 @@ function EditorInner({
     }
   }, [value, loading, getEditor, sourceMode]);
 
-  // 编辑位置记忆：编辑器就绪后按 filePath 恢复光标和滚动位置。
-  // 必须按本实例的 filePath 读取，不能读 activeTabPath：切 tab 时它已指向新文件（issue #30）
-  const getCursorStateFor = useWorkspace((s) => s.getCursorStateFor);
-  useEffect(() => {
-    if (loading || sourceMode) return;
-    const editor = getEditor();
-    if (!editor) return;
-    const { pos, scrollTop } = getCursorStateFor(filePath);
-    editor.action((ctx) => {
-      const view = ctx.get(editorViewCtx);
-      // 恢复光标位置，夹紧到文档有效范围
-      if (pos != null) {
-        const docSize = view.state.doc.content.size;
-        const safePos = Math.max(0, Math.min(pos, docSize));
-        try {
-          const sel = TextSelection.near(view.state.doc.resolve(safePos));
-          view.dispatch(view.state.tr.setSelection(sel));
-        } catch {
-          // pos 无效时忽略
-        }
-      }
-      // 恢复滚动位置：无记忆值时归零。外层 .editor-scroll 跨 tab 复用，
-      // 残留上一文件的 scrollTop，显式重置避免新文件串用旧位置（issue #30）。
-      // 立即设置一次 + 下一帧重试：长文档首帧可能尚未排版出完整高度。
-      const scrollEl =
-        (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
-        view.dom.closest<HTMLElement>(".editor-scroll");
-      if (!scrollEl) return;
-      const target = scrollTop ?? 0;
-      const apply = () => {
-        if (scrollEl.isConnected) scrollEl.scrollTop = target;
-      };
-      apply();
-      // 大文档打开瞬间代码块/图表尚为占位高度，scrollHeight 可能不足，
-      // scrollTop 被钳制在 maxScroll。逐帧重试直到占位撑开、位置到位
-      // （30 帧上限；占位高度 v2.3.4 起接近最终值，通常 1-2 帧收敛）
-      let frames = 0;
-      const settle = () => {
-        if (!scrollEl.isConnected) return;
-        if (Math.abs(scrollEl.scrollTop - target) < 1 || ++frames > 30) return;
-        apply();
-        requestAnimationFrame(settle);
-      };
-      requestAnimationFrame(settle);
-    });
-  }, [filePath, loading, getEditor, getCursorStateFor, sourceMode]);
+  // 编辑位置记忆：切 tab/打开文件时按 filePath 恢复光标和滚动位置。
+  // 必须按本实例的 filePath 读取，不能读 activeTabPath：切 tab 时它已指向新文件（issue #30）。
+  // sourceMode 翻转的那一次让位给 useSourceModeTransition（单一写者，issue #136）
+  useCursorStateRestore({ sourceMode, filePath, loading, getEditor });
 
   // 降级模式：Milkdown 初始化失败，显示只读 textarea 展示原始 markdown
   if (fallback) {
@@ -457,6 +421,7 @@ function EditorInner({
           }}
           initialCursor={enterSnapshot.cursor}
           initialScrollTop={enterSnapshot.scrollTop}
+          initialScrollHeight={enterSnapshot.scrollHeight ?? 0}
           spellcheck={spellcheck}
           onUnmountSnapshot={(snap) => {
             exitSnapshotRef.current = snap;
