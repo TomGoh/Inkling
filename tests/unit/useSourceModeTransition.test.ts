@@ -78,7 +78,14 @@ describe("useSourceModeTransition", () => {
     const value = "# Title\n\nParagraph 1\n\nParagraph 2";
     const lastSyncedRef = { current: value };
 
-    const mockScrollEl = { scrollTop: 0, isConnected: true, scrollHeight: 200 };
+    // finalize 校正链路所需几何信息：布局高 80、zoom=1（rect.height=clientHeight）
+    const mockScrollEl = {
+      scrollTop: 0,
+      isConnected: true,
+      scrollHeight: 200,
+      clientHeight: 80,
+      getBoundingClientRect: () => ({ top: 20, height: 80 }),
+    };
     Object.setPrototypeOf(mockScrollEl, HTMLElement.prototype);
 
     const mockTr = {
@@ -95,9 +102,13 @@ describe("useSourceModeTransition", () => {
           resolve: vi.fn().mockReturnValue({ pos: 18 }),
           textBetween: () => "",
         },
+        selection: { head: 18 },
         tr: mockTr,
       },
       dispatch: vi.fn(),
+      // 视口坐标（zoom=1）：视口偏移 40/41 → 内容偏移 140/141，
+      // 落在 [scrollTop+8, scrollTop+72] = [108, 172] 可视区间内 → finalize 不调整
+      coordsAtPos: () => ({ top: 60, bottom: 61 }),
       dom: {
         closest: (selector: string) => {
           if (selector === ".editor-scroll") {
@@ -173,6 +184,119 @@ describe("useSourceModeTransition", () => {
     const saved = useWorkspace.getState().getCursorStateFor(filePath);
     expect(saved.pos).toBe(expectedPos);
     expect(saved.scrollTop).toBe(100);
+
+    unregisterSourceModeScroll(filePath);
+    window.requestAnimationFrame = originalRaf;
+  });
+
+  it("finalize 校正在 editorZoom != 100% 时统一坐标系：视口偏移换算回布局单位（#138 review）", async () => {
+    const rafCallbacks: FrameRequestCallback[] = [];
+    const originalRaf = window.requestAnimationFrame;
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    };
+
+    const filePath = "/tmp/test-exit-zoom.md";
+    const value = "# Title\n\nParagraph 1\n\nParagraph 2";
+    const lastSyncedRef = { current: value };
+
+    // zoom=1.25（rect.height=1000 / clientHeight=800）：视口坐标是布局坐标的 1.25 倍
+    const mockScrollEl = {
+      scrollTop: 0,
+      isConnected: true,
+      scrollHeight: 2000,
+      clientHeight: 800,
+      getBoundingClientRect: () => ({ top: 50, height: 1000 }),
+    };
+    Object.setPrototypeOf(mockScrollEl, HTMLElement.prototype);
+
+    const mockTr = {
+      replaceWith: vi.fn().mockReturnThis(),
+      setSelection: vi.fn().mockReturnThis(),
+      setMeta: vi.fn().mockReturnThis(),
+    };
+
+    const mockView = {
+      state: {
+        plugins: [],
+        doc: {
+          content: { size: 40 },
+          resolve: vi.fn().mockReturnValue({ pos: 18 }),
+          textBetween: () => "",
+        },
+        selection: { head: 18 },
+        tr: mockTr,
+      },
+      dispatch: vi.fn(),
+      // 光标内容偏移 1450/1451（折叠线下方）：视口坐标 =
+      // rect.top + (内容偏移 − scrollTop) × 1.25 = 50 + 950 × 1.25 = 1237.5
+      coordsAtPos: () => ({ top: 1237.5, bottom: 1238.75 }),
+      dom: {
+        closest: (selector: string) => {
+          if (selector === ".editor-scroll") {
+            return mockScrollEl;
+          }
+          return null;
+        },
+      },
+    };
+
+    const mockEditor: any = {
+      action: (fn: (ctx: any) => void) => {
+        const mockCtx = {
+          get: (key: any) => {
+            if (key === editorViewCtx) return mockView;
+            if (key === parserCtx) return (val: string) => ({ content: { size: val.length } });
+            return null;
+          },
+        };
+        fn(mockCtx);
+      },
+    };
+
+    registerSourceModeScroll(filePath, {
+      scrollToHeading: vi.fn(),
+      getScrollAndCursor: () => ({
+        cursor: 18,
+        scrollTop: 250,
+        scrollHeight: 1000,
+      }),
+    });
+
+    useWorkspace.setState({
+      openTabs: [
+        { path: filePath, content: value, dirty: false, lastSavedAt: null, cursorPos: 3, scrollTop: 0 },
+      ],
+    });
+
+    const { rerender } = renderHook(
+      ({ sourceMode }) =>
+        useSourceModeTransition({
+          filePath,
+          sourceMode,
+          value,
+          getEditor: () => mockEditor,
+          lastSyncedRef,
+        }),
+      {
+        initialProps: { sourceMode: true },
+      },
+    );
+
+    rerender({ sourceMode: false });
+
+    while (rafCallbacks.length > 0) {
+      const cb = rafCallbacks.shift();
+      cb?.(0);
+    }
+
+    // 比例映射目标 250/1000×2000 = 500；光标内容偏移 1451 超出
+    // [508, 1292] 可视区间 → 最小滚动校正 = 1451 + 8 − 800 = 659。
+    // 若混用坐标系（视口值直接当布局值）会得到 942 或 896.75 之类的错误值
+    expect(mockScrollEl.scrollTop).toBe(659);
+    const saved = useWorkspace.getState().getCursorStateFor(filePath);
+    expect(saved.scrollTop).toBe(659);
 
     unregisterSourceModeScroll(filePath);
     window.requestAnimationFrame = originalRaf;

@@ -28,6 +28,30 @@ export interface CursorScrollSnapshot {
   scrollHeight?: number;
 }
 
+/**
+ * 读取滚动容器的有效 zoom（editorZoom != 100% 时 EditorBody 会对 .editor-scroll
+ * 施加 CSS zoom）。优先取 computed zoom（标准返回数值 "1.25"，旧实现返回
+ * 百分比 "125%"），不可用时用「视口高度 / 布局高度」几何推断，最终兜底 1。
+ */
+function getScrollZoom(el: HTMLElement, rect: DOMRect): number {
+  try {
+    const raw = window.getComputedStyle(el).zoom;
+    if (typeof raw === "string" && raw.trim()) {
+      const parsed = parseFloat(raw);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return raw.trim().endsWith("%") ? parsed / 100 : parsed;
+      }
+    }
+  } catch {
+    // 走几何兜底
+  }
+  if (el.clientHeight > 0 && rect.height > 0) {
+    const inferred = rect.height / el.clientHeight;
+    if (Number.isFinite(inferred) && inferred > 0) return inferred;
+  }
+  return 1;
+}
+
 interface SourceModeTransitionOptions {
   sourceMode: boolean;
   filePath: string;
@@ -217,20 +241,28 @@ export function useSourceModeTransition({
                   // 2) 以微调后的实际滚动位置写回 tab 记忆。
                   const finalize = () => {
                     try {
-                      // coordsAtPos 返回视口坐标，换算到滚动容器内容坐标
+                      // 统一坐标系（#138 review）：coordsAtPos 与
+                      // getBoundingClientRect 返回缩放后的视口坐标，而
+                      // scrollTop/clientHeight 是滚动容器布局单位；editorZoom
+                      // != 100% 时（EditorBody 对 .editor-scroll 施加 CSS zoom）
+                      // 混用会误判可见性。视口偏移除以有效 zoom 换算回布局单位。
                       const coords = view.coordsAtPos(view.state.selection.head);
                       const rect = scrollEl.getBoundingClientRect();
-                      const offset = scrollEl.scrollTop - rect.top;
-                      const relTop = coords.top + offset;
-                      const relBottom = coords.bottom + offset;
+                      const zoom = getScrollZoom(scrollEl, rect);
+                      // 视口偏移先除以 zoom 换算回布局单位，再加 scrollTop 得到
+                      // 光标在内容中的布局偏移
+                      const cursorTop =
+                        scrollEl.scrollTop + (coords.top - rect.top) / zoom;
+                      const cursorBottom =
+                        scrollEl.scrollTop + (coords.bottom - rect.top) / zoom;
                       const viewTop = scrollEl.scrollTop;
                       const viewBottom = viewTop + scrollEl.clientHeight;
                       const margin = 8;
-                      if (relTop < viewTop + margin) {
-                        scrollEl.scrollTop = Math.max(0, relTop - margin);
-                      } else if (relBottom > viewBottom - margin) {
+                      if (cursorTop < viewTop + margin) {
+                        scrollEl.scrollTop = Math.max(0, cursorTop - margin);
+                      } else if (cursorBottom > viewBottom - margin) {
                         scrollEl.scrollTop =
-                          relBottom + margin - scrollEl.clientHeight;
+                          cursorBottom + margin - scrollEl.clientHeight;
                       }
                     } catch {
                       // 微调失败不影响主流程

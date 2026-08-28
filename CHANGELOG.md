@@ -11,14 +11,15 @@
   - **进入源码模式 settle 循环收敛**：CodeMirror 首帧高度为估算值，单次 `scrollTop` 赋值会被后续高度修正覆盖；改为立即应用 + 最多 30 帧 rAF 逐帧重设，直到达到映射目标或布局稳定，杜绝"进入源码模式后从头开始"。
   - **退出恢复写回 tab 记忆**：退出源码模式完成光标与滚动恢复后，将实际位置显式写回 `saveCursorState`，tab 切走再切回不再命中进入前被容器塌缩钳 0 污染的旧值。
   - **光标可见性兜底**：`mapScrollTop` 以「视口顶部」为基准做比例映射，`scrollTop/scrollHeight` 在文档底部恒小于 1，映射会系统性欠滚，光标可能落在折叠线下方；收敛后用 `coordsAtPos` 计算选区实际位置，超出可视区域时做最小滚动校正（已可见则不动），保证切换后光标可见。
+  - **缩放坐标系统一（#138 review）**：`editorZoom != 100%` 时（`.editor-scroll` 施加 CSS `zoom`）`coordsAtPos`/`getBoundingClientRect` 返回缩放后视口坐标而 `scrollTop`/`clientHeight` 为布局单位；新增 `getScrollZoom`（computed zoom 优先、`rect.height/clientHeight` 几何推断兜底），可见性比较统一在视口坐标系完成后再除以有效 zoom 换算回布局单位，杜绝高/低缩放下误判可见性并持久化错误位置。
 
 ### 测试与质量
 
 - 新增 `tests/unit/useCursorStateRestore.test.ts`：模式翻转跳过恢复 / tab 切换正常恢复 / 无记忆显式归零。
 - 新增 `tests/unit/source-mode-editor-initial-scroll.test.tsx`：模拟 CM 高度逐帧增长（估算值 → 真实值），断言 settle 循环收敛至映射目标。
-- 扩充 `tests/unit/useSourceModeTransition.test.ts`：断言退出恢复后实际滚动位置写回 tab 记忆。
 - 新增 `tests/e2e/source-mode-scroll.spec.ts`：两方向非零滚动用例（源码→富文本 / 富文本→源码）、预滚动竞态路径变体，断言 `scrollTop` 比例与光标锚点 `toBeInViewport`。
-- 全套 81 个单测文件（524 用例）、157 个 E2E 与 `tsc --noEmit` 100% PASS。
+- 扩充 `tests/unit/useSourceModeTransition.test.ts`：断言退出恢复后实际滚动位置写回 tab 记忆；新增 zoom=1.25 缩放用例（视口坐标换算回布局单位，锁定 #138 review 指出的坐标系混用缺陷）。
+- 全套 81 个单测文件（525 用例）、157 个 E2E 与 `tsc --noEmit` 100% PASS。
 
 ## [2.7.0] - 2026-08-25
 
