@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v2.7.0
+> 文档版本：v2.7.1
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -157,6 +157,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 | PRD 章节 | 需求 | 状态 | 落地版本 | 说明 |
 |---|---|---|---|---|
 | 3.1 编辑器内核 | 模式切换视口与滚动比例映射还原 | ✅ | v2.7.0 | issue #121：恢复 sourceMode 快照守卫，缓存 wysiwygScrollTopRef，退出模式按两端 scrollHeight 用 mapScrollTop 比例映射恢复 |
+| 3.1 编辑器内核 | 模式切换滚动恢复单一写者与光标可见性保障 | ✅ | v2.7.1 | issue #136：抽取 useCursorStateRestore 在模式翻转时让位（单一写者），源码侧恢复后写回 tab 记忆，进入源码模式 settle 循环收敛 scrollTop，退出恢复后 coordsAtPos 最小滚动校正保证光标可见 |
 | 3.1 编辑器内核 | Ctrl+K 应用内插入链接对话框 | ✅ | v2.7.0 | issue #122：新增 LinkDialog.tsx，文本与 URL 双输入、选中预填、Esc/backdrop 关闭，替换原生 window.prompt |
 | 3.3 文件与工作区 | 删除快照配额告警与写入失败用户提示 | ✅ | v2.7.0 | issue #123：probeSnapshotStorageHealth 健康探测 + 快照写入失败 showMessage error 告警（不再静默）+ DeletedSnapshots 面板展示 |
 | 3.3 文件与工作区 | 外部修改盲区与 switchTab 重载/冲突 | ✅ | v2.7.0 | issue #124：监听全量 openTabs，switchTab 核验 mtime，外部修改非 dirty→reloadFile、dirty→conflictPending + 冲突对话框 |

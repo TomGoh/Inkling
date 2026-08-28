@@ -3,6 +3,8 @@ import { renderHook } from "@testing-library/react";
 import { useSourceModeTransition } from "../../src/components/Editor/useSourceModeTransition";
 import { editorViewCtx, parserCtx } from "@milkdown/kit/core";
 import { registerSourceModeScroll, unregisterSourceModeScroll } from "../../src/lib/source-mode-scroll";
+import { markdownOffsetToProsePos } from "../../src/lib/source-mode-cursor";
+import { useWorkspace } from "../../src/store/workspace";
 
 describe("useSourceModeTransition", () => {
   it("enters source mode and captures non-zero cursor & scroll snapshot from WYSIWYG editor", () => {
@@ -129,6 +131,13 @@ describe("useSourceModeTransition", () => {
       }),
     });
 
+    // 预置 tab 记忆（含进入源码模式前的旧值），验证退出后写回覆盖
+    useWorkspace.setState({
+      openTabs: [
+        { path: filePath, content: value, dirty: false, lastSavedAt: null, cursorPos: 3, scrollTop: 0 },
+      ],
+    });
+
     const { rerender } = renderHook(
       ({ sourceMode }) =>
         useSourceModeTransition({
@@ -157,6 +166,13 @@ describe("useSourceModeTransition", () => {
     expect(mockView.dispatch).toHaveBeenCalled();
     // 比例映射：source 50/100 → target 200 期望映射为 100
     expect(mockScrollEl.scrollTop).toBe(100);
+
+    // 退出恢复后写回 tab 记忆（#136 单一事实源）：光标为映射后的 PM pos，
+    // 滚动为映射目标值，覆盖进入源码模式前的旧值（cursorPos 3 / scrollTop 0）
+    const expectedPos = markdownOffsetToProsePos(40, value, 18);
+    const saved = useWorkspace.getState().getCursorStateFor(filePath);
+    expect(saved.pos).toBe(expectedPos);
+    expect(saved.scrollTop).toBe(100);
 
     unregisterSourceModeScroll(filePath);
     window.requestAnimationFrame = originalRaf;

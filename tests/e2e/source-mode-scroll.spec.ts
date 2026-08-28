@@ -1,0 +1,170 @@
+// E2E：模式切换滚动位置恢复（issue #136）
+// 方向 A：源码模式 → 富文本（退出）
+// 方向 B：富文本 → 源码模式（进入）
+// 断言：切换后滚动容器 scrollTop 接近映射目标值，且光标所在内容位于可视区域
+
+import { test, expect, type Page } from "@playwright/test";
+import { openMockWorkspace, openFile, MOD } from "./helpers";
+
+const LONG_DOC = Array.from(
+  { length: 300 },
+  (_, i) => `## 第 ${i + 1} 节\n\n这是第 ${i + 1} 节的正文内容，用来撑长文档以测试滚动恢复。`,
+).join("\n\n");
+
+async function scrollInfo(page: Page, selector: string) {
+  return page.evaluate((sel) => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    return {
+      scrollTop: el.scrollTop,
+      scrollHeight: el.scrollHeight,
+      clientHeight: el.clientHeight,
+      maxScroll: el.scrollHeight - el.clientHeight,
+    };
+  }, selector);
+}
+
+function ratio(info: { scrollTop: number; maxScroll: number } | null) {
+  if (!info || info.maxScroll <= 0) return 0;
+  return info.scrollTop / info.maxScroll;
+}
+
+/** 进入源码模式 */
+async function enterSourceMode(page: Page) {
+  await page.keyboard.press(`${MOD}+Alt+KeyS`);
+  await expect(
+    page.getByTestId("source-mode-editor").locator(".cm-content"),
+  ).toBeVisible({ timeout: 5_000 });
+}
+
+/** 退出源码模式 */
+async function exitSourceMode(page: Page) {
+  await page.keyboard.press(`${MOD}+Alt+KeyS`);
+  await expect(page.locator(".ProseMirror")).toBeVisible({ timeout: 5_000 });
+}
+
+/** 在源码模式下灌入长文并退回富文本，构造长文档场景 */
+async function buildLongDocInWysiwyg(page: Page) {
+  await enterSourceMode(page);
+  const cm = page.getByTestId("source-mode-editor").locator(".cm-content");
+  await cm.click();
+  await page.keyboard.insertText(LONG_DOC);
+  await exitSourceMode(page);
+  await expect(page.locator(".ProseMirror")).toContainText("第 300 节", {
+    timeout: 10_000,
+  });
+}
+
+/** 滚动 CM 到底部并点击底部文本行放置光标（模拟真实用户位置） */
+async function scrollCmToBottomAndClick(page: Page) {
+  await page.evaluate(() => {
+    const el = document.querySelector(".source-mode-editor .cm-scroller");
+    if (el) el.scrollTop = el.scrollHeight;
+  });
+  const box = await page.getByTestId("source-mode-editor").boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.click(
+    box!.x + box!.width / 2,
+    box!.y + box!.height - 40,
+  );
+}
+
+test.describe("模式切换滚动位置恢复（#136）", () => {
+  test.beforeEach(async ({ page }) => {
+    await openMockWorkspace(page);
+    await openFile(page, "readme.md");
+  });
+
+  test("A：源码模式滚到底部编辑，退出后视口停留在底部映射位置且光标可见", async ({ page }) => {
+    // 进入源码模式并构造长文（进入前停留在顶部，对应 issue 复现步骤）
+    await enterSourceMode(page);
+    const cm = page.getByTestId("source-mode-editor").locator(".cm-content");
+    await cm.click();
+    await page.keyboard.insertText(LONG_DOC);
+
+    // 滚到底部并放置光标、编辑
+    await scrollCmToBottomAndClick(page);
+    await page.keyboard.type("尾部编辑");
+
+    const cmBefore = await scrollInfo(page, ".source-mode-editor .cm-scroller");
+    // 前置条件：CM 已滚动到底部
+    expect(ratio(cmBefore)).toBeGreaterThan(0.9);
+
+    // 退出源码模式
+    await exitSourceMode(page);
+    await expect(page.locator(".ProseMirror")).toContainText("第 300 节", {
+      timeout: 10_000,
+    });
+    // 等待 settle 循环收敛（30 帧上限 ≈ 500ms）
+    await page.waitForTimeout(1_000);
+
+    const pmAfter = await scrollInfo(page, ".editor-scroll");
+    // 视口接近底部映射位置，而非顶部
+    expect(ratio(pmAfter)).toBeGreaterThan(0.5);
+    // 光标所在的编辑内容在可视区域内
+    await expect(page.getByText("尾部编辑")).toBeInViewport();
+  });
+
+  test("A2：进入前富文本已滚动到中部，退出后仍以源码侧位置为准（单一写者）", async ({ page }) => {
+    await buildLongDocInWysiwyg(page);
+
+    // 富文本滚到中部并等待 tab 记忆落盘（防抖 300ms）
+    await page.evaluate(() => {
+      const el = document.querySelector(".editor-scroll");
+      if (el) el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.4;
+    });
+    await page.waitForTimeout(500);
+
+    // 进入源码模式（WYSIWYG 塌缩会把 tab 滚动记忆钳 0 污染）
+    await enterSourceMode(page);
+    const cm = page.getByTestId("source-mode-editor").locator(".cm-content");
+    await cm.click();
+    await page.keyboard.press(`${MOD}+KeyA`);
+    await page.keyboard.insertText(LONG_DOC);
+    await page.waitForTimeout(500);
+
+    // 源码侧滚到底部编辑
+    await scrollCmToBottomAndClick(page);
+    await page.keyboard.type("底部锚点");
+
+    await exitSourceMode(page);
+    await expect(page.locator(".ProseMirror")).toContainText("底部锚点", {
+      timeout: 10_000,
+    });
+    await page.waitForTimeout(1_000);
+
+    const pmAfter = await scrollInfo(page, ".editor-scroll");
+    // 以源码侧结束位置为唯一事实源：接近底部，而非中部旧值或顶部
+    expect(ratio(pmAfter)).toBeGreaterThan(0.5);
+    await expect(page.getByText("底部锚点")).toBeInViewport();
+  });
+
+  test("B：富文本滚到底部，进入源码模式后视口停留在底部映射位置且光标可见", async ({ page }) => {
+    await buildLongDocInWysiwyg(page);
+
+    // 滚到底部并点击底部文本放置光标
+    await page.evaluate(() => {
+      const el = document.querySelector(".editor-scroll");
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+    const box = await page.locator(".editor-scroll").boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height - 40);
+
+    const pmBefore = await scrollInfo(page, ".editor-scroll");
+    expect(ratio(pmBefore)).toBeGreaterThan(0.9);
+
+    // 进入源码模式
+    await enterSourceMode(page);
+    await page.waitForTimeout(1_000);
+
+    const cmAfter = await scrollInfo(page, ".source-mode-editor .cm-scroller");
+    expect(ratio(cmAfter)).toBeGreaterThan(0.5);
+    // 光标附近内容在可视区域内（CM 视口化渲染：不可见则不渲染）
+    await expect(
+      page.getByTestId("source-mode-editor").getByText("## 第 300 节", {
+        exact: true,
+      }),
+    ).toBeInViewport();
+  });
+});

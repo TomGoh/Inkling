@@ -2,6 +2,24 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.7.1] - 2026-08-28
+
+### 修复与优化
+
+- **模式切换滚动恢复单一写者与光标可见性保障（#136）**：
+  - **单一写者原则**：抽取 `useCursorStateRestore` hook 承接 tab 切换的光标/滚动恢复，模式翻转帧显式让位给 `useSourceModeTransition`，根治退出源码模式时两处 effect 竞争写 `scrollTop` 导致的视口回顶/漂移。
+  - **进入源码模式 settle 循环收敛**：CodeMirror 首帧高度为估算值，单次 `scrollTop` 赋值会被后续高度修正覆盖；改为立即应用 + 最多 30 帧 rAF 逐帧重设，直到达到映射目标或布局稳定，杜绝"进入源码模式后从头开始"。
+  - **退出恢复写回 tab 记忆**：退出源码模式完成光标与滚动恢复后，将实际位置显式写回 `saveCursorState`，tab 切走再切回不再命中进入前被容器塌缩钳 0 污染的旧值。
+  - **光标可见性兜底**：`mapScrollTop` 以「视口顶部」为基准做比例映射，`scrollTop/scrollHeight` 在文档底部恒小于 1，映射会系统性欠滚，光标可能落在折叠线下方；收敛后用 `coordsAtPos` 计算选区实际位置，超出可视区域时做最小滚动校正（已可见则不动），保证切换后光标可见。
+
+### 测试与质量
+
+- 新增 `tests/unit/useCursorStateRestore.test.ts`：模式翻转跳过恢复 / tab 切换正常恢复 / 无记忆显式归零。
+- 新增 `tests/unit/source-mode-editor-initial-scroll.test.tsx`：模拟 CM 高度逐帧增长（估算值 → 真实值），断言 settle 循环收敛至映射目标。
+- 扩充 `tests/unit/useSourceModeTransition.test.ts`：断言退出恢复后实际滚动位置写回 tab 记忆。
+- 新增 `tests/e2e/source-mode-scroll.spec.ts`：两方向非零滚动用例（源码→富文本 / 富文本→源码）、预滚动竞态路径变体，断言 `scrollTop` 比例与光标锚点 `toBeInViewport`。
+- 全套 81 个单测文件（524 用例）、157 个 E2E 与 `tsc --noEmit` 100% PASS。
+
 ## [2.7.0] - 2026-08-25
 
 ### 新增功能

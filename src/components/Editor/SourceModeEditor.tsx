@@ -193,8 +193,32 @@ export function SourceModeEditor({
       cmd(v);
       v.focus();
     });
+    // 进入时恢复滚动位置：立即设置一次 + 逐帧重试直到收敛。
+    // CM6 采用视口化渲染 + 高度估算，长文档/折行内容挂载时的
+    // scrollHeight 来自估算，单次赋值可能被当时的 maxScroll 钳制，
+    // 随后真实测量撑开高度也不再修正，视口停留在错误位置（#136 方向 B）。
+    // 与退出方向（useSourceModeTransition）及 tab 切换恢复保持一致的收敛策略。
     if (initialScrollTop > 0) {
-      view.scrollDOM.scrollTop = initialScrollTop;
+      const applyInitialScroll = () => {
+        if (view.scrollDOM.isConnected) {
+          view.scrollDOM.scrollTop = initialScrollTop;
+        }
+      };
+      applyInitialScroll();
+      let settleFrames = 0;
+      const settleInitialScroll = () => {
+        const el = view.scrollDOM;
+        if (!el.isConnected) return;
+        if (
+          Math.abs(el.scrollTop - initialScrollTop) < 1 ||
+          ++settleFrames > 30
+        ) {
+          return;
+        }
+        applyInitialScroll();
+        requestAnimationFrame(settleInitialScroll);
+      };
+      requestAnimationFrame(settleInitialScroll);
     }
     requestAnimationFrame(() => view.focus());
 

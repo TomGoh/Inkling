@@ -182,6 +182,18 @@ export function useSourceModeTransition({
                 const scrollEl =
                   (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
                   view.dom.closest(".editor-scroll");
+                // 把退出恢复后的光标与滚动位置写回 tab 记忆（单一事实源，#136）：
+                // 之后 tab 切走再切回，恢复的是模式切换结束时的位置，
+                // 而非进入源码模式前被容器塌缩钳 0 污染的旧值
+                const persist = (scrollTop: number) => {
+                  useWorkspace
+                    .getState()
+                    .saveCursorState(
+                      filePath,
+                      Math.max(0, Math.min(pos, docSize)),
+                      scrollTop,
+                    );
+                };
                 if (scrollEl instanceof HTMLElement) {
                   // CM（源码）与 PM（印记）布局不同导致滚动容器高度不同，若两侧高度
                   // 均可读，则按高度比例把源码滚动位置映射到印记容器，避免等像素赋值造成错位。
@@ -195,18 +207,57 @@ export function useSourceModeTransition({
                     }
                   };
                   applyScroll();
+                  // 收敛（或超帧数上限）后的收尾：
+                  // 1) 比例映射以「视口顶部」为基准，scrollTop/scrollHeight 在文档
+                  //    底部恒小于 1，映射会系统性欠滚，光标可能落在折叠线下方。
+                  //    用 coordsAtPos 计算选区实际位置，超出可视区域时做「最小滚动」
+                  //    校正（已可见则不动），保证光标可见（#136）。不依赖 PM 的
+                  //    tr.scrollIntoView：Milkdown 下 PM 内部认定的滚动容器与
+                  //    .editor-scroll 不一致，其滚动不会作用到实际容器。
+                  // 2) 以微调后的实际滚动位置写回 tab 记忆。
+                  const finalize = () => {
+                    try {
+                      // coordsAtPos 返回视口坐标，换算到滚动容器内容坐标
+                      const coords = view.coordsAtPos(view.state.selection.head);
+                      const rect = scrollEl.getBoundingClientRect();
+                      const offset = scrollEl.scrollTop - rect.top;
+                      const relTop = coords.top + offset;
+                      const relBottom = coords.bottom + offset;
+                      const viewTop = scrollEl.scrollTop;
+                      const viewBottom = viewTop + scrollEl.clientHeight;
+                      const margin = 8;
+                      if (relTop < viewTop + margin) {
+                        scrollEl.scrollTop = Math.max(0, relTop - margin);
+                      } else if (relBottom > viewBottom - margin) {
+                        scrollEl.scrollTop =
+                          relBottom + margin - scrollEl.clientHeight;
+                      }
+                    } catch {
+                      // 微调失败不影响主流程
+                    }
+                    if (scrollEl.isConnected) {
+                      persist(scrollEl.scrollTop);
+                    } else {
+                      persist(targetTop);
+                    }
+                  };
                   let frames = 0;
                   const settle = () => {
                     if (!scrollEl.isConnected) return;
                     if (
                       Math.abs(scrollEl.scrollTop - targetTop) < 1 ||
                       ++frames > 30
-                    )
+                    ) {
+                      finalize();
                       return;
+                    }
                     applyScroll();
                     requestAnimationFrame(settle);
                   };
                   requestAnimationFrame(settle);
+                } else {
+                  // 无滚动容器（罕见）：仍写回源码侧原值，保持记忆与实际一致
+                  persist(snap.scrollTop);
                 }
               });
             });
