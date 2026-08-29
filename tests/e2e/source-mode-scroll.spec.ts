@@ -53,6 +53,17 @@ async function buildLongDocInWysiwyg(page: Page) {
   await expect(page.locator(".ProseMirror")).toContainText("第 300 节", {
     timeout: 10_000,
   });
+  // 等 WYSIWYG 长文档完成布局：慢 CI（Windows）上 DOM 已挂载但尚未 layout 时，
+  // 设置 scrollTop 会被钳 0（scrollHeight 还很小），导致后续比例前置断言 flaky。
+  // 读取 scrollHeight 会强制 layout，轮询直至撑起足够高度即可视为布局完成。
+  await page.waitForFunction(
+    () => {
+      const el = document.querySelector(".editor-scroll");
+      return !!el && el.scrollHeight >= 10_000;
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
 }
 
 /** 滚动 CM 到底部并点击底部文本行放置光标（模拟真实用户位置） */

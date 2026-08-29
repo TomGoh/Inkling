@@ -42,6 +42,21 @@ const SECTIONS: { name: string; from: number; to: number }[] = [
 
 /** WYSIWYG 里把指定文本的标题滚到滚动容器视口顶部 */
 async function scrollHeadingToTop(page: Page, text: string) {
+  // 慢环境（Windows CI）上 Milkdown 解析/挂载存在异步窗口，标题可能尚未入 DOM。
+  // 先轮询等待标题元素出现再滚动，避免 evaluate 一次性执行时找不到标题而失败。
+  await page.waitForFunction(
+    (t) => {
+      const pm = document.querySelector(".ProseMirror");
+      return (
+        !!pm &&
+        Array.from(pm.querySelectorAll("h1,h2,h3,h4")).some((h) =>
+          (h.textContent ?? "").includes(t),
+        )
+      );
+    },
+    text,
+    { timeout: 15_000 },
+  );
   await page.evaluate((t) => {
     const scroller = document.querySelector(".editor-scroll");
     const pm = document.querySelector(".ProseMirror");
@@ -138,26 +153,27 @@ test("表格/标记密集真实文档：富文本→源码锚定同节，往返�
     ).toBeGreaterThanOrEqual(sec.from - 2);
     expect(idx).toBeLessThan(sec.to);
 
-    // 往返：退回富文本后，该节标题应仍在视口内（不能跳到文末/文首）
+    // 往返：退回富文本后，该节标题应仍在视口内（不能跳到文末/文首）。
     await page.keyboard.press(`${MOD}+Alt+KeyS`);
     await expect(page.locator(".ProseMirror")).toBeVisible({ timeout: 5_000 });
-    await page.waitForTimeout(1_500);
-
-    const inView = await page.evaluate((t) => {
-      const scroller = document.querySelector(".editor-scroll");
-      const pm = document.querySelector(".ProseMirror");
-      if (!scroller || !pm) return false;
-      const el = Array.from(pm.querySelectorAll("h1,h2,h3,h4")).find((h) =>
-        (h.textContent ?? "").includes(t),
-      );
-      if (!el) return false;
-      const r = el.getBoundingClientRect();
-      const s = scroller.getBoundingClientRect();
-      return r.top >= s.top - 150 && r.top < s.bottom;
-    }, headingText);
-    expect(
-      inView,
-      `第 ${sec.name} 节：往返后标题 "${headingText}" 应仍在视口附近`,
-    ).toBe(true);
+    // 轮询等待：退回后 Milkdown 重挂载有异步窗口，标题可能延迟入 DOM/布局。
+    await expect
+      .poll(
+        () =>
+          page.evaluate((t) => {
+            const scroller = document.querySelector(".editor-scroll");
+            const pm = document.querySelector(".ProseMirror");
+            if (!scroller || !pm) return false;
+            const el = Array.from(pm.querySelectorAll("h1,h2,h3,h4")).find((h) =>
+              (h.textContent ?? "").includes(t),
+            );
+            if (!el) return false;
+            const r = el.getBoundingClientRect();
+            const s = scroller.getBoundingClientRect();
+            return r.top >= s.top - 150 && r.top < s.bottom;
+          }, headingText),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
   }
 });
