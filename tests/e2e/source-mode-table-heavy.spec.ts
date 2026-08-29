@@ -55,7 +55,7 @@ async function scrollHeadingToTop(page: Page, text: string) {
       );
     },
     text,
-    { timeout: 15_000 },
+    { timeout: 30_000 },
   );
   await page.evaluate((t) => {
     const scroller = document.querySelector(".editor-scroll");
@@ -125,7 +125,7 @@ test("表格/标记密集真实文档：富文本→源码锚定同节，往返�
   await page.keyboard.press(`${MOD}+Alt+KeyS`);
   await expect(page.locator(".ProseMirror")).toContainText(
     "Component-level Recommendations",
-    { timeout: 15_000 },
+    { timeout: 30_000 },
   );
   await page.waitForTimeout(800);
 
@@ -172,7 +172,7 @@ test("表格/标记密集真实文档：富文本→源码锚定同节，往返�
             const s = scroller.getBoundingClientRect();
             return r.top >= s.top - 150 && r.top < s.bottom;
           }, headingText),
-        { timeout: 10_000 },
+        { timeout: 15_000 },
       )
       .toBe(true);
   }

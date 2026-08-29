@@ -68,10 +68,24 @@ async function buildLongDocInWysiwyg(page: Page) {
 
 /** 滚动 CM 到底部并点击底部文本行放置光标（模拟真实用户位置） */
 async function scrollCmToBottomAndClick(page: Page) {
-  await page.evaluate(() => {
-    const el = document.querySelector(".source-mode-editor .cm-scroller");
-    if (el) el.scrollTop = el.scrollHeight;
-  });
+  // insertText 后 CM 视口化渲染需时间撑起 scrollHeight，单次 `scrollTop =
+  // scrollHeight` 会被当时的 maxScroll clamp 到很小值（慢 CI 上 ratio 近 0）。
+  // 轮询等待滚动真正生效，未生效则持续重设直到滚到底部。
+  await expect
+    .poll(
+      async () => {
+        const info = await scrollInfo(page, ".source-mode-editor .cm-scroller");
+        if (!info || info.maxScroll <= 0) return false;
+        if (ratio(info) > 0.9) return true;
+        await page.evaluate(() => {
+          const el = document.querySelector(".source-mode-editor .cm-scroller");
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+        return false;
+      },
+      { timeout: 15_000 },
+    )
+    .toBe(true);
   const box = await page.getByTestId("source-mode-editor").boundingBox();
   expect(box).not.toBeNull();
   await page.mouse.click(
