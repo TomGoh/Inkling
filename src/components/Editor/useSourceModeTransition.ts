@@ -16,7 +16,9 @@ import { useWorkspace } from "../../store/workspace";
 import {
   mapScrollTop,
   markdownOffsetToProsePos,
+  offsetToLineColumn,
   prosePosToMarkdownOffset,
+  stripInlineMarkup,
 } from "../../lib/source-mode-cursor";
 import { getSourceModeScroll } from "../../lib/source-mode-scroll";
 import { showMessage } from "../../lib/dialogs";
@@ -24,8 +26,14 @@ import { showMessage } from "../../lib/dialogs";
 export interface CursorScrollSnapshot {
   cursor: number;
   scrollTop: number;
-  /** 源容器（WYSIWYG/CM）滚动容器总高度，用于退出时按高度比例映射到目标印记容器 */
+  /** 源容器（WYSIWYG/CM）滚动容器总高度，比例映射兜底用 */
   scrollHeight?: number;
+  /** 视口顶部可见内容对应的 markdown 偏移（内容锚点，#136）：恢复时
+   *  把同一段内容滚到目标容器视口顶部，密度不均也不丢阅读位置 */
+  anchorOffset?: number;
+  /** 退出时光标所在行是否在源码视口内（#136）：仅此时退出恢复才做
+   *  光标可见性微调，避免「只滚动未动光标」往返场景被陈旧光标拽偏 */
+  cursorVisible?: boolean;
 }
 
 /**
@@ -52,6 +60,111 @@ function getScrollZoom(el: HTMLElement, rect: DOMRect): number {
   return 1;
 }
 
+/**
+ * markdown 行 → 它在 PM 纯文本中的形态（剥掉块级语法与行内标记）。
+ * 围栏标记/空行/分割线等 PM 中不存在的行返回 null；
+ * 表格行返回首个非空单元格文本（PM 表格每单元格段落各占一行）。
+ */
+function markdownLineToPmText(line: string): string | null {
+  const trimmed = line.trim();
+  if (!trimmed) return null;
+  if (/^(`{3,}|~{3,})/.test(trimmed)) return null;
+  if (/^(?:\*{3,}|-{3,}|_{3,})$/.test(trimmed)) return null;
+  if (trimmed.startsWith("|")) {
+    if (/^\|[\s:|-]+\|?$/.test(trimmed)) return null;
+    const cells = trimmed.replace(/^\|/, "").replace(/\|$/, "").split("|");
+    for (const cell of cells) {
+      const t = stripInlineMarkup(cell.trim());
+      if (t) return t;
+    }
+    return null;
+  }
+  let body = trimmed.replace(/^(?:>\s?)+/, "");
+  if (/^#{1,6}\s/.test(body)) {
+    // 编号标题「## 6. 章节」的「6. 」属于标题文本，不可再按列表标记剥离
+    body = body.replace(/^#{1,6}\s+/, "");
+  } else {
+    body = body
+      .replace(/^(?:[-*+]|\d+[.)])\s+/, "")
+      .replace(/^\[[ xX]\]\s*/, "");
+  }
+  body = stripInlineMarkup(body).trim();
+  return body || null;
+}
+
+/**
+ * 内容锚点 → PM 精确位置（退出方向，#136）。
+ * 权重比例法（markdownOffsetToProsePos）在代码占比高的文档里会偏出当前
+ * 区块。此处退出现场即有解析好的 PM doc：取锚点行的纯文本形态，在
+ * doc 全文文本里定位（重复行取与权重估计最近的一处），再二分找出
+ * 覆盖该文本索引的最小 PM pos。锚点行命不中时向下/向上最多收集 8 条
+ * 候选行逐一尝试（标记密集行剥标记后常可命中）；全部失败退回权重比例法。
+ */
+function resolveAnchorProsePos(
+  view: EditorView,
+  markdown: string,
+  anchorOffset: number,
+  docSize: number,
+): number {
+  const fallback = markdownOffsetToProsePos(docSize, markdown, anchorOffset);
+  const lines = markdown.split("\n");
+  const { line } = offsetToLineColumn(markdown, anchorOffset);
+  const candidates: string[] = [];
+  for (let i = line; i < lines.length && candidates.length < 4; i++) {
+    const t = markdownLineToPmText(lines[i] ?? "");
+    if (t) candidates.push(t);
+  }
+  for (let i = line - 1; i >= 0 && candidates.length < 8; i--) {
+    const t = markdownLineToPmText(lines[i] ?? "");
+    if (t) candidates.push(t);
+  }
+  if (candidates.length === 0) return fallback;
+  try {
+    const pmText = view.state.doc.textBetween(0, docSize, "\n", "\n");
+    if (!pmText) return fallback;
+    // 消歧估计：把权重法估计的 pos 换算成 PM 文本索引
+    let estIdx = -1;
+    try {
+      estIdx = view.state.doc.textBetween(0, fallback, "\n", "\n").length;
+    } catch {
+      // 估计失败不影响主流程
+    }
+    for (const pmLine of candidates) {
+      let best = -1;
+      let search = 0;
+      let guard = 0;
+      while (search <= pmText.length && guard++ < 100) {
+        const occ = pmText.indexOf(pmLine, search);
+        if (occ < 0) break;
+        if (
+          best < 0 ||
+          (estIdx >= 0 && Math.abs(occ - estIdx) < Math.abs(best - estIdx))
+        ) {
+          best = occ;
+        }
+        search = occ + 1;
+      }
+      if (best < 0) continue;
+      // 二分：textBetween(0, pos) 长度首次覆盖命中文本索引的 pos 即锚点位置
+      const target = best + 1;
+      let lo = 1;
+      let hi = Math.max(1, docSize - 1);
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (view.state.doc.textBetween(0, mid, "\n", "\n").length >= target) {
+          hi = mid;
+        } else {
+          lo = mid + 1;
+        }
+      }
+      return lo;
+    }
+    return fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 interface SourceModeTransitionOptions {
   sourceMode: boolean;
   filePath: string;
@@ -63,6 +176,9 @@ interface SourceModeTransitionOptions {
   getWysiwygScrollTop?: () => number;
   /** 持续缓存的富文本滚动容器总高度（同理：过渡现场读取时容器已塌陷，值不可信） */
   getWysiwygScrollHeight?: () => number;
+  /** 持续缓存的富文本视口顶部内容对应的 PM 位置（内容锚点，#136）。
+   *  过渡时容器已 display:none，posAtCoords 现场读不可靠，必须用缓存值 */
+  getWysiwygTopPos?: () => number;
 }
 
 /**
@@ -78,6 +194,7 @@ export function useSourceModeTransition({
   lastSyncedRef,
   getWysiwygScrollTop,
   getWysiwygScrollHeight,
+  getWysiwygTopPos,
 }: SourceModeTransitionOptions) {
   const prevSourceModeRef = useRef(sourceMode);
   const exitSnapshotRef = useRef<CursorScrollSnapshot | null>(null);
@@ -107,13 +224,61 @@ export function useSourceModeTransition({
       const fresh =
         useWorkspace.getState().openTabs.find((t) => t.path === filePath)
           ?.content ?? value;
+      // 内容锚点（#136）：视口顶部那段内容在 PM 中的位置（滚动监听持续缓存，
+      // 此时容器已 display:none，posAtCoords 现场读不可靠）→ markdown 偏移。
+      // textBetween 只读文本不依赖布局，容器塌陷也能安全计算。
+      let anchorOffset = 0;
+      const topPos = getWysiwygTopPos ? getWysiwygTopPos() : 0;
       const editor = getEditor();
       if (editor) {
         editor.action((ctx) => {
           const view = ctx.get(editorViewCtx);
-          const head = view.state.selection.head;
-          const textBefore = view.state.doc.textBetween(0, head, "\n", "\n");
-          cursor = prosePosToMarkdownOffset(fresh, textBefore);
+          const docSize = view.state.doc.content.size;
+          let anchorPos = Math.max(0, Math.min(topPos, docSize));
+          // 代码块内嵌 CM6（nodeview），其 DOM 无法被 posAtCoords 映射，
+          // 命中时返回的位置常在块内/块尾而非真实可见行。统一吸附到块首：
+          // 视口顶部看到的块就是锚点目标块（#136）
+          try {
+            const $pos = view.state.doc.resolve(anchorPos);
+            for (let d = $pos.depth; d > 0; d--) {
+              if ($pos.node(d).type.name === "code_block") {
+                anchorPos = $pos.before(d);
+                break;
+              }
+            }
+          } catch {
+            // resolve 失败保留原位置
+          }
+          // 双候选锚点（#136）：posAtCoords 可能恰好落在视口顶部块的边界上，
+          // 此时 textBefore 末行是「上一块」；过采 24 字符可让末行变成视口顶部
+          // 块的前缀。因此基础 pos 与过采 pos 各采样一次，取更接近比例估计
+          // 偏移的候选（posRatio 同时传入尾窗口匹配用于歧义候选的距离裁决）。
+          const ratioFor = (end: number) =>
+            docSize > 0 ? Math.max(0, Math.min(end, docSize)) / docSize : 0;
+          const offsetForEnd = (end: number): number => {
+            const e = Math.max(0, Math.min(end, docSize));
+            if (e <= 0) return -1;
+            const text = view.state.doc.textBetween(0, e, "\n", "\n");
+            return prosePosToMarkdownOffset(fresh, text, ratioFor(e));
+          };
+          const estOffset =
+            docSize > 0 ? (anchorPos / docSize) * fresh.length : -1;
+          const baseOffset = offsetForEnd(anchorPos);
+          const overscanOffset = offsetForEnd(anchorPos + 24);
+          anchorOffset =
+            baseOffset < 0
+              ? Math.max(0, overscanOffset)
+              : overscanOffset < 0 || overscanOffset === baseOffset
+                ? baseOffset
+                : estOffset < 0
+                  ? baseOffset
+                  : Math.abs(baseOffset - estOffset) <=
+                      Math.abs(overscanOffset - estOffset)
+                    ? baseOffset
+                    : overscanOffset;
+          // 光标跟随阅读位置：源码模式光标落在视口顶部内容处，退出时
+          // 锚点即光标，往返切换不漂移
+          cursor = anchorOffset;
           const scrollEl =
             (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
             view.dom.closest(".editor-scroll");
@@ -123,7 +288,7 @@ export function useSourceModeTransition({
           }
         });
       }
-      setEnterSnapshot({ cursor, scrollTop, scrollHeight });
+      setEnterSnapshot({ cursor, scrollTop, scrollHeight, anchorOffset });
       lastSyncedRef.current = fresh;
     }
 
@@ -180,6 +345,7 @@ export function useSourceModeTransition({
             cursor: snap?.cursor ?? 0,
             scrollTop: snap?.scrollTop ?? 0,
             scrollHeight: snap?.scrollHeight,
+            anchorOffset: snap?.anchorOffset,
           });
           useWorkspace.getState().setTabSourceMode(true, filePath);
           prevSourceModeRef.current = true;
@@ -194,10 +360,16 @@ export function useSourceModeTransition({
               ed.action((ctx) => {
                 const view = ctx.get(editorViewCtx);
                 const docSize = view.state.doc.content.size;
-                const pos = markdownOffsetToProsePos(docSize, value, snap.cursor);
+                // 内容锚点（#136）：源码视口顶部那行内容的 markdown 偏移
+                // （CM 侧 lineBlockAtHeight 采集，随快照回传）→ PM 位置。
+                // 锚点缺失时退回光标偏移。不再按滚动比例映射：两容器密度
+                // 分布不均，比例映射保住百分比却会落到不同内容上。
+                const anchorOffset = snap.anchorOffset ?? snap.cursor;
+                const pos = resolveAnchorProsePos(view, value, anchorOffset, docSize);
+                const safePos = Math.max(1, Math.min(pos, docSize - 1));
                 try {
                   const sel = TextSelection.near(
-                    view.state.doc.resolve(Math.max(1, Math.min(pos, docSize - 1))),
+                    view.state.doc.resolve(safePos),
                     -1,
                   );
                   view.dispatch(view.state.tr.setSelection(sel));
@@ -228,68 +400,87 @@ export function useSourceModeTransition({
                     );
                 };
                 if (scrollEl instanceof HTMLElement) {
-                  // CM（源码）与 PM（印记）布局不同导致滚动容器高度不同，若两侧高度
-                  // 均可读，则按高度比例把源码滚动位置映射到印记容器，避免等像素赋值造成错位。
-                  const targetTop =
-                    snap.scrollHeight && scrollEl.scrollHeight > 0
-                      ? mapScrollTop(snap.scrollTop, snap.scrollHeight, scrollEl.scrollHeight)
-                      : snap.scrollTop;
-                  const applyScroll = () => {
-                    if (scrollEl.isConnected) {
-                      scrollEl.scrollTop = targetTop;
-                    }
-                  };
-                  applyScroll();
-                  // 收敛（或超帧数上限）后的收尾：
-                  // 1) 比例映射以「视口顶部」为基准，scrollTop/scrollHeight 在文档
-                  //    底部恒小于 1，映射会系统性欠滚，光标可能落在折叠线下方。
-                  //    用 coordsAtPos 计算选区实际位置，超出可视区域时做「最小滚动」
-                  //    校正（已可见则不动），保证光标可见（#136）。不依赖 PM 的
-                  //    tr.scrollIntoView：Milkdown 下 PM 内部认定的滚动容器与
-                  //    .editor-scroll 不一致，其滚动不会作用到实际容器。
-                  // 2) 以微调后的实际滚动位置写回 tab 记忆。
-                  const finalize = () => {
+                  // 把锚点内容滚到视口顶部：用 coordsAtPos 读该内容当前实际
+                  // 像素位置，换算成目标 scrollTop。每帧用最新测量重算，跟随
+                  // PM 渐进排版（图片/懒测量块高度后补）收敛。不依赖 PM 的
+                  // tr.scrollIntoView：Milkdown 下 PM 内部认定的滚动容器与
+                  // .editor-scroll 不一致，其滚动不会作用到实际容器。
+                  // 不做无条件的「滚到光标可见」收尾校正：选区就设在锚点上，
+                  // 两者天然一致；无条件拽视口会在「只滚动未动光标」往返场景
+                  // 造成漂移。仅当退出时光标确在源码视口内（见下方 finalize
+                  // 的 cursorVisible 门控）才做最小幅度可见性微调。
+                  const computeTarget = (): number => {
                     try {
-                      // 统一坐标系（#138 review）：coordsAtPos 与
-                      // getBoundingClientRect 返回缩放后的视口坐标，而
-                      // scrollTop/clientHeight 是滚动容器布局单位；editorZoom
-                      // != 100% 时（EditorBody 对 .editor-scroll 施加 CSS zoom）
-                      // 混用会误判可见性。视口偏移除以有效 zoom 换算回布局单位。
+                      // 统一坐标系：coordsAtPos 与 getBoundingClientRect 返回
+                      // 缩放后的视口坐标，而 scrollTop 是滚动容器布局单位；
+                      // editorZoom != 100% 时（EditorBody 对 .editor-scroll
+                      // 施加 CSS zoom）视口偏移须除以有效 zoom 换算回布局单位
                       const coords = view.coordsAtPos(view.state.selection.head);
                       const rect = scrollEl.getBoundingClientRect();
                       const zoom = getScrollZoom(scrollEl, rect);
-                      // 视口偏移先除以 zoom 换算回布局单位，再加 scrollTop 得到
-                      // 光标在内容中的布局偏移
-                      const cursorTop =
+                      const raw =
                         scrollEl.scrollTop + (coords.top - rect.top) / zoom;
-                      const cursorBottom =
-                        scrollEl.scrollTop + (coords.bottom - rect.top) / zoom;
-                      const viewTop = scrollEl.scrollTop;
-                      const viewBottom = viewTop + scrollEl.clientHeight;
-                      const margin = 8;
-                      if (cursorTop < viewTop + margin) {
-                        scrollEl.scrollTop = Math.max(0, cursorTop - margin);
-                      } else if (cursorBottom > viewBottom - margin) {
-                        scrollEl.scrollTop =
-                          cursorBottom + margin - scrollEl.clientHeight;
-                      }
+                      const maxScroll = Math.max(
+                        0,
+                        scrollEl.scrollHeight - scrollEl.clientHeight,
+                      );
+                      return Math.max(0, Math.min(raw, maxScroll));
                     } catch {
-                      // 微调失败不影响主流程
-                    }
-                    if (scrollEl.isConnected) {
-                      persist(scrollEl.scrollTop);
-                    } else {
-                      persist(targetTop);
+                      // coordsAtPos 失败（极端场景）退回比例映射兜底
+                      return snap.scrollHeight && scrollEl.scrollHeight > 0
+                        ? mapScrollTop(snap.scrollTop, snap.scrollHeight, scrollEl.scrollHeight)
+                        : snap.scrollTop;
                     }
                   };
+                  const applyScroll = () => {
+                    if (scrollEl.isConnected) scrollEl.scrollTop = computeTarget();
+                  };
+                  applyScroll();
                   let frames = 0;
+                  // 收敛收尾：锚点滚动稳定后，仅当退出时光标确实在源码视口内
+                  // （说明用户刚在那附近编辑/阅读）才做最小幅度的可见性微调，
+                  // 把光标行拽回可视区。「只滚动未动光标」场景光标不可见，
+                  // 跳过微调，避免被陈旧光标拽偏阅读位置（#136）
+                  const finalize = (target: number) => {
+                    if (snap.cursorVisible) {
+                      try {
+                        const cursorPos = resolveAnchorProsePos(
+                          view,
+                          value,
+                          snap.cursor,
+                          docSize,
+                        );
+                        const safe = Math.max(1, Math.min(cursorPos, docSize - 1));
+                        const coords = view.coordsAtPos(safe);
+                        const rect = scrollEl.getBoundingClientRect();
+                        const zoom = getScrollZoom(scrollEl, rect);
+                        const cursorTop =
+                          scrollEl.scrollTop + (coords.top - rect.top) / zoom;
+                        const cursorBottom =
+                          scrollEl.scrollTop + (coords.bottom - rect.top) / zoom;
+                        const viewTop = scrollEl.scrollTop;
+                        const viewBottom = viewTop + scrollEl.clientHeight;
+                        const margin = 8;
+                        if (cursorTop < viewTop + margin) {
+                          scrollEl.scrollTop = Math.max(0, cursorTop - margin);
+                        } else if (cursorBottom > viewBottom - margin) {
+                          scrollEl.scrollTop =
+                            cursorBottom + margin - scrollEl.clientHeight;
+                        }
+                      } catch {
+                        // 微调失败不影响锚点恢复结果
+                      }
+                    }
+                    persist(scrollEl.isConnected ? scrollEl.scrollTop : target);
+                  };
                   const settle = () => {
                     if (!scrollEl.isConnected) return;
+                    const target = computeTarget();
                     if (
-                      Math.abs(scrollEl.scrollTop - targetTop) < 1 ||
+                      Math.abs(scrollEl.scrollTop - target) < 1 ||
                       ++frames > 30
                     ) {
-                      finalize();
+                      finalize(target);
                       return;
                     }
                     applyScroll();

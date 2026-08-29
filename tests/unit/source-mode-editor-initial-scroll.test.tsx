@@ -1,4 +1,6 @@
 // SourceModeEditor 挂载时初始滚动恢复测试（issue #136 方向 B）
+// 内容锚点优先：提供 initialAnchorOffset 时，把该行滚到视口顶部，
+// 比例映射输入仅作无锚点时的兜底（两容器密度不均，比例映射会落到不同内容）。
 // 验证「立即设置 + 逐帧 settle」收敛机制：
 // 模拟 CM6 长文档挂载初期 scrollHeight 来自估算（maxScroll 偏小），
 // 首次赋值被钳制；随真实测量逐步撑开后，settle 循环应把 scrollTop
@@ -199,6 +201,49 @@ describe("SourceModeEditor 初始滚动恢复（#136 方向 B）", () => {
     // 下一帧确认收敛后退出，不再排新帧
     flushFrame();
     expect(current).toBe(6400);
+    expect(rafQueue.length).toBe(0);
+  });
+
+  it("提供内容锚点时优先把锚点行滚到视口顶部，忽略比例映射输入（#136 密度不均根因修复）", () => {
+    // 实测缺陷场景：混排文档（代码块/标题/段落密度不均）下比例映射保住
+    // 百分比却落到不同内容。锚点指向第 201 行起始偏移（1892），必须把
+    // 该行滚到视口顶部；比例输入（10/100）刻意给一个极小目标作对照
+    const anchorOffset = 1892;
+
+    const { container } = render(
+      <SourceModeEditor
+        filePath="/tmp/scroll-test-anchor.md"
+        value={LONG_TEXT}
+        onChange={() => {}}
+        initialCursor={0}
+        initialScrollTop={10}
+        initialScrollHeight={100}
+        initialAnchorOffset={anchorOffset}
+        spellcheck={false}
+      />,
+    );
+
+    const scroller = container.querySelector(".cm-scroller") as HTMLElement;
+    expect(scroller).not.toBeNull();
+
+    let current = 0;
+    Object.defineProperty(scroller, "scrollTop", {
+      get: () => current,
+      set: (v: number) => {
+        current = Math.max(0, v);
+      },
+      configurable: true,
+    });
+
+    flushFrame();
+    // 锚点行（第 201 行）到视口顶部：200 行 × 估算行高（12~30px）之间。
+    // 若误走比例映射（10/100），目标不超过容器高度的一成，绝到不了这里
+    expect(current).toBeGreaterThanOrEqual(200 * 12);
+    expect(current).toBeLessThanOrEqual(200 * 30);
+
+    // 收敛后退出，不再排新帧
+    flushFrame();
+    expect(current).toBeGreaterThanOrEqual(200 * 12);
     expect(rafQueue.length).toBe(0);
   });
 });

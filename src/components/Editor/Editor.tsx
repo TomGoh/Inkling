@@ -105,6 +105,9 @@ function EditorInner({
   // 同理缓存 scrollHeight：进入源码模式的过渡读取它做比例映射，届时容器已
   // display:none 塌陷，现场读取 ≈ clientHeight，会让映射目标失真（issue #136）
   const wysiwygScrollHeightRef = useRef(0);
+  // 缓存视口顶部内容对应的 PM 位置（内容锚点，#136）：过渡时容器已
+  // display:none，posAtCoords 现场读不可靠，须在滚动监听里持续缓存
+  const wysiwygTopPosRef = useRef(0);
   // 标记初始 value 是否已完成同步。publisher 在 view 创建时会把 lastSynced
   // 基线重置为「解析后 doc 的序列化结果」，与原始 value 存在规范化差异，
   // 若不跳过，外部同步 effect 会在每次挂载时把 doc 冗余重灌一遍。
@@ -265,9 +268,69 @@ function EditorInner({
           if (scrollEl) {
             wysiwygScrollTopRef.current = scrollEl.scrollTop;
             wysiwygScrollHeightRef.current = scrollEl.scrollHeight;
+            // 视口顶部块定位：posAtCoords 命中不透明 nodeview（内嵌 CM6 的
+            // 代码块）时只能给出块边界位置（doc 根 depth=0），无法表达真实
+            // 可见行。此时改用几何定位：在顶层块起始位置上二分（块顶坐标随
+            // 位置单调不减），找渲染顶边最贴近视口顶的那块，取其起始位置。
+            const blockStartAtTop = (targetY: number): number | null => {
+              const doc = view.state.doc;
+              const starts: number[] = [];
+              doc.forEach((_node, offset) => {
+                starts.push(offset);
+              });
+              if (starts.length === 0) return null;
+              let lo = 0;
+              let hi = starts.length - 1;
+              let best = -1;
+              while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                let top = Number.NaN;
+                try {
+                  top = view.coordsAtPos(starts[mid], 1).top;
+                } catch {
+                  // 该位置无法取坐标：线性探测相邻块兜底
+                  for (let k = mid; k < starts.length; k++) {
+                    try {
+                      top = view.coordsAtPos(starts[k], 1).top;
+                      if (Number.isFinite(top)) break;
+                    } catch {
+                      top = Number.NaN;
+                    }
+                  }
+                }
+                if (!Number.isFinite(top)) break;
+                if (top <= targetY) {
+                  best = mid;
+                  lo = mid + 1;
+                } else {
+                  hi = mid - 1;
+                }
+              }
+              if (best < 0) return null;
+              return starts[best];
+            };
+            const cacheTopPos = () => {
+              try {
+                const rect = scrollEl.getBoundingClientRect();
+                const left = rect.left + Math.max(1, rect.width / 2);
+                const hit = view.posAtCoords({ top: rect.top + 2, left });
+                if (hit == null) return;
+                const $pos = view.state.doc.resolve(hit.pos);
+                if ($pos.depth === 0) {
+                  const snapped = blockStartAtTop(rect.top + 2);
+                  wysiwygTopPosRef.current = snapped ?? hit.pos;
+                } else {
+                  wysiwygTopPosRef.current = hit.pos;
+                }
+              } catch {
+                // 失败保留上次缓存值
+              }
+            };
+            cacheTopPos();
             const onScroll = () => {
               wysiwygScrollTopRef.current = scrollEl.scrollTop;
               wysiwygScrollHeightRef.current = scrollEl.scrollHeight;
+              cacheTopPos();
             };
             scrollEl.addEventListener("scroll", onScroll, { passive: true });
             cleanupScroll = () => scrollEl.removeEventListener("scroll", onScroll);
@@ -305,6 +368,7 @@ function EditorInner({
     lastSyncedRef,
     getWysiwygScrollTop: () => wysiwygScrollTopRef.current,
     getWysiwygScrollHeight: () => wysiwygScrollHeightRef.current,
+    getWysiwygTopPos: () => wysiwygTopPosRef.current,
   });
 
   // 点击编辑器空白区域时的光标定位（详见 editor-root-click.ts）
@@ -422,6 +486,7 @@ function EditorInner({
           initialCursor={enterSnapshot.cursor}
           initialScrollTop={enterSnapshot.scrollTop}
           initialScrollHeight={enterSnapshot.scrollHeight ?? 0}
+          initialAnchorOffset={enterSnapshot.anchorOffset}
           spellcheck={spellcheck}
           onUnmountSnapshot={(snap) => {
             exitSnapshotRef.current = snap;

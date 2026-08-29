@@ -24,8 +24,13 @@ import { useSettings } from "../../store/settings";
 export interface SourceModeSnapshot {
   cursor: number;
   scrollTop: number;
-  /** CM 滚动容器总高度，用于退出时按比例映射到印记容器滚动位置 */
+  /** CM 滚动容器总高度（比例映射兜底用） */
   scrollHeight: number;
+  /** 视口顶部可见行的 markdown 偏移（内容锚点，#136）：退出时把印记容器
+   *  滚到同一段内容，密度不均也不丢阅读位置 */
+  anchorOffset: number;
+  /** 光标所在行是否在视口内（#136）：退出恢复仅在光标可见时做可见性微调 */
+  cursorVisible: boolean;
 }
 
 export interface SourceModeEditorProps {
@@ -35,10 +40,12 @@ export interface SourceModeEditorProps {
   onChange: (markdown: string) => void;
   /** 进入源码模式时的初始光标（markdown 字符串 offset） */
   initialCursor?: number;
-  /** 进入时的初始 scrollTop */
+  /** 进入时的初始 scrollTop（比例映射兜底用） */
   initialScrollTop?: number;
-  /** 进入前 WYSIWYG 滚动容器总高度，用于按比例把阅读进度映射到 CM 容器 */
+  /** 进入前 WYSIWYG 滚动容器总高度（比例映射兜底用） */
   initialScrollHeight?: number;
+  /** 进入前 WYSIWYG 视口顶部内容对应的 markdown 偏移（内容锚点，优先于比例映射） */
+  initialAnchorOffset?: number;
   spellcheck: boolean;
   /** 卸载前回传 CM 光标与滚动位置 */
   onUnmountSnapshot?: (snapshot: SourceModeSnapshot) => void;
@@ -53,6 +60,7 @@ export function SourceModeEditor({
   initialCursor = 0,
   initialScrollTop = 0,
   initialScrollHeight = 0,
+  initialAnchorOffset,
   spellcheck,
   onUnmountSnapshot,
   onOutlineChange,
@@ -102,6 +110,30 @@ export function SourceModeEditor({
     let scrollRaf: number | null = null;
     let activeHeadings = extractMarkdownOutline(value);
     let currentActiveIndex = -1;
+    // 持续缓存的几何与光标可见性（#136）：layout-effect cleanup 在 DOM 移除
+    // 之后才运行，脱链容器的 clientHeight/scrollHeight 读 0；过渡期还可能在
+    // 容器塌缩的中间帧读到偏小值。策略：容器高度取「可信读数的峰值」
+    // （稳定后容器不会合法变大，峰值即稳态值），可见性判定用 CM 自报的
+    // 视口范围与光标行块求交，不依赖某一帧的容器测量
+    let cachedClientHeight = 0;
+    let cachedScrollHeight = 0;
+    let cursorVisibleCache = true;
+    const refreshCursorVisible = (v: EditorView) => {
+      const el = v.scrollDOM;
+      // 只有现场布局可信（>1）才参与峰值缓存：挂载首帧布局未完成、或过渡期
+      // 容器已脱链/隐藏时读到 0（或塌缩中间帧偏小值），保留最后一次稳态值
+      const liveCh = el.clientHeight;
+      if (liveCh > 1) {
+        cachedClientHeight = Math.max(cachedClientHeight, liveCh);
+        cachedScrollHeight = Math.max(cachedScrollHeight, el.scrollHeight);
+      }
+      if (cachedClientHeight <= 1) return;
+      const head = v.state.selection.main.head;
+      const block = v.lineBlockAt(Math.min(head, v.state.doc.length));
+      const st = el.scrollTop;
+      cursorVisibleCache =
+        block.bottom >= st - 1 && block.top <= st + cachedClientHeight + 1;
+    };
 
     const notifyOutline = (view: EditorView) => {
       const activeIdx = computeActiveHeadingIndex(view, activeHeadings);
@@ -158,11 +190,19 @@ export function SourceModeEditor({
         });
         v.focus();
       },
-      getScrollAndCursor: () => ({
-        scrollTop: view.scrollDOM.scrollTop,
-        cursor: view.state.selection.main.head,
-        scrollHeight: view.scrollDOM.scrollHeight,
-      }),
+      getScrollAndCursor: () => {
+        const head = view.state.selection.main.head;
+        const block = view.lineBlockAt(Math.min(head, view.state.doc.length));
+        const st = view.scrollDOM.scrollTop;
+        const ch = view.scrollDOM.clientHeight || cachedClientHeight;
+        return {
+          scrollTop: st,
+          cursor: head,
+          scrollHeight: view.scrollDOM.scrollHeight || cachedScrollHeight,
+          anchorOffset: view.lineBlockAtHeight(st).from,
+          cursorVisible: block.top >= st - 1 && block.bottom <= st + ch + 1,
+        };
+      },
     });
 
     // 监听滚动更新大纲高亮（Issue #118）
@@ -172,6 +212,7 @@ export function SourceModeEditor({
         scrollRaf = null;
         const v = viewRef.current;
         if (!v) return;
+        refreshCursorVisible(v);
         const nextActive = computeActiveHeadingIndex(v, activeHeadings);
         if (nextActive !== currentActiveIndex) {
           currentActiveIndex = nextActive;
@@ -183,6 +224,17 @@ export function SourceModeEditor({
       });
     };
     view.scrollDOM.addEventListener("scroll", handleScroll, { passive: true });
+    refreshCursorVisible(view);
+    // 外部布局变化（工具栏/大纲开合）不发 scroll 事件但会改容器高度：
+    // 用 ResizeObserver 兜底刷新，避免缓存停在旧高度
+    const resizeObs =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            const v = viewRef.current;
+            if (v) refreshCursorVisible(v);
+          })
+        : null;
+    resizeObs?.observe(view.scrollDOM);
 
     // 初始通知大纲
     notifyOutline(view);
@@ -197,23 +249,31 @@ export function SourceModeEditor({
       cmd(v);
       v.focus();
     });
-    // 进入源码模式的滚动恢复（issue #136）：CM6 视口化渲染 + 高度估算，
-    // 挂载瞬间的 scrollHeight 不是最终值，单次赋值会被钳制在错误的
-    // maxScroll 后不再收敛。改为「立即设置 + 逐帧重试直到收敛」（30 帧
-    // 上限，测量稳定后通常 1-2 帧到位）。两容器高度不同（渲染视图 ≠
-    // 源码文本），目标值按高度比例映射，且每帧用当前最新 scrollHeight
-    // 重算，跟随 CM 测量修正。
-    // 注意：收敛后不做「滚动到光标」校正——进入快照里的光标与滚动位置
-    // 采自同一瞬间，映射后两者对应同一阅读位置；强行把视口拽到光标
-    // （如 scrollIntoView）会在「只滚动未动光标」场景下把视口拽回旧
-    // 光标处，覆盖正确的映射结果（#137 实测缺陷根因）。
+    // 进入源码模式的滚动恢复（issue #136）：内容锚点优先——把进入前
+    // WYSIWYG 视口顶部那段内容对应的 markdown 偏移（initialAnchorOffset）
+    // 滚到 CM 视口顶部。两容器密度分布不同（标题/段落/代码块渲染高度 ≠
+    // 等宽行高），按滚动比例映射会保住「百分比」但落到不同内容上；
+    // 锚到同一行内容则密度差异无关。比例映射仅作无锚点时的兜底。
+    // CM6 视口化渲染 + 高度估算：挂载瞬间的 scrollHeight/行位置不是最终
+    // 值，单次赋值会被钳制在错误位置后不再收敛。改为「立即设置 + 逐帧
+    // 重试直到收敛」（30 帧上限，测量稳定后通常 1-2 帧到位），每帧用
+    // 当前最新测量重算目标。
+    // 注意：收敛后不做「滚动到光标」校正——强行把视口拽到光标会在
+    // 「只滚动未动光标」场景下把视口拽回旧光标处，覆盖正确结果。
     const scroller = view.scrollDOM;
     let restoreRaf: number | null = null;
-    const computeTarget = () =>
-      initialScrollHeight > 0 && scroller.scrollHeight > 0
+    const computeTarget = () => {
+      if (initialAnchorOffset != null && initialAnchorOffset > 0) {
+        const off = Math.min(initialAnchorOffset, view.state.doc.length);
+        // 减去首行 top（= 内容区 padding），让锚点行精确贴住视口顶部
+        const pad = view.lineBlockAt(0).top;
+        return Math.max(0, view.lineBlockAt(off).top - pad);
+      }
+      return initialScrollHeight > 0 && scroller.scrollHeight > 0
         ? mapScrollTop(initialScrollTop, initialScrollHeight, scroller.scrollHeight)
         : initialScrollTop;
-    if (initialScrollTop > 0) {
+    };
+    if (initialScrollTop > 0 || (initialAnchorOffset ?? 0) > 0) {
       const apply = () => {
         if (scroller.isConnected) scroller.scrollTop = computeTarget();
       };
@@ -234,14 +294,23 @@ export function SourceModeEditor({
     return () => {
       if (restoreRaf !== null) cancelAnimationFrame(restoreRaf);
       if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
+      resizeObs?.disconnect();
       unregisterSourceModeScroll(filePath);
       unregisterSourceModeSearch(filePath);
       view.scrollDOM.removeEventListener("scroll", handleScroll);
-      onUnmountRef.current?.({
-        cursor: view.state.selection.main.head,
-        scrollTop: view.scrollDOM.scrollTop,
-        scrollHeight: view.scrollDOM.scrollHeight,
-      });
+      {
+        // 脱链后 clientHeight/scrollHeight 读 0：刷新是幂等的，仅更新缓存
+        refreshCursorVisible(view);
+        const head = view.state.selection.main.head;
+        const st = view.scrollDOM.scrollTop;
+        onUnmountRef.current?.({
+          cursor: head,
+          scrollTop: st,
+          scrollHeight: view.scrollDOM.scrollHeight || cachedScrollHeight,
+          anchorOffset: view.lineBlockAtHeight(st).from,
+          cursorVisible: cursorVisibleCache,
+        });
+      }
       view.destroy();
       viewRef.current = null;
     };

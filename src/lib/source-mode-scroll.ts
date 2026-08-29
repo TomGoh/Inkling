@@ -3,11 +3,24 @@
 
 import type { EditorOutlineHeading } from "./outline";
 
+export interface SourceModeScrollSnapshot {
+  scrollTop: number;
+  cursor: number;
+  scrollHeight: number;
+  /** 视口顶部可见行的 markdown 偏移（内容锚点，#136）：密度不均时比例映射会
+   *  指向不同内容，锚定「视口顶部是哪段内容」才能跨容器保持一致阅读位置 */
+  anchorOffset: number;
+  /** 光标所在行是否位于视口内（#136）：仅当用户在源码模式「看着光标」时，
+   *  退出恢复才做光标可见性微调；光标在视口外（只滚动未点击的陈旧光标）
+   *  时强行拽视口会覆盖锚点映射结果、造成往返漂移 */
+  cursorVisible: boolean;
+}
+
 export interface SourceModeScrollHandler {
   /** 滚动并聚焦到指定大纲标题所在行 */
   scrollToHeading: (heading: EditorOutlineHeading) => void;
-  /** 获取当前 CodeMirror 编辑器的滚动位置、选区与容器总高度（用于跨容器按比例映射滚动偏移） */
-  getScrollAndCursor?: () => { scrollTop: number; cursor: number; scrollHeight: number };
+  /** 获取当前 CodeMirror 编辑器的滚动位置、选区、容器总高度与视口顶部内容锚点 */
+  getScrollAndCursor?: () => SourceModeScrollSnapshot;
 }
 
 const registry = new Map<string, SourceModeScrollHandler>();
@@ -26,9 +39,7 @@ export function unregisterSourceModeScroll(filePath: string) {
 }
 
 /** 在源码模式下获取当前编辑器的滚动位置与光标 */
-export function getSourceModeScroll(filePath: string):
-  | { scrollTop: number; cursor: number; scrollHeight: number }
-  | null {
+export function getSourceModeScroll(filePath: string): SourceModeScrollSnapshot | null {
   const handler = registry.get(filePath);
   if (!handler || !handler.getScrollAndCursor) return null;
   return handler.getScrollAndCursor();
