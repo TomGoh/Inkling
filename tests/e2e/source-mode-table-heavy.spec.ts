@@ -130,7 +130,9 @@ test("表格/标记密集真实文档：富文本→源码锚定同节，往返�
   await page.waitForTimeout(800);
 
   for (const sec of SECTIONS) {
-    const headingText = LINES[sec.from].replace(/^#+\s*/, "");
+    // Windows CI（core.autocrlf=true）checkout 后文档为 CRLF，行尾带 \r；
+    // 剥标题前缀后必须再 trim，否则 includes("...\r") 在 DOM 纯文本上永远不命中。
+    const headingText = LINES[sec.from].replace(/^#+\s*/, "").trim();
     await scrollHeadingToTop(page, headingText);
 
     // 进入源码模式：顶部可见行必须落在同一章节范围内
