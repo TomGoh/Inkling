@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v2.7.0
+> 文档版本：v2.8.0
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -156,6 +156,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 | PRD 章节 | 需求 | 状态 | 落地版本 | 说明 |
 |---|---|---|---|---|
+| 3.1 编辑器内核 | 模式切换内容锚点还原阅读位置与光标 | ✅ | v2.8.0 | issue #136：进入方向采集视口顶部块内容锚点（code_block 吸附），退出方向 resolveAnchorProsePos 精确文本匹配；单一写者 + settle 收敛 + rAF 合帧 |
 | 3.1 编辑器内核 | 模式切换视口与滚动比例映射还原 | ✅ | v2.7.0 | issue #121：恢复 sourceMode 快照守卫，缓存 wysiwygScrollTopRef，退出模式按两端 scrollHeight 用 mapScrollTop 比例映射恢复 |
 | 3.1 编辑器内核 | Ctrl+K 应用内插入链接对话框 | ✅ | v2.7.0 | issue #122：新增 LinkDialog.tsx，文本与 URL 双输入、选中预填、Esc/backdrop 关闭，替换原生 window.prompt |
 | 3.3 文件与工作区 | 删除快照配额告警与写入失败用户提示 | ✅ | v2.7.0 | issue #123：probeSnapshotStorageHealth 健康探测 + 快照写入失败 showMessage error 告警（不再静默）+ DeletedSnapshots 面板展示 |
@@ -339,6 +340,7 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 ### 8.2 发布版本
 
+- **v2.8.0** 富文本↔源码切换的阅读位置与光标统一保持方案（#136）：①**内容锚点映射**替代比例映射——进入方向采集视口顶部块内容锚点（code_block 吸附，规避代码块解析浮动漂移），退出方向 `resolveAnchorProsePos` 用锚点行纯文本在 PM doc 精确定位（重复行取权重最近处 + 二分、最多 8 条候选行兜底）；②**稳定性机制**——单一写者原则（`useCursorStateRestore` 翻转帧跳过恢复消除双写竞态）、settle 收敛循环（处理 CM 首帧高度估算）、滚动热路径 rAF 合帧 + flush（评审 B1）；③**附带修复**——源码模式 CM 补 `defaultKeymap` 标准导航键、更多菜单文案统一为「禅模式」；④**评审 N1~N8** 全部落地（真实路径单测注入、注释修正、`markdownNormLine` 去重、fixture 迁移、tsconfig 恢复 E2E 类型门禁、`waitScrollConverged` 轮询替固定 sleep、冲突检测对默认值放行）；⑤修掉来源为 remount 异步滚动恢复竞态的回归 E2E 锚点漂移 flaky。全套 81 个单测文件（537 用例）与 161 个 E2E、27 个 Rust 用例 Build 100% 通过，E2E 零 flaky。详见 `docs/v2.8.0 设计文档.md`
 - **v2.7.0** 多领域可靠性、交互体验与数据安全批量修复（#121~#134）：①模式切换视口与滚动比例映射还原（#121）与 Ctrl+K 应用内插入链接对话框（#122）；②数据安全防线——删除快照配额告警与写入失败用户可见提示（#123）、外部文件修改盲区与 switchTab 重载/冲突（#124）、清空删除快照二次确认（#129）、自动保存冲突状态呈现（#132）；③工程体验——快捷键冲突黑名单补全（#125）、全局搜索异步竞态守卫（#126）、源码模式导出 Word 解绑（#127）、全部替换提示非阻塞化（#128）、设置面板 Esc 关闭（#130）、图片插入异常反馈与草稿大图护栏（#131/#134）；④测试——重写多窗口 Storage 同步真实断言（#133）。全套 79 个单测文件（518 用例）与 154 个 E2E、27 个 Rust 用例 Build 100% 通过。详见 `docs/v2.7.0 设计文档.md`
 - **v2.6.3** 源码模式大纲联动与模式切换滚动精确同步修复（#117, #118）：①修复 #117 模式切换滚动位置漂移与视口丢失——在富文本与源码模式双向切换链路中引入连续 RAF 布局沉降检测与渐进重试机制，待 DOM 排版与高度完全稳定后精确还原 `scrollTop` 与光标选择区；②实现 #118 源码模式大纲点击跳转与阅读定位联动——重构纯 Markdown 大纲解析器 `extractMarkdownOutline`（过滤 YAML Front Matter 与围栏代码块内部伪标题，具备 100 行异常中断防御），基于 CodeMirror 滚动通道实现点击大纲平滑居中滚动与光标定位，并在源码滚动与选区更新时实时高亮大纲对应阅读层级；③测试与质量——新增 2 个源码模式导航与大纲追踪单元测试套件，扩充 Playwright 端到端测试用例，全套测试与类型检查 100% 通过。详见 `docs/v2.6.3 设计文档.md`
 - **v2.6.2** 评审遗留深度加固、数据可靠性与工程质量修复：①P0 级别写盘与数据恢复防线：Rust 端底层原子写盘（`write_binary_file`/`write_text_file`/`pandoc`）采用 `PID + 时间戳 + AtomicU64` 生成全局唯一临时文件，并在 `rename` 前调用 `file.sync_all()` 强制物理刷盘；前端重构二进制 IPC，采用 32KB 分块 Base64 编解码，彻底杜绝大文件 JSON 膨胀与调用栈溢出；侧边栏新增外部删除文件快照恢复面板（`DeletedSnapshots.tsx`），支持误删内容一键无损还原为未命名标签页。②P1 级别稳定性与精度对齐：Rust `file_mtime` 升级对齐为 Unix 毫秒时间戳，FileWatcher 容差过滤收紧至 `< 5ms`；`saveCurrent` 引入 `diskMtime` 内存比对 Fast-Path，消除无外部篡改时的冗余冲突弹窗；自定义 CSS 路径持久化并在启动初始化时静默容错；`tsconfig.json` 覆盖全部测试目录并修复全量测试代码类型报错。③P2 级别规范与体验收敛：统一前后端搜索忽略列表并引入 `MAX_SEARCH_DEPTH = 64` 防递归溢出；封装统一原生对话框模块（`src/lib/dialogs.ts`），全面替代项目内散落的 `window.confirm` 与 `alert`。详见 `docs/v2.6.2 设计文档.md`

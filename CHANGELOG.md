@@ -2,6 +2,29 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.8.0] - 2026-08-30
+
+### 新增功能
+
+- **模式切换内容锚点还原阅读位置与光标（#136）**：以「内容锚点」替代 v2.7 的滚动高度**比例映射**，密度不均（表格/代码块/图片密集）文档下切换也不再丢阅读位置。
+  - **进入方向（WYSIWYG → CM）双候选锚点采集**：视口顶部块 position → Markdown 偏移；code_block 吸附到块起始避免代码块解析浮动漂移。
+  - **退出方向（CM → WYSIWYG）精确文本匹配**：`resolveAnchorProsePos` 用锚点行纯文本在 PM doc 定位（重复行取权重最近处 + 二分），最多 8 条候选行兜底，失败退回比例映射。
+  - **视口顶部块定位**：`blockStartAtTop` 对顶层块起始二分 `coordsAtPos`。
+- **源码模式标准导航键（移植 #137）**：CM 补齐 `defaultKeymap`，`Ctrl+Home/End`、方向键、词移动等此前全部无效的键恢复可用，同时保留应用级快捷键冲突黑名单。
+- **评审 N1~N8 质量加固**：真实路径单测注入、"源码模式"菜单文案统一、`tsconfig` 恢复 `tests/e2e` 类型门禁（补 `@types/node`）、`waitScrollConverged` 轮询替固定 sleep、快捷键冲突对等于默认值的绑定放行等。
+
+### 修复与优化
+
+- **模式切换滚动/光标双写者竞态（#136 稳定性）**：引入 `useCursorStateRestore` 单一写者原则，翻转帧跳过自身恢复；settle 收敛循环处理 CM 首帧高度估算。
+- **滚动热路径性能（评审 B1）**：`cacheTopPos` 加 rAF 合帧 + `flushWysiwygTopPosRef`，滚动热路径绝不同步跑 `posAtCoords`。
+- **回归 E2E 锚点漂移 flaky（#136 根因）**：定位为退出源码 remount 的异步滚动恢复与下一次 `scrollIntoView` 竞态，将滚动投递改为「滚动 → 收敛 → 校验标题贴顶，不达标重滚」。
+- **源码模式冲突黑名单对默认绑定过严（评审 N8）**：捕获值等于快捷键自身默认值时放行（如 `mod+f` 与 CM searchKeymap 共存）。
+
+### 测试与质量
+
+- 新增 `tests/e2e/source-mode-scroll.spec.ts`、`source-mode-table-heavy.spec.ts`、`source-mode-mixed-content.spec.ts`、`tests/unit/source-mode-editor-initial-scroll.test.tsx`、`useCursorStateRestore.test.ts`，扩充 `useSourceModeTransition.test.ts`、`source-mode-cursor.test.ts`。
+- 全套 81 个单测文件（537 用例）、161 个 E2E、27 个 Rust 用例与 `npm run build`（含 `tests/e2e` tsc 门禁）100% PASS，E2E 零 flaky。
+
 ## [2.7.0] - 2026-08-25
 
 ### 新增功能
