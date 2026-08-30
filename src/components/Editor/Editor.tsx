@@ -34,6 +34,7 @@ import { cursorSaverPlugin } from "./cursor-saver";
 import { tableTrackerPlugin } from "./table-tracker";
 import { selectAllPlugin } from "./select-all";
 import { useSourceModeTransition } from "./useSourceModeTransition";
+import { useCursorStateRestore } from "./useCursorStateRestore";
 import { placeCursorForRootClick } from "./editor-root-click";
 import { useSettings } from "../../store/settings";
 import { useWorkspace } from "../../store/workspace";
@@ -62,7 +63,6 @@ import { slashMenuPlugin } from "./slash-menu";
 import { autoPairPlugin } from "./auto-pair";
 import { SourceModeEditor } from "./SourceModeEditor";
 import type { EditorView } from "@milkdown/kit/prose/view";
-import { TextSelection } from "@milkdown/kit/prose/state";
 
 interface EditorProps {
   /** 当前 Markdown 文件完整路径，用于解析相对图片路径 */
@@ -102,6 +102,16 @@ function EditorInner({
   const lastSyncedRef = useRef(value);
   // 持续缓存富文本编辑器的滚动位置，避免在 display:none 或切换时现场读取被浏览器重排钳 0
   const wysiwygScrollTopRef = useRef(0);
+  // 同理缓存 scrollHeight：进入源码模式的过渡读取它做比例映射，届时容器已
+  // display:none 塌陷，现场读取 ≈ clientHeight，会让映射目标失真（issue #136）
+  const wysiwygScrollHeightRef = useRef(0);
+  // 缓存视口顶部内容对应的 PM 位置（内容锚点，#136）：过渡时容器已
+  // display:none，posAtCoords 现场读不可靠，须在滚动监听里持续缓存
+  const wysiwygTopPosRef = useRef(0);
+  // B1：读取锚点前同步 flush 待执行的 rAF 帧引用；滚动路径用 rAF 合帧，
+  // 切换进入源码模式读取锚点时若最后一帧 rAF 尚未执行，立即取消并同步
+  // 跑一次 cacheTopPos，避免锚点滞后一帧（快速滚动后立即切换会漂移）。
+  const flushWysiwygTopPosRef = useRef<(() => void) | null>(null);
   // 标记初始 value 是否已完成同步。publisher 在 view 创建时会把 lastSynced
   // 基线重置为「解析后 doc 的序列化结果」，与原始 value 存在规范化差异，
   // 若不跳过，外部同步 effect 会在每次挂载时把 doc 冗余重灌一遍。
@@ -261,11 +271,98 @@ function EditorInner({
             view.dom.closest<HTMLElement>(".editor-scroll");
           if (scrollEl) {
             wysiwygScrollTopRef.current = scrollEl.scrollTop;
+            wysiwygScrollHeightRef.current = scrollEl.scrollHeight;
+            // 视口顶部块定位：posAtCoords 命中不透明 nodeview（内嵌 CM6 的
+            // 代码块）时只能给出块边界位置（doc 根 depth=0），无法表达真实
+            // 可见行。此时改用几何定位：在顶层块起始位置上二分（块顶坐标随
+            // 位置单调不减），找渲染顶边最贴近视口顶的那块，取其起始位置。
+            const blockStartAtTop = (targetY: number): number | null => {
+              const doc = view.state.doc;
+              const starts: number[] = [];
+              doc.forEach((_node, offset) => {
+                starts.push(offset);
+              });
+              if (starts.length === 0) return null;
+              let lo = 0;
+              let hi = starts.length - 1;
+              let best = -1;
+              while (lo <= hi) {
+                const mid = (lo + hi) >> 1;
+                let top = Number.NaN;
+                try {
+                  top = view.coordsAtPos(starts[mid], 1).top;
+                } catch {
+                  // 该位置无法取坐标：线性探测相邻块兜底
+                  for (let k = mid; k < starts.length; k++) {
+                    try {
+                      top = view.coordsAtPos(starts[k], 1).top;
+                      if (Number.isFinite(top)) break;
+                    } catch {
+                      top = Number.NaN;
+                    }
+                  }
+                }
+                if (!Number.isFinite(top)) break;
+                if (top <= targetY) {
+                  best = mid;
+                  lo = mid + 1;
+                } else {
+                  hi = mid - 1;
+                }
+              }
+              if (best < 0) return null;
+              return starts[best];
+            };
+            const cacheTopPos = () => {
+              try {
+                const rect = scrollEl.getBoundingClientRect();
+                const left = rect.left + Math.max(1, rect.width / 2);
+                const hit = view.posAtCoords({ top: rect.top + 2, left });
+                if (hit == null) return;
+                const $pos = view.state.doc.resolve(hit.pos);
+                if ($pos.depth === 0) {
+                  const snapped = blockStartAtTop(rect.top + 2);
+                  wysiwygTopPosRef.current = snapped ?? hit.pos;
+                } else {
+                  wysiwygTopPosRef.current = hit.pos;
+                }
+              } catch {
+                // 失败保留上次缓存值
+              }
+            };
+            cacheTopPos();
+            // B1：滚动路径用 rAF 合帧。cacheTopPos 内部含 getBoundingClientRect +
+            // posAtCoords（depth===0 时还会 O(n) 建 starts + log₂(n) 次 coordsAtPos），
+            // 逐个 scroll 事件同步执行在大文档会掉帧——正是本仓库 outline-tracker
+            // 弃用 posAtCoords 的同一个教训（v2.3.3 实测 55-67ms）。过渡只需要
+            // 「最后一帧」的缓存值，合帧语义不变。与 SourceModeEditor.scrollRaf 一致。
+            let scrollRaf: number | null = null;
             const onScroll = () => {
               wysiwygScrollTopRef.current = scrollEl.scrollTop;
+              wysiwygScrollHeightRef.current = scrollEl.scrollHeight;
+              if (scrollRaf !== null) return;
+              scrollRaf = requestAnimationFrame(() => {
+                scrollRaf = null;
+                cacheTopPos();
+              });
             };
             scrollEl.addEventListener("scroll", onScroll, { passive: true });
-            cleanupScroll = () => scrollEl.removeEventListener("scroll", onScroll);
+            // 暴露同步 flush：切换进入源码模式读取锚点时，若最后一帧 rAF 尚未
+            // 执行，立即取消并同步跑一次 cacheTopPos，避免过渡锚点滞后一帧
+            // （文档密集/长卷快速滚动后立即切换会漂移）。
+            flushWysiwygTopPosRef.current = () => {
+              if (scrollRaf !== null) {
+                cancelAnimationFrame(scrollRaf);
+                scrollRaf = null;
+                cacheTopPos();
+              }
+            };
+            cleanupScroll = () => {
+              if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
+              scrollRaf = null;
+              flushWysiwygTopPosRef.current = null;
+              scrollEl.removeEventListener("scroll", onScroll);
+            };
           }
         });
       } catch {
@@ -299,6 +396,13 @@ function EditorInner({
     getEditor,
     lastSyncedRef,
     getWysiwygScrollTop: () => wysiwygScrollTopRef.current,
+    getWysiwygScrollHeight: () => wysiwygScrollHeightRef.current,
+    // B1：读取锚点前先同步 flush 待执行帧，保证快速滚动后立即切换拿到的是
+    // 最新视口顶部内容，而非滞后一帧的旧锚点
+    getWysiwygTopPos: () => {
+      flushWysiwygTopPosRef.current?.();
+      return wysiwygTopPosRef.current;
+    },
   });
 
   // 点击编辑器空白区域时的光标定位（详见 editor-root-click.ts）
@@ -371,52 +475,10 @@ function EditorInner({
     }
   }, [value, loading, getEditor, sourceMode]);
 
-  // 编辑位置记忆：编辑器就绪后按 filePath 恢复光标和滚动位置。
-  // 必须按本实例的 filePath 读取，不能读 activeTabPath：切 tab 时它已指向新文件（issue #30）
-  const getCursorStateFor = useWorkspace((s) => s.getCursorStateFor);
-  useEffect(() => {
-    if (loading || sourceMode) return;
-    const editor = getEditor();
-    if (!editor) return;
-    const { pos, scrollTop } = getCursorStateFor(filePath);
-    editor.action((ctx) => {
-      const view = ctx.get(editorViewCtx);
-      // 恢复光标位置，夹紧到文档有效范围
-      if (pos != null) {
-        const docSize = view.state.doc.content.size;
-        const safePos = Math.max(0, Math.min(pos, docSize));
-        try {
-          const sel = TextSelection.near(view.state.doc.resolve(safePos));
-          view.dispatch(view.state.tr.setSelection(sel));
-        } catch {
-          // pos 无效时忽略
-        }
-      }
-      // 恢复滚动位置：无记忆值时归零。外层 .editor-scroll 跨 tab 复用，
-      // 残留上一文件的 scrollTop，显式重置避免新文件串用旧位置（issue #30）。
-      // 立即设置一次 + 下一帧重试：长文档首帧可能尚未排版出完整高度。
-      const scrollEl =
-        (view as EditorView & { scrollDOM?: HTMLElement }).scrollDOM ??
-        view.dom.closest<HTMLElement>(".editor-scroll");
-      if (!scrollEl) return;
-      const target = scrollTop ?? 0;
-      const apply = () => {
-        if (scrollEl.isConnected) scrollEl.scrollTop = target;
-      };
-      apply();
-      // 大文档打开瞬间代码块/图表尚为占位高度，scrollHeight 可能不足，
-      // scrollTop 被钳制在 maxScroll。逐帧重试直到占位撑开、位置到位
-      // （30 帧上限；占位高度 v2.3.4 起接近最终值，通常 1-2 帧收敛）
-      let frames = 0;
-      const settle = () => {
-        if (!scrollEl.isConnected) return;
-        if (Math.abs(scrollEl.scrollTop - target) < 1 || ++frames > 30) return;
-        apply();
-        requestAnimationFrame(settle);
-      };
-      requestAnimationFrame(settle);
-    });
-  }, [filePath, loading, getEditor, getCursorStateFor, sourceMode]);
+  // 编辑位置记忆：切 tab/打开文件时按 filePath 恢复光标和滚动位置。
+  // 必须按本实例的 filePath 读取，不能读 activeTabPath：切 tab 时它已指向新文件（issue #30）。
+  // sourceMode 翻转的那一次让位给 useSourceModeTransition（单一写者，issue #136）
+  useCursorStateRestore({ sourceMode, filePath, loading, getEditor });
 
   // 降级模式：Milkdown 初始化失败，显示只读 textarea 展示原始 markdown
   if (fallback) {
@@ -457,6 +519,8 @@ function EditorInner({
           }}
           initialCursor={enterSnapshot.cursor}
           initialScrollTop={enterSnapshot.scrollTop}
+          initialScrollHeight={enterSnapshot.scrollHeight ?? 0}
+          initialAnchorOffset={enterSnapshot.anchorOffset}
           spellcheck={spellcheck}
           onUnmountSnapshot={(snap) => {
             exitSnapshotRef.current = snap;
