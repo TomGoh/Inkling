@@ -2,6 +2,20 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.8.1] - 2026-08-30
+
+### 修复与优化
+
+- **自身自动保存写盘被文件监听误判为外部修改（#144）**：桌面端源码模式高频输入时随机弹出「文件已被外部修改」/ ConflictDialog，Diff 两边内容几乎一致。根因：`useFileWatcher` 保存忽略窗只推迟检查、从不刷新 `knownMtimesRef` 基线，而 `tabs.ts` 的 `saveCurrent` 已把写盘后读回的 `savedMtime` 存进 `tab.diskMtime`，两套 mtime 记录互不通信，窗口一过轮询必然对比出新旧差异。三道防线：
+  - **A（主修）**：store 订阅中保存事件发生时，把 `tab.diskMtime` 主动登记为 watcher 基线。
+  - **B（兜底）**：轮询中 mtime 变化但与 `tab.diskMtime` 在 5ms 容差内判定为自家写盘，静默登记基线，覆盖后台 tab 保存时 store 级 `lastSavedAt` 未变化的竞态。
+  - **C（语义修正）**：保存忽略窗内不再整体跳过检查，改为刷新基线但跳过弹窗——窗口一过不补误报，且窗内删除检测不再被整体跳过。
+
+### 测试与质量
+
+- 新增 `tests/unit/file-watcher-save-mtime.test.tsx`（5 例 + 2 回归），覆盖三道防线各自路径与「真实外部修改仍弹窗」回归。
+- 全套 82 个单测文件（542 用例）、Build、27 个 Rust 用例 100% PASS。
+
 ## [2.8.0] - 2026-08-30
 
 ### 新增功能
