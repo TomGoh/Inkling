@@ -57,18 +57,46 @@ async function scrollHeadingToTop(page: Page, text: string) {
     text,
     { timeout: 30_000 },
   );
-  await page.evaluate((t) => {
-    const scroller = document.querySelector(".editor-scroll");
-    const pm = document.querySelector(".ProseMirror");
-    if (!scroller || !pm) throw new Error("编辑器未就绪");
-    const el = Array.from(pm.querySelectorAll("h1,h2,h3,h4")).find((h) =>
-      (h.textContent ?? "").includes(t),
-    );
-    if (!el) throw new Error(`未找到标题 ${t}`);
-    el.scrollIntoView({ block: "start" });
-  }, text);
-  // 等滚动收敛稳定后再返回（替代固定 600ms sleep，评审 N6）
-  await waitScrollConverged(page, ".editor-scroll");
+  // 退出源码模式会异步恢复滚动位置（rAF），可能与这里紧邻的下一次
+  // scrollIntoView 竞态，把滚动拽回上一个章节、导致进入源码时视口顶部并非目标
+  // 标题（#136 回归 flaky 的根因：test-results 显示 scrollIntoView 后 gap=0.37 已到位，
+  // 但 waitScrollConverged 窗口内 scrollTop 又被 remount 恢复拉回上一节）。因此
+  // 不寄望「一次 scrollIntoView 一定到位」：循环「滚动 → 等收敛 → 校验标题贴顶」，
+  // 未能稳定贴顶则重滚，直到滚动真正固定在目标标题顶部再返回。
+  const headingGap = (t: string): Promise<number> =>
+    page.evaluate((headingText) => {
+      const scroller = document.querySelector(".editor-scroll");
+      const pm = document.querySelector(".ProseMirror");
+      if (!scroller || !pm) return Infinity;
+      const el = Array.from(pm.querySelectorAll("h1,h2,h3,h4")).find((h) =>
+        (h.textContent ?? "").includes(headingText),
+      );
+      if (!el) return Infinity;
+      const r = el.getBoundingClientRect();
+      const s = scroller.getBoundingClientRect();
+      return r.top - s.top;
+    }, t);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await page.evaluate((t) => {
+      const pm = document.querySelector(".ProseMirror");
+      if (!pm) throw new Error("编辑器未就绪");
+      const el = Array.from(pm.querySelectorAll("h1,h2,h3,h4")).find((h) =>
+        (h.textContent ?? "").includes(t),
+      );
+      if (!el) throw new Error(`未找到标题 ${t}`);
+      el.scrollIntoView({ block: "start" });
+    }, text);
+    // 等滚动收敛稳定后再校验（替代固定 600ms sleep，评审 N6）
+    await waitScrollConverged(page, ".editor-scroll");
+    const gap = await headingGap(text);
+    // 标题顶应与滚动容器顶贴合（允许少量舍入/亚像素误差）
+    if (gap >= -2 && gap <= 8) return;
+    if (attempt === 4) {
+      throw new Error(
+        `标题未能稳定滚动到视口顶部: ${text}（gap=${gap}px，重试 5 次）`,
+      );
+    }
+  }
 }
 
 /** CM 视口顶部前 n 条可见行文本 */
