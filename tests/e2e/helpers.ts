@@ -78,3 +78,46 @@ export async function openSettings(page: Page) {
   await page.locator(".export-item", { hasText: "偏好设置" }).click();
   await page.locator(".settings-modal").waitFor({ state: "visible", timeout: 5_000 });
 }
+
+/**
+ * 等待指定滚动容器的滚动/布局收敛稳定。
+ * 替代「进入/退出源码模式后等固定 sleep 再断言」这类时序赌注（评审 N6）：
+ * 过渡的 settle 收敛循环（CM 30 帧 ≈ 500ms）结束后 scrollTop 不再变动，
+ * 轮询到稳定即认为布局/滚动收敛完成，避免慢 CI 上固定 sleep 余量不足的 flaky。
+ *
+ * 同时盯 scrollTop 与 scrollHeight、连续 stableRequired 次都稳定才判定收敛：
+ * - 只盯 scrollTop 会被「数值未变但布局仍在重排」骗到（如 Milkdown 懒渲染
+ *   code block 导致的 scrollHeight 增长）；scrollHeight 一变即重置计数器，
+ *   对该类异步重排自适应等待，而不是抢读锚点偏早。
+ * - 连续采样≈100-160ms，默认 3 次≈300-500ms 稳定窗口；慢到极端时由 timeout 兜底。
+ */
+export async function waitScrollConverged(
+  page: Page,
+  selector: string,
+  timeout = 10_000,
+  stableRequired = 3,
+) {
+  let prevTop = -1;
+  let prevHeight = -1;
+  let stableN = 0;
+  await expect
+    .poll(
+      async () => {
+        const { top, height } = await page.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          return el
+            ? { top: el.scrollTop, height: el.scrollHeight }
+            : { top: -1, height: -1 };
+        }, selector);
+        const bothStable = top === prevTop && height === prevHeight;
+        prevTop = top;
+        prevHeight = height;
+        // 锚点语义下首帧（top 从未知 -1 变为 0）也计为一次"变动"，
+        // 保证从挂载起至少累积 stableRequired 次连续稳定才放行。
+        stableN = bothStable ? stableN + 1 : 0;
+        return stableN >= stableRequired;
+      },
+      { timeout, intervals: [100, 130, 160] },
+    )
+    .toBe(true);
+}

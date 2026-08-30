@@ -21,7 +21,6 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src", "tests"],
-  // E2E 由 Playwright 自行编译/类型检查（含 node: 内置模块），不参与应用构建的 tsc
-  "exclude": ["tests/e2e"],
+  // E2E 已加入 tsc 类型门禁（补 @types/node 后恢复），由 build 的 tsc 一并校验（评审 N5）
   "references": [{ "path": "./tsconfig.node.json" }]
 }

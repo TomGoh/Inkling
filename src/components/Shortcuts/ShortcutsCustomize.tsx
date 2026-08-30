@@ -59,8 +59,13 @@ export function ShortcutsCustomize({ onClose }: { onClose: () => void }) {
         return;
       }
 
-      // 3. 源码模式 CM 内建键位冲突检测：绑到这些组合会在源码编辑时双重触发
-      if (sourceModeConflicts.includes(binding)) {
+      // 3. 源码模式 CM 内建键位冲突检测：绑到这些组合会在源码编辑时双重触发。
+      //    若捕获值等于该快捷键自身的默认值则放行（如 find 默认 mod+f 与 CM
+      //    searchKeymap 的 mod+f 共存，实际双发幂等），否则会拒绝恢复默认（N8）。
+      if (
+        sourceModeConflicts.includes(binding) &&
+        binding !== SHORTCUT_DEFS.find((d) => d.id === capturing)?.default
+      ) {
         setError("该组合已被源代码模式编辑器内置键位占用，请换一个组合");
         return;
       }

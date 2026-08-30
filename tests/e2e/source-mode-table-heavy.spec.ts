@@ -9,7 +9,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { openMockWorkspace, openFile, MOD } from "./helpers";
+import { openMockWorkspace, openFile, MOD, waitScrollConverged } from "./helpers";
 
 const SPEC_DIR = dirname(fileURLToPath(import.meta.url));
 const DOC = readFileSync(join(SPEC_DIR, "../../tests/fixtures/UI-UX-REVIEW.md"), "utf-8");
@@ -67,7 +67,8 @@ async function scrollHeadingToTop(page: Page, text: string) {
     if (!el) throw new Error(`未找到标题 ${t}`);
     el.scrollIntoView({ block: "start" });
   }, text);
-  await page.waitForTimeout(600);
+  // 等滚动收敛稳定后再返回（替代固定 600ms sleep，评审 N6）
+  await waitScrollConverged(page, ".editor-scroll");
 }
 
 /** CM 视口顶部前 n 条可见行文本 */
@@ -127,7 +128,8 @@ test("表格/标记密集真实文档：富文本→源码锚定同节，往返�
     "Component-level Recommendations",
     { timeout: 30_000 },
   );
-  await page.waitForTimeout(800);
+  // 等 WYSIWYG 布局收敛（替代固定 800ms sleep，评审 N6）
+  await waitScrollConverged(page, ".editor-scroll");
 
   for (const sec of SECTIONS) {
     // Windows CI（core.autocrlf=true）checkout 后文档为 CRLF，行尾带 \r；
@@ -141,7 +143,12 @@ test("表格/标记密集真实文档：富文本→源码锚定同节，往返�
     await expect(
       page.getByTestId("source-mode-editor").locator(".cm-content"),
     ).toBeVisible({ timeout: 5_000 });
-    await page.waitForTimeout(1_500);
+    // 等 CM settle 收敛稳定后再读顶部行（替代固定 1.5s sleep，评审 N6）
+    await waitScrollConverged(
+      page,
+      ".source-mode-editor .cm-scroller",
+      15_000,
+    );
 
     const topLines = await cmTopLines(page);
     const idx = locateLines(topLines);

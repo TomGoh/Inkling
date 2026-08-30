@@ -4,7 +4,7 @@
 // 断言：切换后滚动容器 scrollTop 接近映射目标值，且光标所在内容位于可视区域
 
 import { test, expect, type Page } from "@playwright/test";
-import { openMockWorkspace, openFile, MOD } from "./helpers";
+import { openMockWorkspace, openFile, MOD, waitScrollConverged } from "./helpers";
 
 const LONG_DOC = Array.from(
   { length: 300 },
@@ -120,8 +120,8 @@ test.describe("模式切换滚动位置恢复（#136）", () => {
     await expect(page.locator(".ProseMirror")).toContainText("第 300 节", {
       timeout: 10_000,
     });
-    // 等待 settle 循环收敛（30 帧上限 ≈ 500ms）
-    await page.waitForTimeout(1_000);
+    // 等 settle 收敛循环真正稳定后再读滚动位置（替代固定 1s sleep，评审 N6）
+    await waitScrollConverged(page, ".editor-scroll");
 
     const pmAfter = await scrollInfo(page, ".editor-scroll");
     // 视口接近底部映射位置，而非顶部
@@ -133,12 +133,12 @@ test.describe("模式切换滚动位置恢复（#136）", () => {
   test("A2：进入前富文本已滚动到中部，退出后仍以源码侧位置为准（单一写者）", async ({ page }) => {
     await buildLongDocInWysiwyg(page);
 
-    // 富文本滚到中部并等待 tab 记忆落盘（防抖 300ms）
+    // 富文本滚到中部并等待滚动收敛（tab 记忆防抖 300ms 落盘）
     await page.evaluate(() => {
       const el = document.querySelector(".editor-scroll");
       if (el) el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.4;
     });
-    await page.waitForTimeout(500);
+    await waitScrollConverged(page, ".editor-scroll");
 
     // 进入源码模式（WYSIWYG 塌缩会把 tab 滚动记忆钳 0 污染）
     await enterSourceMode(page);
@@ -146,7 +146,7 @@ test.describe("模式切换滚动位置恢复（#136）", () => {
     await cm.click();
     await page.keyboard.press(`${MOD}+KeyA`);
     await page.keyboard.insertText(LONG_DOC);
-    await page.waitForTimeout(500);
+    await waitScrollConverged(page, ".source-mode-editor .cm-scroller");
 
     // 源码侧滚到底部编辑
     await scrollCmToBottomAndClick(page);
@@ -156,7 +156,7 @@ test.describe("模式切换滚动位置恢复（#136）", () => {
     await expect(page.locator(".ProseMirror")).toContainText("底部锚点", {
       timeout: 10_000,
     });
-    await page.waitForTimeout(1_000);
+    await waitScrollConverged(page, ".editor-scroll");
 
     const pmAfter = await scrollInfo(page, ".editor-scroll");
     // 以源码侧结束位置为唯一事实源：接近底部，而非中部旧值或顶部
@@ -181,7 +181,7 @@ test.describe("模式切换滚动位置恢复（#136）", () => {
 
     // 进入源码模式
     await enterSourceMode(page);
-    await page.waitForTimeout(1_000);
+    await waitScrollConverged(page, ".source-mode-editor .cm-scroller");
 
     const cmAfter = await scrollInfo(page, ".source-mode-editor .cm-scroller");
     expect(ratio(cmAfter)).toBeGreaterThan(0.5);
@@ -202,15 +202,15 @@ test.describe("模式切换滚动位置恢复（#136）", () => {
       const el = document.querySelector(".editor-scroll");
       if (el) el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.5;
     });
-    // 等待滚动事件更新持续缓存 + settle 稳定
-    await page.waitForTimeout(1_500);
+    // 等待滚动事件更新持续缓存 + settle 稳定（替代固定 1.5s sleep，评审 N6）
+    await waitScrollConverged(page, ".editor-scroll");
 
     const pmBefore = await scrollInfo(page, ".editor-scroll");
     expect(ratio(pmBefore)).toBeGreaterThan(0.35);
     expect(ratio(pmBefore)).toBeLessThan(0.65);
 
     await enterSourceMode(page);
-    await page.waitForTimeout(1_500);
+    await waitScrollConverged(page, ".source-mode-editor .cm-scroller");
 
     const cmAfter = await scrollInfo(page, ".source-mode-editor .cm-scroller");
     // 阅读进度比例跨容器保留在中部：旧实现直接拷贝像素值会被
@@ -231,16 +231,16 @@ test.describe("模式切换滚动位置恢复（#136）", () => {
     expect(box).not.toBeNull();
     await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height - 40);
     await enterSourceMode(page);
-    await page.waitForTimeout(1_500);
+    await waitScrollConverged(page, ".source-mode-editor .cm-scroller");
     await exitSourceMode(page);
-    await page.waitForTimeout(1_500);
+    await waitScrollConverged(page, ".editor-scroll");
 
     // 往返后在富文本滚到新的中部位置
     await page.evaluate(() => {
       const el = document.querySelector(".editor-scroll");
       if (el) el.scrollTop = (el.scrollHeight - el.clientHeight) * 0.4;
     });
-    await page.waitForTimeout(1_500);
+    await waitScrollConverged(page, ".editor-scroll");
 
     const pmBefore = await scrollInfo(page, ".editor-scroll");
     expect(ratio(pmBefore)).toBeGreaterThan(0.25);
@@ -248,7 +248,7 @@ test.describe("模式切换滚动位置恢复（#136）", () => {
 
     // 再次进入源码模式：应停在新位置（中部），而非往返时的旧位置（底部）
     await enterSourceMode(page);
-    await page.waitForTimeout(1_500);
+    await waitScrollConverged(page, ".source-mode-editor .cm-scroller");
 
     const cmAfter = await scrollInfo(page, ".source-mode-editor .cm-scroller");
     expect(ratio(cmAfter)).toBeGreaterThan(0.15);
