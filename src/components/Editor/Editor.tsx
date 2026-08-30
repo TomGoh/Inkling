@@ -108,6 +108,10 @@ function EditorInner({
   // 缓存视口顶部内容对应的 PM 位置（内容锚点，#136）：过渡时容器已
   // display:none，posAtCoords 现场读不可靠，须在滚动监听里持续缓存
   const wysiwygTopPosRef = useRef(0);
+  // B1：读取锚点前同步 flush 待执行的 rAF 帧引用；滚动路径用 rAF 合帧，
+  // 切换进入源码模式读取锚点时若最后一帧 rAF 尚未执行，立即取消并同步
+  // 跑一次 cacheTopPos，避免锚点滞后一帧（快速滚动后立即切换会漂移）。
+  const flushWysiwygTopPosRef = useRef<(() => void) | null>(null);
   // 标记初始 value 是否已完成同步。publisher 在 view 创建时会把 lastSynced
   // 基线重置为「解析后 doc 的序列化结果」，与原始 value 存在规范化差异，
   // 若不跳过，外部同步 effect 会在每次挂载时把 doc 冗余重灌一遍。
@@ -327,13 +331,38 @@ function EditorInner({
               }
             };
             cacheTopPos();
+            // B1：滚动路径用 rAF 合帧。cacheTopPos 内部含 getBoundingClientRect +
+            // posAtCoords（depth===0 时还会 O(n) 建 starts + log₂(n) 次 coordsAtPos），
+            // 逐个 scroll 事件同步执行在大文档会掉帧——正是本仓库 outline-tracker
+            // 弃用 posAtCoords 的同一个教训（v2.3.3 实测 55-67ms）。过渡只需要
+            // 「最后一帧」的缓存值，合帧语义不变。与 SourceModeEditor.scrollRaf 一致。
+            let scrollRaf: number | null = null;
             const onScroll = () => {
               wysiwygScrollTopRef.current = scrollEl.scrollTop;
               wysiwygScrollHeightRef.current = scrollEl.scrollHeight;
-              cacheTopPos();
+              if (scrollRaf !== null) return;
+              scrollRaf = requestAnimationFrame(() => {
+                scrollRaf = null;
+                cacheTopPos();
+              });
             };
             scrollEl.addEventListener("scroll", onScroll, { passive: true });
-            cleanupScroll = () => scrollEl.removeEventListener("scroll", onScroll);
+            // 暴露同步 flush：切换进入源码模式读取锚点时，若最后一帧 rAF 尚未
+            // 执行，立即取消并同步跑一次 cacheTopPos，避免过渡锚点滞后一帧
+            // （文档密集/长卷快速滚动后立即切换会漂移）。
+            flushWysiwygTopPosRef.current = () => {
+              if (scrollRaf !== null) {
+                cancelAnimationFrame(scrollRaf);
+                scrollRaf = null;
+                cacheTopPos();
+              }
+            };
+            cleanupScroll = () => {
+              if (scrollRaf !== null) cancelAnimationFrame(scrollRaf);
+              scrollRaf = null;
+              flushWysiwygTopPosRef.current = null;
+              scrollEl.removeEventListener("scroll", onScroll);
+            };
           }
         });
       } catch {
@@ -368,7 +397,12 @@ function EditorInner({
     lastSyncedRef,
     getWysiwygScrollTop: () => wysiwygScrollTopRef.current,
     getWysiwygScrollHeight: () => wysiwygScrollHeightRef.current,
-    getWysiwygTopPos: () => wysiwygTopPosRef.current,
+    // B1：读取锚点前先同步 flush 待执行帧，保证快速滚动后立即切换拿到的是
+    // 最新视口顶部内容，而非滞后一帧的旧锚点
+    getWysiwygTopPos: () => {
+      flushWysiwygTopPosRef.current?.();
+      return wysiwygTopPosRef.current;
+    },
   });
 
   // 点击编辑器空白区域时的光标定位（详见 editor-root-click.ts）

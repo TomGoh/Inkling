@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useSourceModeTransition } from "../../src/components/Editor/useSourceModeTransition";
 import { editorViewCtx, parserCtx } from "@milkdown/kit/core";
-import { registerSourceModeScroll, unregisterSourceModeScroll } from "../../src/lib/source-mode-scroll";
 import { markdownOffsetToProsePos } from "../../src/lib/source-mode-cursor";
 import { useWorkspace } from "../../src/store/workspace";
 
@@ -142,19 +141,18 @@ describe("useSourceModeTransition", () => {
       },
     };
 
-    // 注册活跃 CodeMirror 滚动获取实例：锚点偏移 20 与光标 5 刻意不同，
-    // 验证退出恢复以视口顶部内容锚点为准（阅读位置优先），而非光标
-    registerSourceModeScroll(filePath, {
-      scrollToHeading: vi.fn(),
-      getScrollAndCursor: () => ({
-        cursor: 5,
-        scrollTop: 50,
-        scrollHeight: 100,
-        anchorOffset: 20,
-        // 光标不可见：退出恢复跳过可见性微调，滚动停在锚点（100）
-        cursorVisible: false,
-      }),
-    });
+    // 注入退出快照（走 onUnmountSnapshot 的真实路径）：锚点偏移 20 与光标 5
+    // 刻意不同，验证退出恢复以视口顶部内容锚点为准（阅读位置优先），而非光标。
+    // 注：不 mock registerSourceModeScroll —— 真实退出时子组件 cleanup 先于
+    // 父级 layout effect，liveCmScroll 必然为 null，快照走 exitSnapshotRef。
+    const exitSnap = {
+      cursor: 5,
+      scrollTop: 50,
+      scrollHeight: 100,
+      anchorOffset: 20,
+      // 光标不可见：退出恢复跳过可见性微调，滚动停在锚点（100）
+      cursorVisible: false,
+    };
 
     // 预置 tab 记忆（含进入源码模式前的旧值），验证退出后写回覆盖
     useWorkspace.setState({
@@ -163,7 +161,7 @@ describe("useSourceModeTransition", () => {
       ],
     });
 
-    const { rerender } = renderHook(
+    const { result, rerender } = renderHook(
       ({ sourceMode }) =>
         useSourceModeTransition({
           filePath,
@@ -176,6 +174,9 @@ describe("useSourceModeTransition", () => {
         initialProps: { sourceMode: true },
       },
     );
+
+    // 真实路径：由 onUnmountSnapshot 注入到 exitSnapshotRef
+    result.current.exitSnapshotRef.current = exitSnap;
 
     // Switch back to WYSIWYG mode
     rerender({ sourceMode: false });
@@ -200,7 +201,6 @@ describe("useSourceModeTransition", () => {
     expect(saved.pos).toBe(expectedPos);
     expect(saved.scrollTop).toBe(anchorLayoutOffset);
 
-    unregisterSourceModeScroll(filePath);
     window.requestAnimationFrame = originalRaf;
   });
 
@@ -273,24 +273,13 @@ describe("useSourceModeTransition", () => {
       },
     };
 
-    registerSourceModeScroll(filePath, {
-      scrollToHeading: vi.fn(),
-      getScrollAndCursor: () => ({
-        cursor: 18,
-        scrollTop: 250,
-        scrollHeight: 1000,
-        anchorOffset: 18,
-        cursorVisible: false,
-      }),
-    });
-
     useWorkspace.setState({
       openTabs: [
         { path: filePath, content: value, dirty: false, lastSavedAt: null, cursorPos: 3, scrollTop: 0 },
       ],
     });
 
-    const { rerender } = renderHook(
+    const { result, rerender } = renderHook(
       ({ sourceMode }) =>
         useSourceModeTransition({
           filePath,
@@ -303,6 +292,15 @@ describe("useSourceModeTransition", () => {
         initialProps: { sourceMode: true },
       },
     );
+
+    // 真实路径：onUnmountSnapshot 注入 exitSnapshotRef
+    result.current.exitSnapshotRef.current = {
+      cursor: 18,
+      scrollTop: 250,
+      scrollHeight: 1000,
+      anchorOffset: 18,
+      cursorVisible: false,
+    };
 
     rerender({ sourceMode: false });
 
@@ -317,7 +315,6 @@ describe("useSourceModeTransition", () => {
     const saved = useWorkspace.getState().getCursorStateFor(filePath);
     expect(saved.scrollTop).toBe(600);
 
-    unregisterSourceModeScroll(filePath);
     window.requestAnimationFrame = originalRaf;
   });
 
@@ -397,25 +394,13 @@ describe("useSourceModeTransition", () => {
       },
     };
 
-    registerSourceModeScroll(filePath, {
-      scrollToHeading: vi.fn(),
-      getScrollAndCursor: () => ({
-        cursor: 30,
-        scrollTop: 50,
-        scrollHeight: 100,
-        anchorOffset: 20,
-        // 退出时光标在源码视口内 → 允许可见性微调
-        cursorVisible: true,
-      }),
-    });
-
     useWorkspace.setState({
       openTabs: [
         { path: filePath, content: value, dirty: false, lastSavedAt: null, cursorPos: 3, scrollTop: 0 },
       ],
     });
 
-    const { rerender } = renderHook(
+    const { result, rerender } = renderHook(
       ({ sourceMode }) =>
         useSourceModeTransition({
           filePath,
@@ -426,6 +411,16 @@ describe("useSourceModeTransition", () => {
         }),
       { initialProps: { sourceMode: true } },
     );
+
+    // 真实路径：onUnmountSnapshot 注入 exitSnapshotRef
+    result.current.exitSnapshotRef.current = {
+      cursor: 30,
+      scrollTop: 50,
+      scrollHeight: 100,
+      anchorOffset: 20,
+      // 退出时光标在源码视口内 → 允许可见性微调
+      cursorVisible: true,
+    };
 
     rerender({ sourceMode: false });
 
@@ -443,7 +438,6 @@ describe("useSourceModeTransition", () => {
     // 记忆光标仍以锚点偏移为准（阅读位置），不被微调改写语义
     expect(saved.pos).toBe(markdownOffsetToProsePos(40, value, 20));
 
-    unregisterSourceModeScroll(filePath);
     window.requestAnimationFrame = originalRaf;
   });
 

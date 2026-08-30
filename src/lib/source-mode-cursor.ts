@@ -62,6 +62,41 @@ export interface MarkdownNormLine {
 }
 
 /**
+ * 单行 markdown → 它在 PM 纯文本中的形态（剥块级语法与行内标记）。
+ * 非围栏上下文下：围栏标记行/空行/分割线返回空数组（PM 中无对应文本）；
+ * 表格行按单元格拆成多条（PM 表格每个单元格段落各占一行）；
+ * 其余普通行返回剥前缀后的正文（≤1 条）。
+ * 供 resolveAnchorProsePos 的候选行匹配与 markdownNormLines 复用，避免双实现漂移。
+ */
+export function markdownNormLine(trimmed: string): string[] {
+  if (!trimmed) return [];
+  if (/^(`{3,}|~{3,})/.test(trimmed)) return [];
+  if (/^(?:\*{3,}|-{3,}|_{3,})$/.test(trimmed)) return [];
+  if (trimmed.startsWith("|")) {
+    if (/^\|[\s:|-]+\|?$/.test(trimmed)) return [];
+    const cells = trimmed.replace(/^\|/, "").replace(/\|$/, "").split("|");
+    const out: string[] = [];
+    for (const cell of cells) {
+      const t = stripInlineMarkup(cell.trim());
+      if (t) out.push(t.trimEnd());
+    }
+    return out;
+  }
+  let body = trimmed.replace(/^(?:>\s?)+/, "");
+  if (/^#{1,6}\s/.test(body)) {
+    // 标题只剥 # 前缀：编号标题「## 6. 章节」的「6. 」是标题文本的一部分，
+    // 若再走列表标记剥离会把它切掉，导致与 PM 标题文本失配（#136）
+    body = body.replace(/^#{1,6}\s+/, "");
+  } else {
+    body = body
+      .replace(/^(?:[-*+]|\d+[.)])\s+/, "")
+      .replace(/^\[[ xX]\]\s*/, "");
+  }
+  body = stripInlineMarkup(body).trim();
+  return body ? [body] : [];
+}
+
+/**
  * 把 markdown 归一化为「PM 纯文本」形态的行条目，供跨格式匹配（#136）：
  * - 剥标题/引用/列表前缀与行内标记；
  * - 表格行按单元格拆成多行（PM 表格每个单元格段落各占一行）；
@@ -89,29 +124,9 @@ export function markdownNormLines(markdown: string): MarkdownNormLine[] {
       fence = fi;
       continue;
     }
-    if (!trimmed) continue;
-    if (/^(?:\*{3,}|-{3,}|_{3,})$/.test(trimmed)) continue;
-    if (trimmed.startsWith("|")) {
-      if (/^\|[\s:|-]+\|?$/.test(trimmed)) continue;
-      const cells = trimmed.replace(/^\|/, "").replace(/\|$/, "").split("|");
-      for (const cell of cells) {
-        const t = stripInlineMarkup(cell.trim());
-        if (t) out.push({ text: t, offset: lineOffset });
-      }
-      continue;
+    for (const text of markdownNormLine(trimmed)) {
+      out.push({ text, offset: lineOffset });
     }
-    let body = trimmed.replace(/^(?:>\s?)+/, "");
-    if (/^#{1,6}\s/.test(body)) {
-      // 标题只剥 # 前缀：编号标题「## 6. 章节」的「6. 」是标题文本的一部分，
-      // 若再走列表标记剥离会把它切掉，导致与 PM 标题文本失配（#136）
-      body = body.replace(/^#{1,6}\s+/, "");
-    } else {
-      body = body
-        .replace(/^(?:[-*+]|\d+[.)])\s+/, "")
-        .replace(/^\[[ xX]\]\s*/, "");
-    }
-    body = stripInlineMarkup(body).trim();
-    if (body) out.push({ text: body, offset: lineOffset });
   }
   return out;
 }

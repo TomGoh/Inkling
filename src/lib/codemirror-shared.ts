@@ -97,8 +97,9 @@ export interface SourceModeExtensionOpts {
  * window 级全局处理器造成双重触发。
  * - "Mod-/"（toggleComment）与全局 showShortcuts（默认 mod+/）冲突
  * - "Ctrl-n"（cursorLineDown）与硬编码 Ctrl+N 新建草稿冲突；
- *   defaultKeymap 内嵌的 emacsStyleKeymap 同时以 key 与 mac 两种形态存在，
- *   两者都要过滤，否则 macOS 上 mac 变体仍会命中
+ *   defaultKeymap 里它是内嵌 emacsStyleKeymap 的 mac 变体（仅 mac: "Ctrl-n"，
+ *   无 key: "Ctrl-n"），因此 b.key 过滤不命中、需按 mac 过滤才生效，
+ *   否则 macOS 上 mac 变体仍会命中（b.key 过滤为无害死代码，保留以防依赖升级）
  * 过滤后应用级语义在两种模式下一致（帮助面板 / 新建草稿）。
  */
 const sourceModeDefaultKeymap = defaultKeymap.filter(

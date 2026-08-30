@@ -15,10 +15,10 @@ import { useSettings } from "../../store/settings";
 import { useWorkspace } from "../../store/workspace";
 import {
   mapScrollTop,
+  markdownNormLine,
   markdownOffsetToProsePos,
   offsetToLineColumn,
   prosePosToMarkdownOffset,
-  stripInlineMarkup,
 } from "../../lib/source-mode-cursor";
 import { getSourceModeScroll } from "../../lib/source-mode-scroll";
 import { showMessage } from "../../lib/dialogs";
@@ -61,44 +61,13 @@ function getScrollZoom(el: HTMLElement, rect: DOMRect): number {
 }
 
 /**
- * markdown 行 → 它在 PM 纯文本中的形态（剥掉块级语法与行内标记）。
- * 围栏标记/空行/分割线等 PM 中不存在的行返回 null；
- * 表格行返回首个非空单元格文本（PM 表格每单元格段落各占一行）。
- */
-function markdownLineToPmText(line: string): string | null {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
-  if (/^(`{3,}|~{3,})/.test(trimmed)) return null;
-  if (/^(?:\*{3,}|-{3,}|_{3,})$/.test(trimmed)) return null;
-  if (trimmed.startsWith("|")) {
-    if (/^\|[\s:|-]+\|?$/.test(trimmed)) return null;
-    const cells = trimmed.replace(/^\|/, "").replace(/\|$/, "").split("|");
-    for (const cell of cells) {
-      const t = stripInlineMarkup(cell.trim());
-      if (t) return t;
-    }
-    return null;
-  }
-  let body = trimmed.replace(/^(?:>\s?)+/, "");
-  if (/^#{1,6}\s/.test(body)) {
-    // 编号标题「## 6. 章节」的「6. 」属于标题文本，不可再按列表标记剥离
-    body = body.replace(/^#{1,6}\s+/, "");
-  } else {
-    body = body
-      .replace(/^(?:[-*+]|\d+[.)])\s+/, "")
-      .replace(/^\[[ xX]\]\s*/, "");
-  }
-  body = stripInlineMarkup(body).trim();
-  return body || null;
-}
-
-/**
  * 内容锚点 → PM 精确位置（退出方向，#136）。
  * 权重比例法（markdownOffsetToProsePos）在代码占比高的文档里会偏出当前
  * 区块。此处退出现场即有解析好的 PM doc：取锚点行的纯文本形态，在
  * doc 全文文本里定位（重复行取与权重估计最近的一处），再二分找出
  * 覆盖该文本索引的最小 PM pos。锚点行命不中时向下/向上最多收集 8 条
  * 候选行逐一尝试（标记密集行剥标记后常可命中）；全部失败退回权重比例法。
+ * 行归一化复用 source-mode-cursor 的 markdownNormLine，消除双实现漂移（review N3）。
  */
 function resolveAnchorProsePos(
   view: EditorView,
@@ -110,13 +79,16 @@ function resolveAnchorProsePos(
   const lines = markdown.split("\n");
   const { line } = offsetToLineColumn(markdown, anchorOffset);
   const candidates: string[] = [];
+  const pushLine = (i: number) => {
+    for (const t of markdownNormLine((lines[i] ?? "").trim())) {
+      if (t) candidates.push(t);
+    }
+  };
   for (let i = line; i < lines.length && candidates.length < 4; i++) {
-    const t = markdownLineToPmText(lines[i] ?? "");
-    if (t) candidates.push(t);
+    pushLine(i);
   }
   for (let i = line - 1; i >= 0 && candidates.length < 8; i--) {
-    const t = markdownLineToPmText(lines[i] ?? "");
-    if (t) candidates.push(t);
+    pushLine(i);
   }
   if (candidates.length === 0) return fallback;
   try {
@@ -293,6 +265,11 @@ export function useSourceModeTransition({
     }
 
     if (!sourceMode && prev) {
+      // 真实退出流程中：子组件 SourceModeEditor 的 layout cleanup
+      // （unregisterSourceModeScroll + onUnmountSnapshot）先于本父级 layout
+      // effect 执行，因此 liveCmScroll（注册表）在生产路径必然为 null；
+      // 快照实际来自 exitSnapshotRef（onUnmountSnapshot 注入）。liveCmScroll
+      // 仅作纯兜底保留（防御注册表在极少数非 React 释放顺序下的残留）。
       const liveCmScroll = getSourceModeScroll(filePath);
       const snap = liveCmScroll ?? exitSnapshotRef.current;
       exitSnapshotRef.current = null;

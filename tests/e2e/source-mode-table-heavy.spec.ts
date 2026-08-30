@@ -1,5 +1,5 @@
 // 表格/标记密集真实文档的模式切换锚点回归（#136）
-// 用例文档直接取仓库根目录的 UI-UX-REVIEW.md（用户实测报告缺陷的文档）：
+// 用例文档直接取 tests/fixtures/ 的 UI-UX-REVIEW.md（用户实测报告缺陷的文档，评审 N4 迁移入 fixtures）：
 // 大量管道表格、重复短单元格（低/中/7.0）、粗体标签列表、CSS 围栏代码。
 // 旧实现缺陷：进入方向按整段 textBefore 子串/lastIndexOf 匹配，
 // 标记剥离不一致 + 短单元格命中末次出现 → 视口在第 4/6 节切源码跳到文末、
@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { openMockWorkspace, openFile, MOD } from "./helpers";
 
 const SPEC_DIR = dirname(fileURLToPath(import.meta.url));
-const DOC = readFileSync(join(SPEC_DIR, "../../UI-UX-REVIEW.md"), "utf-8");
+const DOC = readFileSync(join(SPEC_DIR, "../../tests/fixtures/UI-UX-REVIEW.md"), "utf-8");
 const LINES = DOC.split("\n");
 
 function headingLine(prefix: string): number {
