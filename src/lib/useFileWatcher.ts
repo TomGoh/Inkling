@@ -6,6 +6,12 @@
 //   不再用 confirm 二选一——取消后直接保存会静默覆盖外部修改（用户口头反馈）。
 // 保存后会短暂忽略变更（2 秒窗口），避免自身保存触发误报。
 // 仅桌面端（Tauri）生效，浏览器 mock 环境直接跳过。
+//
+// 自身写盘不能误判为「外部修改」，靠三道防线兜底（issue #144）：
+// - A（主修）：store 订阅里保存事件发生时，把 tab.diskMtime 登记为新的已知基线；
+// - B（兜底）：轮询中 mtime 与 tab.diskMtime 在容差内 → 判定为自家写盘，静默登记基线；
+// - C（语义修正）：保存忽略窗内不再整体跳过检查，而是刷新基线但跳过弹窗，
+//   使窗口一过不会因为基线陈旧而补一次误报。
 
 import { useEffect, useRef } from "react";
 import { isTauri } from "@tauri-apps/api/core";
@@ -17,6 +23,8 @@ import { baseName } from "./path-utils";
 
 const POLL_INTERVAL = 3000;
 const SAVE_IGNORE_WINDOW = 2000;
+/** mtime 比较容差（毫秒）：文件系统时间戳精度不一致，5ms 内视为同一时刻 */
+const MTIME_TOLERANCE_MS = 5;
 
 export function useFileWatcher(): void {
   const knownMtimesRef = useRef<Map<string, number>>(new Map());
@@ -33,7 +41,9 @@ export function useFileWatcher(): void {
       if (cancelled) return;
       const { openTabs, currentFile, dirty, reloadFile } = useWorkspace.getState();
       if (openTabs.length === 0) return;
-      if (Date.now() < ignoreUntilRef.current) return;
+      // C：保存忽略窗内不弹窗，但检查继续跑——窗内的轮询会把自家写盘后的
+      // mtime 刷成新基线，窗口一过就不会因为基线陈旧而补一次误报。
+      const withinSaveIgnoreWindow = Date.now() < ignoreUntilRef.current;
 
       const tabsToCheck = openTabs.filter((t) => !t.isUntitled);
       const isConflictOpen = Boolean(useConflict.getState().conflict);
@@ -71,8 +81,18 @@ export function useFileWatcher(): void {
           continue;
         }
 
-        if (Math.abs(mtime - knownMtime) < 5) continue;
+        if (Math.abs(mtime - knownMtime) < MTIME_TOLERANCE_MS) continue;
+
+        // B：mtime 变了，但与 store 记录的写盘基线一致 → 自家写盘，静默登记新基线。
+        // 覆盖「写盘已完成、store 已登记 diskMtime，但 A 因时序未命中」的竞态。
+        if (tab.diskMtime !== undefined && Math.abs(mtime - tab.diskMtime) < MTIME_TOLERANCE_MS) {
+          knownMtimesRef.current.set(filePath, mtime);
+          continue;
+        }
+
         knownMtimesRef.current.set(filePath, mtime);
+        // C：忽略窗内只刷新基线，不打扰用户
+        if (withinSaveIgnoreWindow) continue;
 
         // 如果是当前活跃文件且未打开冲突对话框，则触发相应处理
         if (isActive && !isConflictOpen) {
@@ -137,6 +157,14 @@ export function useFileWatcher(): void {
       if (s.lastSavedAt && s.lastSavedAt !== lastSavedAtRef.current) {
         lastSavedAtRef.current = s.lastSavedAt;
         ignoreUntilRef.current = Date.now() + SAVE_IGNORE_WINDOW;
+        // A：保存刚写盘，磁盘 mtime 已被自己改掉。此时必须把写盘后的 mtime
+        // 登记为 watcher 基线，否则 2 秒忽略窗一过，轮询必然拿新 mtime 对比
+        // 旧基线，误报「文件已被外部修改」。
+        for (const tab of s.openTabs) {
+          if (tab.lastSavedAt === s.lastSavedAt && tab.diskMtime !== undefined) {
+            knownMtimesRef.current.set(tab.path, tab.diskMtime);
+          }
+        }
       }
       if (s.currentFile !== lastFile) {
         lastFile = s.currentFile;
