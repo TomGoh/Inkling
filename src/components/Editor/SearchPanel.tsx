@@ -41,6 +41,20 @@ export function SearchPanel({ getEditor, onClose, showReplace, onShowReplaceChan
     };
   }, []);
 
+  // 面板卸载时清除搜索状态：否则高亮残留在文档里直到切换文件（#185）
+  useEffect(() => {
+    return () => {
+      const editor = getEditor();
+      if (!editor) return;
+      editor.action((ctx) => {
+        const view = ctx.get(editorViewCtx);
+        if (searchKey.getState(view.state)?.opts) {
+          view.dispatch(view.state.tr.setMeta(searchKey, { type: "clear" }));
+        }
+      });
+    };
+  }, [getEditor]);
+
   useEffect(() => {
     findRef.current?.focus();
   }, []);
@@ -52,11 +66,12 @@ export function SearchPanel({ getEditor, onClose, showReplace, onShowReplaceChan
     return () => clearTimeout(t);
   }, [find]);
 
-  // 查找词或选项变化时搜索（find 经防抖，选项立即生效）
+  // 查找词或选项变化时搜索（find 经防抖，选项立即生效）。
+  // 替换串不参与：它只在点击替换时使用，纳入依赖会导致每敲一字符全文重扫并拽动视口（#151）
   useEffect(() => {
     const editor = getEditor();
     if (!editor) return;
-    const opts: SearchOpts = { find: debouncedFind, replace, caseSensitive, useRegex };
+    const opts: SearchOpts = { find: debouncedFind, caseSensitive, useRegex };
     editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
       view.dispatch(view.state.tr.setMeta(searchKey, debouncedFind ? { type: "set", opts } : { type: "clear" }));
@@ -65,7 +80,7 @@ export function SearchPanel({ getEditor, onClose, showReplace, onShowReplaceChan
       setCurrent((s?.current ?? -1) + 1);
       if (s && s.current >= 0) scrollToCurrent(view);
     });
-  }, [debouncedFind, caseSensitive, useRegex, replace, getEditor]);
+  }, [debouncedFind, caseSensitive, useRegex, getEditor]);
 
   const readState = () => {
     const editor = getEditor();
@@ -107,7 +122,7 @@ export function SearchPanel({ getEditor, onClose, showReplace, onShowReplaceChan
     if (!editor) return;
     editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
-      replaceCurrent(view);
+      replaceCurrent(view, replace);
       readState();
       scrollToCurrent(view);
     });
@@ -118,7 +133,7 @@ export function SearchPanel({ getEditor, onClose, showReplace, onShowReplaceChan
     if (!editor) return;
     editor.action((ctx) => {
       const view = ctx.get(editorViewCtx);
-      const n = replaceAll(view);
+      const n = replaceAll(view, replace);
       readState();
       if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
       setReplaceNotice(n > 0 ? `已替换 ${n} 处` : "未找到可替换内容");
