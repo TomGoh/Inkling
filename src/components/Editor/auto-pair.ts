@@ -34,8 +34,9 @@ export function autoPairPlugin(): Plugin {
       handleTextInput: (view, from, to, text) => {
         if (!useSettings.getState().autoPair) return false;
         const right = PAIRS[text];
-        // 输入的是右符号且光标后紧跟相同右符号：跳过插入，仅移动光标
-        if (!right && RIGHT_SYMBOLS.has(text)) {
+        // 输入的是右符号且光标后紧跟相同右符号：跳过插入，仅移动光标。
+        // 仅空选区生效；选区非空时交还默认输入行为（替换选中文本）（#152）
+        if (from === to && !right && RIGHT_SYMBOLS.has(text)) {
           const after = view.state.doc.textBetween(to, to + 1, "", "");
           if (after === text) {
             const $to = view.state.doc.resolve(to + 1);

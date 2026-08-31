@@ -87,4 +87,24 @@ test.describe("自动配对", () => {
     const text = await editorText(page);
     expect(text).toContain("(hello)");
   });
+
+  test("AP7 选区非空输入右符号替换选区而非被吞（#152）", async ({ page }) => {
+    await newDraft(page);
+    // 输入 (abc：自动补全后实际文本为 "(abc)"，光标在补全的 ) 之前
+    await page.keyboard.type("(abc");
+    await page.waitForTimeout(150);
+    // 反向选中 abc
+    await page.keyboard.down("Shift");
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.up("Shift");
+    await page.waitForTimeout(100);
+    // 修复前：跳过逻辑吞掉输入，文本停在 "(abc)"、光标跳到括号外
+    await page.keyboard.type(")");
+    await page.waitForTimeout(150);
+    const text = await editorText(page);
+    // 选区 abc 被 ")" 替换，原补全的 ")" 保留 → "())"
+    expect(text).toBe("())");
+  });
 });
