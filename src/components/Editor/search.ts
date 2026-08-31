@@ -10,7 +10,6 @@ import type { Node } from "@milkdown/kit/prose/model";
 
 export interface SearchOpts {
   find: string;
-  replace: string;
   caseSensitive: boolean;
   useRegex: boolean;
 }
@@ -64,8 +63,16 @@ function computeMatches(doc: Node, regex: RegExp): { from: number; to: number }[
   return matches;
 }
 
-export const searchPlugin = () =>
-  new Plugin<SearchState>({
+export const searchPlugin = () => {
+  // 按 (matches, current, doc) 引用缓存 DecorationSet：搜索状态未变的无关
+  // transaction（普通输入等）直接复用，避免每次按键全量重建装饰（#151）
+  let decoCache: {
+    matches: SearchState["matches"];
+    current: number;
+    doc: Node;
+    set: DecorationSet;
+  } | null = null;
+  return new Plugin<SearchState>({
     key: searchKey,
     state: {
       init: () => ({ opts: null, matches: [], current: -1 }),
@@ -104,15 +111,26 @@ export const searchPlugin = () =>
       decorations: (state) => {
         const s = searchKey.getState(state);
         if (!s || s.matches.length === 0) return DecorationSet.empty;
+        if (
+          decoCache &&
+          decoCache.matches === s.matches &&
+          decoCache.current === s.current &&
+          decoCache.doc === state.doc
+        ) {
+          return decoCache.set;
+        }
         const decos = s.matches.map((m, i) =>
           Decoration.inline(m.from, m.to, {
             class: i === s.current ? "search-match-current" : "search-match",
           }),
         );
-        return DecorationSet.create(state.doc, decos);
+        const set = DecorationSet.create(state.doc, decos);
+        decoCache = { matches: s.matches, current: s.current, doc: state.doc, set };
+        return set;
       },
     },
   });
+};
 
 /** 滚动到当前匹配位置 */
 export function scrollToCurrent(view: EditorView): void {
@@ -127,24 +145,34 @@ export function scrollToCurrent(view: EditorView): void {
   );
 }
 
-/** 替换当前匹配 */
-export function replaceCurrent(view: EditorView): void {
+/** 替换当前匹配；替换串为空表示删除匹配文本 */
+export function replaceCurrent(view: EditorView, replacement: string): void {
   const s = searchKey.getState(view.state);
   if (!s || !s.opts || s.current < 0) return;
   const m = s.matches[s.current];
   if (!m) return;
-  const text = view.state.schema.text(s.opts.replace);
-  view.dispatch(view.state.tr.replaceWith(m.from, m.to, text));
+  const tr = view.state.tr;
+  // ProseMirror 禁止空文本节点，空串替换必须走 delete（#178）
+  if (replacement === "") {
+    tr.delete(m.from, m.to);
+  } else {
+    tr.replaceWith(m.from, m.to, view.state.schema.text(replacement));
+  }
+  view.dispatch(tr);
 }
 
-/** 替换全部匹配（从后往前，避免位置偏移） */
-export function replaceAll(view: EditorView): number {
+/** 替换全部匹配（从后往前，避免位置偏移）；替换串为空表示删除全部匹配文本 */
+export function replaceAll(view: EditorView, replacement: string): number {
   const s = searchKey.getState(view.state);
   if (!s || !s.opts) return 0;
   const tr = view.state.tr;
   const sorted = [...s.matches].sort((a, b) => b.from - a.from);
   for (const m of sorted) {
-    tr.replaceWith(m.from, m.to, view.state.schema.text(s.opts.replace));
+    if (replacement === "") {
+      tr.delete(m.from, m.to);
+    } else {
+      tr.replaceWith(m.from, m.to, view.state.schema.text(replacement));
+    }
   }
   view.dispatch(tr);
   return sorted.length;

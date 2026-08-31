@@ -73,6 +73,33 @@ test.describe("查找替换", () => {
       }
     }
   });
+
+  test("关闭面板后搜索高亮立即清除（#185）", async ({ page }) => {
+    await openMockWorkspace(page);
+    await openFile(page, "readme.md");
+    await page.keyboard.press("Control+f");
+    await page.locator(".search-input").first().fill("mock");
+    await expect(page.locator(".search-match").first()).toBeVisible({ timeout: 5_000 });
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".search-panel")).toHaveCount(0);
+    // 高亮不得残留到切换文件之前
+    await expect(page.locator(".search-match")).toHaveCount(0);
+    await expect(page.locator(".search-match-current")).toHaveCount(0);
+  });
+
+  test("替换串为空时全部替换 = 删除所有匹配（#178）", async ({ page }) => {
+    await openMockWorkspace(page);
+    await openFile(page, "readme.md");
+    await page.keyboard.press("Control+r");
+    await page.locator(".search-input").first().fill("mock");
+    await expect(page.locator(".search-count")).toContainText("/", { timeout: 5_000 });
+    // 替换框保持空值，点击「全部」——修复前此处抛 RangeError 且内容不变
+    await page.locator(".search-btn", { hasText: "全部" }).click();
+    await expect(page.locator(".search-notice")).toContainText("已替换");
+    await expect(page.locator(".ProseMirror")).not.toContainText("mock");
+    // 应用未崩溃：编辑器仍可编辑
+    await expect(page.locator(".ProseMirror")).toBeVisible();
+  });
 });
 
 test.describe("快捷键", () => {
