@@ -5,7 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { Schema } from "@milkdown/kit/prose/model";
 import { EditorState, TextSelection } from "@milkdown/kit/prose/state";
-import { EditorView, DecorationSet } from "@milkdown/kit/prose/view";
+import { EditorView, Decoration, DecorationSet } from "@milkdown/kit/prose/view";
 import {
   searchKey,
   searchPlugin,
@@ -60,9 +60,10 @@ function decorationsOf(plugin: ReturnType<typeof searchPlugin>) {
   return plugin.props.decorations as (state: EditorState) => DecorationSet;
 }
 
-/** Decoration.inline(from, to, attrs, spec) 的 class 在 attrs 上，不在 spec 上 */
-function decoClass(d: { type: { attrs?: { class?: string } } }): string | undefined {
-  return d.type.attrs?.class;
+/** Decoration.inline(from, to, attrs, spec) 的 class 在 attrs 上，不在 spec 上；
+ * type 是内部字段，公开类型未导出，需经 unknown 断言访问 */
+function decoClass(d: Decoration): string | undefined {
+  return (d as unknown as { type: { attrs?: { class?: string } } }).type.attrs?.class;
 }
 
 describe("replaceAll 全部替换", () => {
