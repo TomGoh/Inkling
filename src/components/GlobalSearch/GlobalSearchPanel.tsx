@@ -8,7 +8,11 @@ import type { Editor } from "@milkdown/kit/core";
 import { editorViewCtx } from "@milkdown/kit/core";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import { useWorkspace } from "../../store/workspace";
-import { searchInWorkspace, type SearchHit } from "../../lib/fs";
+import {
+  searchInWorkspace,
+  nextGlobalSearchGeneration,
+  type SearchHit,
+} from "../../lib/fs";
 import { IconFileText, IconX } from "../icons";
 import "./GlobalSearchPanel.css";
 
@@ -75,6 +79,7 @@ export function GlobalSearchPanel({ getEditor, onClose }: GlobalSearchPanelProps
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [useRegex, setUseRegex] = useState(false);
   const [hits, setHits] = useState<SearchHit[]>([]);
+  const [truncated, setTruncated] = useState(false);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -87,6 +92,13 @@ export function GlobalSearchPanel({ getEditor, onClose }: GlobalSearchPanelProps
     inputRef.current?.focus();
   }, []);
 
+  // 卸载时推进全局代次，让 Rust 侧在途搜索提前退出（#163）
+  useEffect(() => {
+    return () => {
+      nextGlobalSearchGeneration();
+    };
+  }, []);
+
   // Esc 关闭
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -96,11 +108,13 @@ export function GlobalSearchPanel({ getEditor, onClose }: GlobalSearchPanelProps
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // 防抖搜索（附带递增 seq 序号守卫，防止慢请求覆盖较新的搜索结果）
+  // 防抖搜索：代次递增既作为竞态守卫（旧响应丢弃），也传给后端取消在途旧搜索（#163）
   useEffect(() => {
-    const seq = ++searchSeqRef.current;
+    const seq = nextGlobalSearchGeneration();
+    searchSeqRef.current = seq;
     if (!query.trim()) {
       setHits([]);
+      setTruncated(false);
       setError(null);
       setActiveIndex(0);
       setSearching(false);
@@ -114,10 +128,11 @@ export function GlobalSearchPanel({ getEditor, onClose }: GlobalSearchPanelProps
     setSearching(true);
     setError(null);
     const timer = setTimeout(() => {
-      searchInWorkspace(rootPath, query, caseSensitive, useRegex)
+      searchInWorkspace(rootPath, query, caseSensitive, useRegex, seq)
         .then((result) => {
           if (searchSeqRef.current !== seq) return;
-          setHits(result);
+          setHits(result.hits);
+          setTruncated(result.truncated);
           setActiveIndex(0);
           setSearching(false);
         })
@@ -284,7 +299,9 @@ export function GlobalSearchPanel({ getEditor, onClose }: GlobalSearchPanelProps
           {!searching && !error && query.trim() && (
             <span>
               {totalHits > 0
-                ? `${grouped.length} 个文件，${totalHits} 处匹配`
+                ? truncated
+                  ? `${grouped.length} 个文件，${totalHits} 处匹配（已达 5000 条上限，结果已截断）`
+                  : `${grouped.length} 个文件，${totalHits} 处匹配`
                 : "无匹配结果"}
             </span>
           )}

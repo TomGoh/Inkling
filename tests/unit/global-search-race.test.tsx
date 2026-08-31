@@ -32,7 +32,7 @@ describe("GlobalSearchPanel race condition guards (Issue #126)", () => {
     searchMock.mockImplementation((_root: string, query: string) => {
       if (query === "first") return firstPromise;
       if (query === "second") return secondPromise;
-      return Promise.resolve([]);
+      return Promise.resolve({ hits: [], truncated: false });
     });
 
     const onClose = vi.fn();
@@ -48,7 +48,14 @@ describe("GlobalSearchPanel race condition guards (Issue #126)", () => {
       vi.advanceTimersByTime(300);
     });
 
-    expect(searchMock).toHaveBeenCalledWith("/test/workspace", "first", false, false);
+    // 第 5 个参数是搜索代次，用于后端取消旧搜索（#163）
+    expect(searchMock).toHaveBeenCalledWith(
+      "/test/workspace",
+      "first",
+      false,
+      false,
+      expect.any(Number),
+    );
 
     // 2. Type "second" quickly
     fireEvent.change(input, { target: { value: "second" } });
@@ -56,19 +63,33 @@ describe("GlobalSearchPanel race condition guards (Issue #126)", () => {
       vi.advanceTimersByTime(300);
     });
 
-    expect(searchMock).toHaveBeenCalledWith("/test/workspace", "second", false, false);
+    expect(searchMock).toHaveBeenCalledWith(
+      "/test/workspace",
+      "second",
+      false,
+      false,
+      expect.any(Number),
+    );
+
+    // 两次搜索的代次必须严格递增，后端才能识别并取消旧任务
+    const generations = searchMock.mock.calls.map((call) => call[4] as number);
+    expect(generations[generations.length - 1]).toBeGreaterThan(
+      generations[generations.length - 2],
+    );
 
     // 3. Second promise resolves first with 1 hit
     await act(async () => {
-      resolveSecond([
-        {
-          path: "/test/workspace/b.md",
-          line: 1,
-          col: 0,
-          preview: "second match",
-          matchLen: 6,
-        },
-      ]);
+      resolveSecond({
+        hits: [
+          {
+            path: "/test/workspace/b.md",
+            line: 1,
+            column: 1,
+            preview: "second match",
+          },
+        ],
+        truncated: false,
+      });
     });
 
     expect(screen.getByText("b.md")).toBeTruthy();
@@ -76,15 +97,17 @@ describe("GlobalSearchPanel race condition guards (Issue #126)", () => {
 
     // 4. First promise resolves later with old hit
     await act(async () => {
-      resolveFirst([
-        {
-          path: "/test/workspace/a.md",
-          line: 1,
-          col: 0,
-          preview: "old stale match",
-          matchLen: 3,
-        },
-      ]);
+      resolveFirst({
+        hits: [
+          {
+            path: "/test/workspace/a.md",
+            line: 1,
+            column: 1,
+            preview: "old stale match",
+          },
+        ],
+        truncated: false,
+      });
     });
 
     // Stale match must not overwrite the latest hits

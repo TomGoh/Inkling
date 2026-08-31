@@ -140,19 +140,34 @@ export interface SearchHit {
   preview: string;
 }
 
+/** 全局搜索结果（#160：截断对前端可见） */
+export interface SearchResult {
+  hits: SearchHit[];
+  /** 命中数达到后端上限（5000）被截断时为 true */
+  truncated: boolean;
+}
+
+/** 搜索代次：每次发起递增，Rust 侧用它取消落后的在途搜索（#163） */
+let globalSearchGeneration = 0;
+export function nextGlobalSearchGeneration(): number {
+  return ++globalSearchGeneration;
+}
+
 /** 在工作区所有 .md 文件中搜索文本内容 */
 export async function searchInWorkspace(
   root: string,
   query: string,
   caseSensitive: boolean,
   useRegex: boolean,
-): Promise<SearchHit[]> {
+  generation = 0,
+): Promise<SearchResult> {
   if (isTauri()) {
-    return invoke<SearchHit[]>("search_in_workspace", {
+    return invoke<SearchResult>("search_in_workspace", {
       root,
       query,
       caseSensitive,
       useRegex,
+      generation,
     });
   }
   // 浏览器 mock：扫描内存中的 mock 文件
@@ -164,7 +179,7 @@ export async function searchInWorkspace(
     const pattern = useRegex ? q : q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     re = new RegExp(pattern, caseSensitive ? "g" : "gi");
   } catch {
-    return hits;
+    return { hits, truncated: false };
   }
   for (const [path, content] of Object.entries(MOCK_FILE_CONTENT)) {
     const lines = content.split("\n");
@@ -175,7 +190,7 @@ export async function searchInWorkspace(
       }
     }
   }
-  return hits;
+  return { hits, truncated: false };
 }
 
 /**
