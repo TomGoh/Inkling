@@ -171,6 +171,8 @@ export async function searchInWorkspace(
     });
   }
   // 浏览器 mock：扫描内存中的 mock 文件
+  // 空查询与 Rust 侧命令入口一致：登记代次后立即返回，不扫描（卸载取消调用会传空查询）
+  if (!query) return { hits: [], truncated: false };
   const { MOCK_FILE_CONTENT } = await import("./mockFs");
   const hits: SearchHit[] = [];
   const q = useRegex ? query : query;

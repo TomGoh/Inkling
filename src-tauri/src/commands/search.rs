@@ -172,10 +172,22 @@ fn preview_window(line: &str, start: usize, end: usize) -> String {
     preview
 }
 
-/// 顺序扫描一片文件，命中数在本片内达到上限即停止；代次推进时返回取消错误
-fn scan_files(files: &[String], re: &Regex, generation: u64) -> Result<Vec<SearchHit>, String> {
+/// 顺序扫描一片文件，命中数在本片内达到上限后继续探测是否还有更多命中。
+///
+/// 返回 `(hits, exceeded)`：
+/// - `hits`：本片实际匹配，收集到 `MAX_TOTAL_HITS` 后不再存储（防内存膨胀）；
+/// - `exceeded`：本片真实命中数超过 `MAX_TOTAL_HITS`（存在第 `MAX_TOTAL_HITS+1` 条未收录）。
+///
+/// 判定要点：若恰好 `MAX_TOTAL_HITS` 条（扫描到末尾仍无多余），则 `exceeded = false`，
+/// 从而避免「命中数恰好 5000 也被截断」的误报。代次推进时返回取消错误。
+fn scan_files(
+    files: &[String],
+    re: &Regex,
+    generation: u64,
+) -> Result<(Vec<SearchHit>, bool), String> {
     let mut hits: Vec<SearchHit> = Vec::new();
-    for file_path in files {
+    let mut exceeded = false;
+    'outer: for file_path in files {
         if is_stale(generation) {
             return Err(cancelled_error());
         }
@@ -198,8 +210,13 @@ fn scan_files(files: &[String], re: &Regex, generation: u64) -> Result<Vec<Searc
                 Ok(l) => l,
                 Err(_) => continue,
             };
-            // 对每个匹配，记录命中（同行多次命中各记一条）
             for m in re.find_iter(&line) {
+                // 收集已满：继续向后探测，直到确认存在多余命中才标记 exceeded，
+                // 而不是一到达 MAX 就假定被截断（避免恰好上限的误报）。
+                if hits.len() >= MAX_TOTAL_HITS {
+                    exceeded = true;
+                    break 'outer;
+                }
                 // 列号按 UTF-8 字符计（前端展示更直观）
                 let column = line[..m.start()].chars().count() + 1;
                 hits.push(SearchHit {
@@ -208,14 +225,10 @@ fn scan_files(files: &[String], re: &Regex, generation: u64) -> Result<Vec<Searc
                     column,
                     preview: preview_window(&line, m.start(), m.end()),
                 });
-                // 单片达到总上限即可停止，合并阶段统一截断
-                if hits.len() >= MAX_TOTAL_HITS {
-                    return Ok(hits);
-                }
             }
         }
     }
-    Ok(hits)
+    Ok((hits, exceeded))
 }
 
 /// 全局搜索：在工作区 root 下搜索 query
@@ -286,8 +299,10 @@ fn search_in_workspace_sync(
     }
 
     // 按可用 CPU 数把已排序文件切片，分片并行扫描后按片序合并，保证结果顺序确定（#163）
-    let mut truncated = false;
     let mut hits: Vec<SearchHit> = Vec::new();
+    // 任一单片探测到超上限，则整体必然截断；各片未超上限时总计严格超过上限才算截断
+    // （恰好 5000 条不误报）。
+    let mut truncated = false;
     if !files.is_empty() {
         let worker_count = std::thread::available_parallelism()
             .map(|n| n.get())
@@ -307,21 +322,22 @@ fn search_in_workspace_sync(
                 .map_err(|_| "搜索线程异常退出".to_string())
                 .and_then(|result| result)
         })
-        .collect::<Result<Vec<Vec<SearchHit>>, String>>()?;
+        .collect::<Result<Vec<(Vec<SearchHit>, bool)>, String>>()?;
 
-        for part in parts {
-            // 分片自身达到上限，说明该片内还有未收录的命中
-            if part.len() >= MAX_TOTAL_HITS {
-                truncated = true;
-            }
-            hits.extend(part);
+        truncated = parts.iter().any(|(_, exceeded)| *exceeded)
+            || parts
+                .iter()
+                .map(|(h, _)| h.len())
+                .sum::<usize>()
+                > MAX_TOTAL_HITS;
+
+        // 按片序合并，只保留前 MAX_TOTAL_HITS 条，保证结果顺序确定（#163）
+        for (part, _) in parts {
             if hits.len() >= MAX_TOTAL_HITS {
-                truncated = true;
                 break;
             }
-        }
-        if hits.len() > MAX_TOTAL_HITS {
-            hits.truncate(MAX_TOTAL_HITS);
+            let remaining = MAX_TOTAL_HITS - hits.len();
+            hits.extend(part.into_iter().take(remaining));
         }
     }
 
@@ -578,6 +594,19 @@ mod tests {
         // 合并按排序后的文件顺序：a.md 的 2000 条必须完整保留在前
         let a_count = result.hits.iter().filter(|h| h.path.ends_with("a.md")).count();
         assert_eq!(a_count, 2000, "截断应按文件排序顺序保留前部结果");
+    }
+
+    #[test]
+    fn exactly_max_hits_is_not_truncated() {
+        // 恰好 5000 条命中、无障碍提前退出，不应被误标为截断（评审 N-blocking）
+        let temp = TestDir::new("exact-max");
+        // 单文件恰好 MAX_TOTAL_HITS 条命中
+        let content = "needle\n".repeat(MAX_TOTAL_HITS);
+        write(&temp.path.join("a.md"), &content);
+
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), MAX_TOTAL_HITS);
+        assert!(!result.truncated, "恰好 5000 条命中不应被标为截断");
     }
 
     #[test]

@@ -92,10 +92,15 @@ export function GlobalSearchPanel({ getEditor, onClose }: GlobalSearchPanelProps
     inputRef.current?.focus();
   }, []);
 
-  // 卸载时推进全局代次，让 Rust 侧在途搜索提前退出（#163）
+  // 卸载时删除注册待执行的取消调用，让 Rust 侧在途搜索提前退出（#163）。
+  // 关闭面板（卸载）等价于发起一次「空查询、新代次」的搜索：
+  // 命令入口 fetch_max 登记新代次后空查询立即返回（不扫描），
+  // 在途旧扫描在检查点看到代次推进后提前退出。结果被丢弃，故 fire-and-forget。
+  // （rootPath 经 store getter 读取最新值，避免闭包捕获过期路径。）
   useEffect(() => {
     return () => {
-      nextGlobalSearchGeneration();
+      const root = useWorkspace.getState().rootPath;
+      void searchInWorkspace(root ?? "", "", false, false, nextGlobalSearchGeneration());
     };
   }, []);
 
