@@ -27,6 +27,31 @@ fn generate_atomic_temp_path(parent: &Path, file_name: &str) -> std::path::PathB
     parent.join(format!(".{}.tmp.{}-{}-{}", file_name, pid, nonce, seq))
 }
 
+/// Windows 回退替换：常规 `fs::rename` 失败时短暂退避重试原子替换。
+///
+/// 关键约束（issue #146）：**任何失败路径都不得先删除用户原件**。
+/// 旧实现在回退分支「先 remove_file 目标再 rename」，两步之间若崩溃/断电，
+/// 原文件已删而新内容未就位，造成用户文档丢失；现改为只做原子替换重试，
+/// 全部重试失败则保留原件并返回错误（临时文件由调用方清理）。
+#[cfg(windows)]
+fn replace_file_with_retry(temp_path: &Path, path: &Path) -> std::io::Result<()> {
+    const MAX_RETRIES: u32 = 4;
+    const RETRY_DELAY_MS: u64 = 50;
+
+    let mut last_err: Option<std::io::Error> = None;
+    for attempt in 0..=MAX_RETRIES {
+        if attempt > 0 {
+            // 短暂退避应对杀毒软件/索引器对目标文件的瞬时占用
+            std::thread::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
+        }
+        match fs::rename(temp_path, path) {
+            Ok(()) => return Ok(()),
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap_or_else(|| std::io::Error::other("替换目标文件失败")))
+}
+
 const IGNORED_DIR_NAMES: &[&str] = &["node_modules", "target", "dist", "build", "out"];
 
 /// 文件树节点
@@ -435,6 +460,79 @@ mod tests {
         assert!(err.contains("Base64 解码失败"));
         assert!(!invalid_file.exists());
     }
+
+    // ===== issue #146：Windows 写入回退必须保留用户原件 =====
+
+    #[cfg(windows)]
+    #[test]
+    fn replace_with_retry_replaces_target_when_unlocked() {
+        let temp = TestDir::new("replace-ok");
+        let target = temp.path.join("note.md");
+        fs::write(&target, "original").unwrap();
+        let staged = temp.path.join("staged.md");
+        fs::write(&staged, "new content").unwrap();
+
+        replace_file_with_retry(&staged, &target).unwrap();
+
+        assert_eq!(fs::read_to_string(&target).unwrap(), "new content");
+        assert!(!staged.exists(), "替换成功后临时文件应已被移动走");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn replace_with_retry_preserves_original_when_target_locked() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let temp = TestDir::new("replace-locked");
+        let target = temp.path.join("note.md");
+        fs::write(&target, "original").unwrap();
+        let staged = temp.path.join("staged.md");
+        fs::write(&staged, "new content").unwrap();
+
+        // 以 share_mode(0) 独占打开目标文件，模拟杀毒软件/索引器瞬时占用：
+        // rename 替换必然失败，回退重试也应失败。
+        // 注意：独占句柄同时阻止其他句柄读取，因此只覆盖替换调用本身
+        let err = {
+            let _guard = fs::OpenOptions::new()
+                .write(true)
+                .share_mode(0)
+                .open(&target)
+                .expect("以独占模式打开目标文件");
+
+            replace_file_with_retry(&staged, &target)
+                .expect_err("目标被独占占用时替换应当失败")
+        };
+
+        // 核心保证：替换失败后用户原件必须原样保留
+        assert_eq!(
+            fs::read_to_string(&target).unwrap(),
+            "original",
+            "替换失败后不得损坏/丢失用户原件"
+        );
+        // 新内容仍留在临时文件中，等待下次写入重试
+        assert_eq!(fs::read_to_string(&staged).unwrap(), "new content");
+        assert!(!err.to_string().is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn replace_with_retry_preserves_original_when_temp_missing() {
+        let temp = TestDir::new("replace-no-temp");
+        let target = temp.path.join("note.md");
+        fs::write(&target, "original").unwrap();
+        let staged = temp.path.join("missing.md");
+
+        // 临时文件不存在（如写中途被清理）：重试必然失败，但原件不得被触碰
+        let err = replace_file_with_retry(&staged, &target)
+            .expect_err("临时文件缺失时替换应当失败");
+        assert!(err.to_string().contains("系统找不到指定的文件") || !err.to_string().is_empty());
+
+        assert_eq!(
+            fs::read_to_string(&target).unwrap(),
+            "original",
+            "失败路径不得损坏用户原件"
+        );
+    }
 }
 
 /// 写入文本文件（原子写入：写入临时文件再重命名，避免写盘崩溃导致截断损坏）
@@ -472,14 +570,17 @@ fn write_text_file_sync(file_path: String, content: String) -> Result<(), String
 
     // 重命名原子替换目标文件
     if let Err(e) = fs::rename(&temp_path, path) {
-        // Windows 上如果目标已存在，尝试 fallback 或标准替换
+        // Windows 上如果目标已存在，短暂退避重试原子替换（issue #146：
+        // 绝不先删除用户原件再替换，避免两步之间崩溃导致文档丢失）
         #[cfg(windows)]
         {
             if path.exists() {
-                let _ = fs::remove_file(path);
-                if let Err(e2) = fs::rename(&temp_path, path) {
+                if let Err(e2) = replace_file_with_retry(&temp_path, path) {
                     let _ = fs::remove_file(&temp_path);
-                    return Err(format!("替换目标文件失败 {}: {}", file_path, e2));
+                    return Err(format!(
+                        "替换目标文件失败 {}（已保留原文件）: {}",
+                        file_path, e2
+                    ));
                 }
                 return Ok(());
             }
@@ -530,13 +631,17 @@ fn write_binary_file_sync(file_path: String, data_base64: String) -> Result<(), 
 
     // 重命名原子替换目标文件
     if let Err(e) = fs::rename(&temp_path, path) {
+        // Windows 上如果目标已存在，短暂退避重试原子替换（issue #146：
+        // 绝不先删除用户原件再替换，避免两步之间崩溃导致数据丢失）
         #[cfg(windows)]
         {
             if path.exists() {
-                let _ = fs::remove_file(path);
-                if let Err(e2) = fs::rename(&temp_path, path) {
+                if let Err(e2) = replace_file_with_retry(&temp_path, path) {
                     let _ = fs::remove_file(&temp_path);
-                    return Err(format!("替换目标文件失败 {}: {}", file_path, e2));
+                    return Err(format!(
+                        "替换目标文件失败 {}（已保留原文件）: {}",
+                        file_path, e2
+                    ));
                 }
                 return Ok(());
             }
