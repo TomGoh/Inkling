@@ -1,13 +1,15 @@
 // 全局搜索命令
 // 遍历工作区目录下所有 .md/.markdown 文件，按行匹配关键词或正则，
-// 返回命中结果（文件路径 + 行号 + 列号 + 预览文本）。
-// 跳过隐藏目录（. 开头）、依赖目录（node_modules 等）、符号链接目录防死循环和超大文件（> 5MB）。
+// 返回命中结果（文件路径 + 行号 + 列号 + 预览文本）与截断标记。
+// 跳过隐藏目录（. 开头）、依赖目录（node_modules 等）、目录符号链接/联接（防死循环）和超大文件（> 5MB）。
+// 性能要点（#163）：目录符号链接一律不跟随，递归路径天然是树，无需逐目录 canonicalize；
+// 文件扫描按 CPU 数分片并行；搜索代次（generation）推进时旧任务在周期间检查点提前退出。
 
 use regex::Regex;
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// 单条命中
 #[derive(Debug, serde::Serialize)]
@@ -18,14 +20,44 @@ pub struct SearchHit {
     pub line: usize,
     /// 列号（从 1 开始，按 UTF-8 字符计）
     pub column: usize,
-    /// 该行内容（已去除行尾换行）
+    /// 命中点附近的预览文本（截断窗口，非整行，见 preview_window）
     pub preview: String,
+}
+
+/// 全局搜索结果（#160：截断对前端可见）
+#[derive(Debug, serde::Serialize)]
+pub struct SearchResult {
+    pub hits: Vec<SearchHit>,
+    /// 命中数达到上限被截断时为 true
+    pub truncated: bool,
 }
 
 /// 超过此大小（字节）的文件跳过
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024;
 /// 递归搜索的最大目录深度，防异常深树导致栈溢出
 const MAX_SEARCH_DEPTH: usize = 64;
+/// 单次搜索最多返回的命中条数，超出截断并置 truncated
+const MAX_TOTAL_HITS: usize = 5000;
+/// preview 中命中点前后各保留的字符数（#176：避免克隆整行）
+const PREVIEW_CONTEXT_CHARS: usize = 120;
+/// preview 中命中片段本身最多保留的字符数（防超大正则匹配撑爆预览）
+const PREVIEW_MAX_MATCH_CHARS: usize = 200;
+
+/// 扫描行数达到该倍数时检查一次取消（摊薄原子读开销）
+const CANCEL_CHECK_LINE_INTERVAL: usize = 256;
+
+/// 搜索代次：每次新搜索登记自己的代次，在途旧任务发现代次推进后提前退出（#163）
+pub static SEARCH_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// 搜索被更新的搜索取消
+fn cancelled_error() -> String {
+    "搜索已被更新的搜索取消".to_string()
+}
+
+/// 当前代次是否已被更新的搜索推进
+fn is_stale(generation: u64) -> bool {
+    SEARCH_GENERATION.load(Ordering::Relaxed) > generation
+}
 
 // 搜索忽略目录：与前端 src/lib/searchIgnore.ts 保持同步
 const IGNORED_SEARCH_DIRS: &[&str] = &[
@@ -45,30 +77,28 @@ const IGNORED_SEARCH_DIRS: &[&str] = &[
     ".hg",
 ];
 
-/// 递归收集目录下所有 .md/.markdown 文件路径（带循环引用检测、深度限制和依赖过滤）
+/// 递归收集目录下所有 .md/.markdown 文件路径（带深度限制和依赖过滤）
+///
+/// 目录符号链接/联接（含 Windows junction）一律跳过，递归路径不会成环，
+/// 因此不需要逐目录 canonicalize + visited 集合（#163）。
 fn collect_md_files(
     dir: &Path,
-    visited: &mut HashSet<PathBuf>,
     out: &mut Vec<String>,
     current_depth: usize,
-) {
+    generation: u64,
+) -> Result<(), String> {
     if current_depth > MAX_SEARCH_DEPTH {
-        return;
-    }
-
-    let canonical = match dir.canonicalize() {
-        Ok(c) => c,
-        Err(_) => return,
-    };
-    if !visited.insert(canonical) {
-        return;
+        return Ok(());
     }
 
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
-        Err(_) => return,
+        Err(_) => return Ok(()),
     };
     for entry in entries.flatten() {
+        if is_stale(generation) {
+            return Err(cancelled_error());
+        }
         let path = entry.path();
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
@@ -93,7 +123,7 @@ fn collect_md_files(
             if IGNORED_SEARCH_DIRS.iter().any(|&d| d.eq_ignore_ascii_case(&name_str)) {
                 continue;
             }
-            collect_md_files(&path, visited, out, current_depth + 1);
+            collect_md_files(&path, out, current_depth + 1, generation)?;
         } else if path.is_file() {
             let lower = name_str.to_lowercase();
             if lower.ends_with(".md") || lower.ends_with(".markdown") {
@@ -103,6 +133,102 @@ fn collect_md_files(
             }
         }
     }
+    Ok(())
+}
+
+/// 取命中点附近的字符级窗口作为预览（#176）
+///
+/// 形如「…前文(≤120 字符) 命中片段(≤200 字符) 后文(≤120 字符)…」。
+/// 内嵌 base64 图片的超长单行不再被整行克隆，5000 条命中的预览总量被常数级封顶。
+fn preview_window(line: &str, start: usize, end: usize) -> String {
+    // 命中前保留的窗口起点（按字符数回退）
+    let from = match line[..start]
+        .char_indices()
+        .rev()
+        .nth(PREVIEW_CONTEXT_CHARS - 1)
+    {
+        Some((i, _)) => i,
+        None => 0,
+    };
+    // 命中片段本身超长时截断
+    let match_end = match line[start..end].char_indices().nth(PREVIEW_MAX_MATCH_CHARS) {
+        Some((i, _)) => start + i,
+        None => end,
+    };
+    // 命中后保留的窗口终点（按字符数前进）
+    let to = match line[match_end..].char_indices().nth(PREVIEW_CONTEXT_CHARS) {
+        Some((i, _)) => match_end + i,
+        None => line.len(),
+    };
+
+    let mut preview = String::with_capacity(to - from + '…'.len_utf8() * 2);
+    if from > 0 {
+        preview.push('…');
+    }
+    preview.push_str(&line[from..to]);
+    if to < line.len() {
+        preview.push('…');
+    }
+    preview
+}
+
+/// 顺序扫描一片文件，命中数在本片内达到上限后继续探测是否还有更多命中。
+///
+/// 返回 `(hits, exceeded)`：
+/// - `hits`：本片实际匹配，收集到 `MAX_TOTAL_HITS` 后不再存储（防内存膨胀）；
+/// - `exceeded`：本片真实命中数超过 `MAX_TOTAL_HITS`（存在第 `MAX_TOTAL_HITS+1` 条未收录）。
+///
+/// 判定要点：若恰好 `MAX_TOTAL_HITS` 条（扫描到末尾仍无多余），则 `exceeded = false`，
+/// 从而避免「命中数恰好 5000 也被截断」的误报。代次推进时返回取消错误。
+fn scan_files(
+    files: &[String],
+    re: &Regex,
+    generation: u64,
+) -> Result<(Vec<SearchHit>, bool), String> {
+    let mut hits: Vec<SearchHit> = Vec::new();
+    let mut exceeded = false;
+    'outer: for file_path in files {
+        if is_stale(generation) {
+            return Err(cancelled_error());
+        }
+        // 跳过超大文件
+        if let Ok(meta) = std::fs::metadata(file_path) {
+            if meta.len() > MAX_FILE_SIZE {
+                continue;
+            }
+        }
+        let file = match File::open(file_path) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        let reader = BufReader::new(file);
+        for (i, line_res) in reader.lines().enumerate() {
+            if i % CANCEL_CHECK_LINE_INTERVAL == 0 && is_stale(generation) {
+                return Err(cancelled_error());
+            }
+            let line = match line_res {
+                Ok(l) => l,
+                Err(_) => continue,
+            };
+            for m in re.find_iter(&line) {
+                // 收集已满：继续向后探测，直到确认存在多余命中才标记 exceeded，
+                // 而不是一到达 MAX 就假定被截断（避免恰好上限的误报）。
+                if hits.len() >= MAX_TOTAL_HITS {
+                    exceeded = true;
+                    break 'outer;
+                }
+                // 列号按 UTF-8 字符计（前端展示更直观）
+                let column = line[..m.start()].chars().count() + 1;
+                hits.push(SearchHit {
+                    path: file_path.clone(),
+                    line: i + 1,
+                    column,
+                    preview: preview_window(&line, m.start(), m.end()),
+                });
+            }
+        }
+    }
+    Ok((hits, exceeded))
 }
 
 /// 全局搜索：在工作区 root 下搜索 query
@@ -111,15 +237,18 @@ fn collect_md_files(
 /// - `query`: 搜索词或正则
 /// - `case_sensitive`: 是否区分大小写
 /// - `use_regex`: 是否作为正则匹配
+/// - `generation`: 搜索代次，前端每次发起搜索递增；代次推进后在途旧任务提前退出（#163）
 #[tauri::command]
 pub async fn search_in_workspace(
     root: String,
     query: String,
     case_sensitive: bool,
     use_regex: bool,
-) -> Result<Vec<SearchHit>, String> {
+    generation: u64,
+) -> Result<SearchResult, String> {
+    SEARCH_GENERATION.fetch_max(generation, Ordering::Relaxed);
     tauri::async_runtime::spawn_blocking(move || {
-        search_in_workspace_sync(root, query, case_sensitive, use_regex)
+        search_in_workspace_sync(root, query, case_sensitive, use_regex, generation)
     })
     .await
     .map_err(|e| format!("搜索任务执行失败: {e}"))?
@@ -130,9 +259,13 @@ fn search_in_workspace_sync(
     query: String,
     case_sensitive: bool,
     use_regex: bool,
-) -> Result<Vec<SearchHit>, String> {
+    generation: u64,
+) -> Result<SearchResult, String> {
     if query.is_empty() {
-        return Ok(Vec::new());
+        return Ok(SearchResult {
+            hits: Vec::new(),
+            truncated: false,
+        });
     }
 
     // 构建正则
@@ -153,8 +286,7 @@ fn search_in_workspace_sync(
 
     let mut files: Vec<String> = Vec::new();
     if root_path.is_dir() {
-        let mut visited = HashSet::new();
-        collect_md_files(root_path, &mut visited, &mut files, 0);
+        collect_md_files(root_path, &mut files, 0, generation)?;
         files.sort();
     } else if root_path.is_file() {
         if let Some(p) = root_path.to_str() {
@@ -162,43 +294,54 @@ fn search_in_workspace_sync(
         }
     }
 
+    if is_stale(generation) {
+        return Err(cancelled_error());
+    }
+
+    // 按可用 CPU 数把已排序文件切片，分片并行扫描后按片序合并，保证结果顺序确定（#163）
     let mut hits: Vec<SearchHit> = Vec::new();
-    for file_path in &files {
-        // 跳过超大文件
-        if let Ok(meta) = std::fs::metadata(file_path) {
-            if meta.len() > MAX_FILE_SIZE {
-                continue;
+    // 任一单片探测到超上限，则整体必然截断；各片未超上限时总计严格超过上限才算截断
+    // （恰好 5000 条不误报）。
+    let mut truncated = false;
+    if !files.is_empty() {
+        let worker_count = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(files.len());
+        let chunk_size = (files.len() + worker_count - 1) / worker_count;
+        let re_ref = &re;
+        let parts = std::thread::scope(|s| {
+            files
+                .chunks(chunk_size)
+                .map(|chunk| s.spawn(move || scan_files(chunk, re_ref, generation)).join())
+                .collect::<Vec<_>>()
+        })
+        .into_iter()
+        .map(|joined| {
+            joined
+                .map_err(|_| "搜索线程异常退出".to_string())
+                .and_then(|result| result)
+        })
+        .collect::<Result<Vec<(Vec<SearchHit>, bool)>, String>>()?;
+
+        truncated = parts.iter().any(|(_, exceeded)| *exceeded)
+            || parts
+                .iter()
+                .map(|(h, _)| h.len())
+                .sum::<usize>()
+                > MAX_TOTAL_HITS;
+
+        // 按片序合并，只保留前 MAX_TOTAL_HITS 条，保证结果顺序确定（#163）
+        for (part, _) in parts {
+            if hits.len() >= MAX_TOTAL_HITS {
+                break;
             }
-        }
-        let file = match File::open(file_path) {
-            Ok(f) => f,
-            Err(_) => continue,
-        };
-        let reader = BufReader::new(file);
-        for (i, line_res) in reader.lines().enumerate() {
-            let line = match line_res {
-                Ok(l) => l,
-                Err(_) => continue,
-            };
-            // 对每个匹配，记录命中（同行多次命中各记一条）
-            for m in re.find_iter(&line) {
-                // 列号按 UTF-8 字符计（前端展示更直观）
-                let column = line[..m.start()].chars().count() + 1;
-                hits.push(SearchHit {
-                    path: file_path.clone(),
-                    line: i + 1,
-                    column,
-                    preview: line.clone(),
-                });
-                // 单次搜索最多记录 5000 条，避免一个超长正则把内存撑爆
-                if hits.len() >= 5000 {
-                    return Ok(hits);
-                }
-            }
+            let remaining = MAX_TOTAL_HITS - hits.len();
+            hits.extend(part.into_iter().take(remaining));
         }
     }
 
-    Ok(hits)
+    Ok(SearchResult { hits, truncated })
 }
 
 #[cfg(test)]
@@ -206,10 +349,13 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::AtomicUsize;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static NEXT_TEST_DIR: AtomicUsize = AtomicUsize::new(0);
+
+    /// 测试用代次：足够大，保证不受其它测试写入全局代次的影响
+    const TEST_GENERATION: u64 = u64::MAX;
 
     /// 临时工作区，Drop 时自动清理
     struct TestDir {
@@ -242,12 +388,13 @@ mod tests {
         fs::write(path, content).expect("write test file");
     }
 
-    fn search(root: &Path, query: &str) -> Vec<SearchHit> {
+    fn search(root: &Path, query: &str) -> SearchResult {
         search_in_workspace_sync(
             root.to_string_lossy().into_owned(),
             query.to_string(),
             true,
             false,
+            TEST_GENERATION,
         )
         .expect("search should succeed")
     }
@@ -257,14 +404,16 @@ mod tests {
         let temp = TestDir::new("empty-query");
         write(&temp.path.join("a.md"), "hello world\n");
 
-        let hits = search_in_workspace_sync(
+        let result = search_in_workspace_sync(
             temp.path.to_string_lossy().into_owned(),
             String::new(),
             true,
             false,
+            TEST_GENERATION,
         )
         .unwrap();
-        assert!(hits.is_empty());
+        assert!(result.hits.is_empty());
+        assert!(!result.truncated);
     }
 
     #[test]
@@ -274,6 +423,7 @@ mod tests {
             "x".to_string(),
             true,
             false,
+            TEST_GENERATION,
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("工作区不存在"));
@@ -289,19 +439,22 @@ mod tests {
             "hello".to_string(),
             true,
             false,
+            TEST_GENERATION,
         )
         .unwrap();
-        assert_eq!(sensitive.len(), 1, "区分大小写只命中小写 hello");
-        assert_eq!(sensitive[0].line, 2);
+        assert_eq!(sensitive.hits.len(), 1, "区分大小写只命中小写 hello");
+        assert_eq!(sensitive.hits[0].line, 2);
+        assert!(!sensitive.truncated);
 
         let insensitive = search_in_workspace_sync(
             temp.path.to_string_lossy().into_owned(),
             "hello".to_string(),
             false,
             false,
+            TEST_GENERATION,
         )
         .unwrap();
-        assert_eq!(insensitive.len(), 3, "忽略大小写命中三种写法");
+        assert_eq!(insensitive.hits.len(), 3, "忽略大小写命中三种写法");
     }
 
     #[test]
@@ -314,6 +467,7 @@ mod tests {
             "(".to_string(),
             true,
             true,
+            TEST_GENERATION,
         );
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("正则编译失败"));
@@ -326,11 +480,13 @@ mod tests {
         write(&temp.path.join("two.md"), "no match\nneedle on second\n");
         write(&temp.path.join("three.md"), "needle first\n");
 
-        let hits = search(&temp.path, "needle");
+        let result = search(&temp.path, "needle");
+        let hits = &result.hits;
         assert_eq!(hits.len(), 3);
+        assert!(!result.truncated);
 
         // 按照返回顺序：文件收集顺序不固定，按路径断言各自的行号
-        for hit in &hits {
+        for hit in hits {
             let name = Path::new(&hit.path)
                 .file_name()
                 .unwrap()
@@ -354,9 +510,9 @@ mod tests {
         fs::create_dir(temp.path.join(".hidden")).unwrap();
         write(&temp.path.join(".hidden/a.md"), "needle\n");
 
-        let hits = search(&temp.path, "needle");
-        assert_eq!(hits.len(), 1, "隐藏目录中的文件不应被命中");
-        assert!(!hits[0].path.contains(".hidden"));
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), 1, "隐藏目录中的文件不应被命中");
+        assert!(!result.hits[0].path.contains(".hidden"));
     }
 
     #[test]
@@ -367,9 +523,9 @@ mod tests {
         let gbk: &[u8] = &[0xC4, 0xE3, 0xBA, 0xC3, 0xCA, 0xC0, 0xBD, 0xE7];
         fs::write(temp.path.join("gbk.md"), gbk).unwrap();
 
-        let hits = search(&temp.path, "needle");
-        assert_eq!(hits.len(), 1, "非 UTF-8 文件应被静默跳过，不计命中也不 panic");
-        assert_eq!(hits[0].line, 1);
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), 1, "非 UTF-8 文件应被静默跳过，不计命中也不 panic");
+        assert_eq!(result.hits[0].line, 1);
     }
 
     #[test]
@@ -378,10 +534,10 @@ mod tests {
         // 中文（3 字节/字符）+ emoji（4 字节/字符）在前，needle 从第 2 个字符后开始
         write(&temp.path.join("a.md"), "你好😀needle\n");
 
-        let hits = search(&temp.path, "needle");
-        assert_eq!(hits.len(), 1);
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), 1);
         // needle 前有 3 个多字节字符（你、好、😀），列号从 1 开始 → 4
-        assert_eq!(hits[0].column, 4);
+        assert_eq!(result.hits[0].column, 4);
     }
 
     #[test]
@@ -390,9 +546,9 @@ mod tests {
         write(&temp.path.join("a.md"), "cost is 5.99\ncost is X99\n");
 
         // 纯文本模式下 "." 应被转义为字面量，只匹配 5.99
-        let hits = search(&temp.path, "5.99");
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].line, 1);
+        let result = search(&temp.path, "5.99");
+        assert_eq!(result.hits.len(), 1);
+        assert_eq!(result.hits[0].line, 1);
     }
 
     #[test]
@@ -404,12 +560,12 @@ mod tests {
         let big = vec![b'x'; (MAX_FILE_SIZE + 1) as usize];
         fs::write(&big_path, big).unwrap();
 
-        let hits = search(&temp.path, "needle");
-        assert_eq!(hits.len(), 1, "超大文件应被跳过");
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), 1, "超大文件应被跳过");
     }
 
     #[test]
-    fn max_results_truncates_at_5000() {
+    fn max_results_truncates_with_flag() {
         let temp = TestDir::new("max_results");
         let mut content = String::new();
         // 每行 10 个 needle，共 600 行 -> 6000 个匹配
@@ -418,8 +574,130 @@ mod tests {
         }
         write(&temp.path.join("repeat.md"), &content);
 
-        let hits = search(&temp.path, "needle");
-        assert_eq!(hits.len(), 5000, "超过 5000 条匹配时应被截断");
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), MAX_TOTAL_HITS, "超过上限时应截断到 5000 条");
+        assert!(result.truncated, "截断必须对前端可见（#160）");
+    }
+
+    #[test]
+    fn truncation_across_files_keeps_sorted_order() {
+        let temp = TestDir::new("truncate-multi");
+        // 3 个文件 × 2000 条命中 = 6000 > 5000，覆盖跨分片合并截断路径
+        for name in ["a.md", "b.md", "c.md"] {
+            let content = "needle\n".repeat(2000);
+            write(&temp.path.join(name), &content);
+        }
+
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), MAX_TOTAL_HITS);
+        assert!(result.truncated);
+        // 合并按排序后的文件顺序：a.md 的 2000 条必须完整保留在前
+        let a_count = result.hits.iter().filter(|h| h.path.ends_with("a.md")).count();
+        assert_eq!(a_count, 2000, "截断应按文件排序顺序保留前部结果");
+    }
+
+    #[test]
+    fn exactly_max_hits_is_not_truncated() {
+        // 恰好 5000 条命中、无障碍提前退出，不应被误标为截断（评审 N-blocking）
+        let temp = TestDir::new("exact-max");
+        // 单文件恰好 MAX_TOTAL_HITS 条命中
+        let content = "needle\n".repeat(MAX_TOTAL_HITS);
+        write(&temp.path.join("a.md"), &content);
+
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), MAX_TOTAL_HITS);
+        assert!(!result.truncated, "恰好 5000 条命中不应被标为截断");
+    }
+
+    #[test]
+    fn preview_is_window_not_full_line() {
+        let temp = TestDir::new("preview-window");
+        // 模拟 base64 大图的超长单行：命中点两侧各 10 万字符填充（#176）
+        let mut huge = "x".repeat(100_000);
+        huge.push_str("needle");
+        huge.push_str(&"y".repeat(100_000));
+        write(&temp.path.join("img.md"), &format!("{}\n", huge));
+
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), 1);
+        let preview = &result.hits[0].preview;
+        assert!(preview.contains("needle"), "预览必须包含命中片段");
+        assert!(
+            preview.chars().count() <= PREVIEW_CONTEXT_CHARS * 2 + PREVIEW_MAX_MATCH_CHARS + 2,
+            "预览应被窗口截断，实际 {} 字符",
+            preview.chars().count()
+        );
+        assert!(preview.starts_with('…') && preview.ends_with('…'), "两侧截断应有省略号");
+        assert!(
+            !preview.contains(&"x".repeat(1000)),
+            "预览不得克隆整行的长填充"
+        );
+    }
+
+    #[test]
+    fn preview_caps_huge_match_itself() {
+        let temp = TestDir::new("preview-huge-match");
+        // 5 万个 a 的单个超长匹配：命中片段本身也要封顶
+        write(&temp.path.join("a.md"), &format!("{}\n", "a".repeat(50_000)));
+
+        let result = search_in_workspace_sync(
+            temp.path.to_string_lossy().into_owned(),
+            "a+".to_string(),
+            true,
+            true,
+            TEST_GENERATION,
+        )
+        .unwrap();
+        assert_eq!(result.hits.len(), 1);
+        assert_eq!(result.hits[0].column, 1);
+        let preview = &result.hits[0].preview;
+        assert!(
+            preview.chars().count() <= PREVIEW_CONTEXT_CHARS * 2 + PREVIEW_MAX_MATCH_CHARS + 2,
+            "超长匹配片段的预览也必须封顶，实际 {} 字符",
+            preview.chars().count()
+        );
+    }
+
+    #[test]
+    fn preview_keeps_short_line_intact() {
+        let temp = TestDir::new("preview-short");
+        write(&temp.path.join("a.md"), "hello needle world\n");
+
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), 1);
+        // 短行完整保留，不加省略号（前端高亮与跳转仍可在预览上重放正则）
+        assert_eq!(result.hits[0].preview, "hello needle world");
+    }
+
+    #[test]
+    fn generation_cancel_semantics() {
+        // 两个场景都会写全局代次，必须在同一测试内顺序执行，避免并行测试互相干扰
+        let temp = TestDir::new("cancel");
+        write(&temp.path.join("a.md"), "needle\n");
+
+        // 场景 1：更新的搜索（代次 7）已登记，旧任务（代次 6）必须立刻退出（#163）
+        SEARCH_GENERATION.store(7, Ordering::Relaxed);
+        let result = search_in_workspace_sync(
+            temp.path.to_string_lossy().into_owned(),
+            "needle".to_string(),
+            true,
+            false,
+            6,
+        );
+        assert!(result.is_err(), "落后代次的搜索应被取消");
+        assert!(result.unwrap_err().contains("取消"));
+
+        // 场景 2：代次相等不算过期，当前搜索自己的代次就是全局最新
+        SEARCH_GENERATION.store(3, Ordering::Relaxed);
+        let result = search_in_workspace_sync(
+            temp.path.to_string_lossy().into_owned(),
+            "needle".to_string(),
+            true,
+            false,
+            3,
+        )
+        .unwrap();
+        assert_eq!(result.hits.len(), 1);
     }
 
     #[test]
@@ -429,15 +707,16 @@ mod tests {
         write(&file, "target line here\n");
 
         // 搜索单文件路径
-        let hits = search_in_workspace_sync(
+        let result = search_in_workspace_sync(
             file.to_string_lossy().to_string(),
             "target".into(),
             true,
             false,
+            TEST_GENERATION,
         )
         .unwrap();
-        assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].line, 1);
+        assert_eq!(result.hits.len(), 1);
+        assert_eq!(result.hits[0].line, 1);
 
         // 搜索不存在的路径
         let err = search_in_workspace_sync(
@@ -445,6 +724,7 @@ mod tests {
             "target".into(),
             true,
             false,
+            TEST_GENERATION,
         )
         .unwrap_err();
         assert!(err.contains("工作区不存在"));
@@ -464,8 +744,8 @@ mod tests {
         write(&target.join("build.md"), "needle in target\n");
         write(&src.join("main.md"), "needle in src\n");
 
-        let hits = search(&temp.path, "needle");
-        assert_eq!(hits.len(), 1, "应跳过 node_modules 和 target 目录");
-        assert!(hits[0].path.contains("src"));
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), 1, "应跳过 node_modules 和 target 目录");
+        assert!(result.hits[0].path.contains("src"));
     }
 }
