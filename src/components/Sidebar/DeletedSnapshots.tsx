@@ -78,7 +78,7 @@ export function DeletedSnapshots() {
                 display: "inline-flex",
                 alignItems: "center",
                 marginLeft: 6,
-                color: "var(--color-danger, #e74c3c)",
+                color: "var(--danger, #e74c3c)",
                 fontSize: 12,
               }}
             >
@@ -93,7 +93,7 @@ export function DeletedSnapshots() {
                 display: "inline-flex",
                 alignItems: "center",
                 marginLeft: 6,
-                color: "var(--color-warning, #f39c12)",
+                color: "var(--warning, #f39c12)",
                 fontSize: 12,
               }}
             >
@@ -156,7 +156,7 @@ export function DeletedSnapshots() {
                   style={{
                     fontSize: "11px",
                     padding: "2px 6px",
-                    border: "1px solid var(--border-color, #444)",
+                    border: "1px solid var(--border, #444)",
                     borderRadius: "3px",
                     cursor: "pointer",
                   }}
