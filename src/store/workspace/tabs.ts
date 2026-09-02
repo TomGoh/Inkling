@@ -213,6 +213,9 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       currentFile: tab.path,
       currentContent: tab.content,
       dirty: tab.dirty,
+      // 顶层 saving 是活跃 tab 的镜像：切换 tab 后以新 tab 的实际保存状态为准，
+      // 不再残留上一个 tab 挂起的保存状态（issue #148）
+      saving: !!tab.saving,
       saveError: null,
       conflictPending: !!tab.conflictPending,
       lastSavedAt: tab.lastSavedAt,
@@ -239,6 +242,20 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       };
     });
     if (nextRecent) persistRecentFiles(nextRecent);
+  };
+
+  /**
+   * 维护按 tab 的保存中状态，并把顶层 saving 镜像同步为「活跃 tab」的实际状态
+   * （issue #148）：某个 tab 的保存挂在对话框期间，其他 tab 的保存不被互斥闸拦截。
+   */
+  const applyTabSaving = (targetPath: string, value: boolean) => {
+    set((current) => {
+      const openTabs = current.openTabs.map((t) =>
+        t.path === targetPath ? { ...t, saving: value } : t,
+      );
+      const activeTab = openTabs.find((t) => t.path === current.activeTabPath);
+      return { openTabs, saving: activeTab?.saving ?? false };
+    });
   };
 
   return {
@@ -290,6 +307,9 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
                   diskContent: content,
                   diskMtime: mtime,
                   deletedOnDisk: false,
+                  // 重载即以磁盘内容为准，冲突已解决（issue #164）：
+                  // 否则状态栏持续误报"外部冲突"且指示器点击无效
+                  conflictPending: false,
                   revision: (t.revision || 0) + 1,
                 }
               : t,
@@ -299,6 +319,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
             patch.currentContent = content;
             patch.dirty = false;
             patch.saveError = null;
+            patch.conflictPending = false;
           }
           if (current.splitFile === filePath) {
             patch.splitContent = content;
@@ -632,14 +653,17 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     saveCurrent: async (options) => {
       const interactive = options?.interactive ?? true;
       flushAllMarkdownPublishers();
-      const { dirty, saving, activeTabPath, openTabs } = get();
+      const { dirty, activeTabPath, openTabs } = get();
       if (!activeTabPath) return;
       const tab = openTabs.find((t) => t.path === activeTabPath);
       if (!tab) return;
-      if (!dirty || saving) return;
+      // 保存互斥按 tab 判定（issue #148）：其他 tab 的保存挂在对话框期间，
+      // 不应吞掉本 tab 的保存；同一 tab 的重复保存仍被拦截防重入
+      if (!dirty || tab.saving) return;
 
-      // 立即置位 saving，防止重入（例如弹窗期间定时保存触发）
-      set({ saving: true, saveError: null });
+      // 立即置位本 tab 的 saving，防止重入（例如弹窗期间定时保存触发）
+      applyTabSaving(activeTabPath, true);
+      set({ saveError: null });
 
       let savePath = tab.path;
       // 记录本次保存发起时快照内容
@@ -650,7 +674,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
         if (tab.isUntitled) {
           if (!interactive) {
             // 非交互模式（如自动保存）：未命名文件跳过弹窗保存
-            set({ saving: false });
+            applyTabSaving(activeTabPath, false);
             return;
           }
           if (!isTauri()) {
@@ -663,7 +687,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
               filters: [{ name: "Markdown", extensions: ["md", "markdown"] }],
             });
             if (!picked) {
-              set({ saving: false });
+              applyTabSaving(activeTabPath, false);
               return; // 用户取消
             }
             savePath = picked;
@@ -700,13 +724,18 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
           if (shouldCheckConflict) {
             if (!interactive) {
               // 自动保存等非交互场景遇到冲突，标记 conflictPending 供状态栏展示，静默跳过不覆盖
-              set((current) => ({
-                saving: false,
-                conflictPending: current.activeTabPath === activeTabPath ? true : current.conflictPending,
-                openTabs: current.openTabs.map((t) =>
-                  t.path === activeTabPath ? { ...t, conflictPending: true } : t,
-                ),
-              }));
+              set((current) => {
+                const openTabs = current.openTabs.map((t) =>
+                  t.path === activeTabPath ? { ...t, conflictPending: true, saving: false } : t,
+                );
+                const activeTab = openTabs.find((t) => t.path === current.activeTabPath);
+                return {
+                  openTabs,
+                  saving: activeTab?.saving ?? false,
+                  conflictPending:
+                    current.activeTabPath === activeTabPath ? true : current.conflictPending,
+                };
+              });
               return;
             }
             try {
@@ -716,12 +745,12 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
                 { title: "保存冲突提示", kind: "warning" },
               );
               if (!confirmed) {
-                set({ saving: false });
+                applyTabSaving(activeTabPath, false);
                 return;
               }
             } catch {
               // 弹窗异常或被 reject/取消时，视为放弃覆盖并安全退出
-              set({ saving: false });
+              applyTabSaving(activeTabPath, false);
               return;
             }
           }
@@ -747,6 +776,7 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
               isUntitled: false,
               dirty: isStillDirty,
               conflictPending: false,
+              saving: false,
               lastSavedAt: now,
               diskContent: contentToSave,
               diskMtime: savedMtime,
@@ -762,7 +792,9 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
           openTabs: nextTabs,
           activeTabPath: latestState.activeTabPath === activeTabPath ? savePath : latestState.activeTabPath,
           currentFile: latestState.currentFile === activeTabPath ? savePath : latestState.currentFile,
-          saving: false,
+          // 顶层镜像从活跃 tab 的实际状态派生（issue #148）：
+          // 本次保存的可能已不是当前活跃 tab，不能无条件清掉镜像
+          saving: currentActiveTab ? !!currentActiveTab.saving : false,
           dirty: currentActiveTab ? currentActiveTab.dirty : false,
           conflictPending: currentActiveTab ? !!currentActiveTab.conflictPending : false,
           saveError: latestState.activeTabPath === activeTabPath ? null : latestState.saveError,
@@ -770,10 +802,19 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
           recentFiles: nextRecent,
         });
       } catch (e) {
-        const latestState = get();
-        set({
-          saving: false,
-          saveError: latestState.activeTabPath === activeTabPath ? (e instanceof Error ? e.message : String(e)) : latestState.saveError,
+        set((current) => {
+          const openTabs = current.openTabs.map((t) =>
+            t.path === activeTabPath ? { ...t, saving: false } : t,
+          );
+          const activeTab = openTabs.find((t) => t.path === current.activeTabPath);
+          return {
+            openTabs,
+            saving: activeTab?.saving ?? false,
+            saveError:
+              current.activeTabPath === activeTabPath
+                ? (e instanceof Error ? e.message : String(e))
+                : current.saveError,
+          };
         });
       }
     },

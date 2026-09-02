@@ -80,7 +80,7 @@ export function LinkDialog({ getEditor, onClose }: LinkDialogProps) {
   return (
     <div className="link-dialog-backdrop" onClick={onClose}>
       <div
-        className="link-dialog"
+        className="link-dialog-modal"
         role="dialog"
         aria-modal="true"
         aria-labelledby="link-dialog-title"
@@ -90,7 +90,7 @@ export function LinkDialog({ getEditor, onClose }: LinkDialogProps) {
           <h3 id="link-dialog-title">插入链接</h3>
           <button
             type="button"
-            className="link-dialog-close-btn"
+            className="link-dialog-close"
             onClick={onClose}
             aria-label="关闭"
           >
@@ -128,14 +128,14 @@ export function LinkDialog({ getEditor, onClose }: LinkDialogProps) {
           <div className="link-dialog-actions">
             <button
               type="button"
-              className="link-dialog-btn link-dialog-cancel-btn"
+              className="link-dialog-btn link-dialog-btn-cancel"
               onClick={onClose}
             >
               取消
             </button>
             <button
               type="submit"
-              className="link-dialog-btn link-dialog-confirm-btn"
+              className="link-dialog-btn link-dialog-btn-confirm"
             >
               确认插入
             </button>

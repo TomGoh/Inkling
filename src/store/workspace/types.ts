@@ -31,6 +31,9 @@ export interface OpenTab {
   deletedOnDisk?: boolean;
   /** 自动保存等后台保存检测到冲突时置为 true */
   conflictPending?: boolean;
+  /** 该标签页自身的保存进行中标志（issue #148：保存互斥按 tab 生效，
+   *  避免某个 tab 的另存为/冲突对话框挂起期间吞掉其他 tab 的保存） */
+  saving?: boolean;
   /** 该标签页是否处于源代码模式（issue #19） */
   sourceMode?: boolean;
   /** 版本修订计数（reloadFile 强制刷新 DOM 时自增） */

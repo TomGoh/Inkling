@@ -51,7 +51,14 @@ describe("LinkDialog", () => {
 
   it("renders with default url input and submits link insertion", () => {
     const onClose = vi.fn();
-    render(<LinkDialog getEditor={() => mockEditor} onClose={onClose} />);
+    const { container } = render(<LinkDialog getEditor={() => mockEditor} onClose={onClose} />);
+
+    expect(container.querySelector(".link-dialog-modal")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "关闭" })).toHaveClass("link-dialog-close");
+    expect(screen.getByRole("button", { name: "取消" })).toHaveClass("link-dialog-btn-cancel");
+    expect(screen.getByRole("button", { name: /确认插入/i })).toHaveClass(
+      "link-dialog-btn-confirm",
+    );
 
     const urlInput = screen.getByLabelText(/链接地址/i);
     const textInput = screen.getByLabelText(/链接文本/i);
