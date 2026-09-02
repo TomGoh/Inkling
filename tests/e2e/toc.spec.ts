@@ -54,4 +54,15 @@ test.describe("TOC 目录", () => {
       expect(pads[1]).toBeGreaterThan(pads[0]);
     }
   });
+
+  test("TOC5 编辑标题后目录项实时刷新", async ({ page }) => {
+    const heading = page.locator(".ProseMirror h2", { hasText: "二级标题 A" });
+    await heading.click();
+    await page.keyboard.press("End");
+    await page.keyboard.type("（已更新）");
+
+    await expect(
+      page.locator(".toc-list .toc-item", { hasText: "二级标题 A（已更新）" }),
+    ).toBeVisible();
+  });
 });
