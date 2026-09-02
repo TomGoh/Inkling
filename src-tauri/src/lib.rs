@@ -15,7 +15,11 @@ struct PendingFile(Mutex<Option<String>>);
 
 #[tauri::command]
 fn take_pending_file(state: tauri::State<PendingFile>) -> Option<String> {
-    state.0.lock().ok().and_then(|mut g| g.take())
+    take_pending_file_value(&state.0)
+}
+
+fn take_pending_file_value(pending: &Mutex<Option<String>>) -> Option<String> {
+    pending.lock().ok().and_then(|mut value| value.take())
 }
 
 /// 从启动参数中提取首个 Markdown 文件路径（文件关联双击打开场景）。
@@ -55,7 +59,7 @@ pub fn run() {
     #[cfg(desktop)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            if let Some(path) = md_file_from_args(&argv[1..]) {
+            if let Some(path) = md_file_from_args(argv.get(1..).unwrap_or_default()) {
                 // 定向到主窗口，避免派生窗口重复打开
                 let _ = app.emit_to("main", "open-file", path);
             }
@@ -91,4 +95,41 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn markdown_argument_detection_is_case_insensitive_and_skips_options() {
+        let cases = [
+            (args(&["inkling", "--portable", "/docs/note.md"]), Some("/docs/note.md")),
+            (args(&["inkling", "-v", "C:/Docs/NOTE.MARKDOWN"]), Some("C:/Docs/NOTE.MARKDOWN")),
+            (args(&["inkling", "readme.txt", "/docs/second.md"]), Some("/docs/second.md")),
+            (args(&["inkling", "--file=/docs/hidden.md"]), None),
+            (Vec::new(), None),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(md_file_from_args(&input).as_deref(), expected);
+        }
+    }
+
+    #[test]
+    fn pending_file_is_taken_only_once() {
+        let pending = Mutex::new(Some("/docs/once.md".to_string()));
+        assert_eq!(take_pending_file_value(&pending).as_deref(), Some("/docs/once.md"));
+        assert_eq!(take_pending_file_value(&pending), None);
+    }
+
+    #[test]
+    fn empty_forwarded_argv_has_a_safe_tail() {
+        let argv: Vec<String> = Vec::new();
+        assert_eq!(md_file_from_args(argv.get(1..).unwrap_or_default()), None);
+    }
 }

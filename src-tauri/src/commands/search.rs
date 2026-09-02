@@ -748,4 +748,52 @@ mod tests {
         assert_eq!(result.hits.len(), 1, "应跳过 node_modules 和 target 目录");
         assert!(result.hits[0].path.contains("src"));
     }
+
+    #[test]
+    fn search_stops_beyond_the_maximum_directory_depth() {
+        let temp = TestDir::new("max-depth");
+        let mut current = temp.path.clone();
+        for depth in 1..=MAX_SEARCH_DEPTH + 1 {
+            current = current.join(format!("level-{depth}"));
+            fs::create_dir(&current).unwrap();
+            if depth == MAX_SEARCH_DEPTH {
+                write(&current.join("included.md"), "needle\n");
+            }
+            if depth == MAX_SEARCH_DEPTH + 1 {
+                write(&current.join("excluded.md"), "needle\n");
+            }
+        }
+
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), 1);
+        assert!(result.hits[0].path.ends_with("included.md"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_symlink_self_loop_is_not_followed() {
+        use std::os::unix::fs::symlink;
+        let temp = TestDir::new("symlink-loop");
+        write(&temp.path.join("visible.md"), "needle\n");
+        symlink(&temp.path, temp.path.join("loop")).unwrap();
+
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), 1);
+        assert!(result.hits[0].path.ends_with("visible.md"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn directory_symlink_self_loop_is_not_followed() {
+        use std::os::windows::fs::symlink_dir;
+        let temp = TestDir::new("symlink-loop");
+        write(&temp.path.join("visible.md"), "needle\n");
+        if symlink_dir(&temp.path, temp.path.join("loop")).is_err() {
+            return; // Windows CI without Developer Mode cannot create symlinks.
+        }
+
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), 1);
+        assert!(result.hits[0].path.ends_with("visible.md"));
+    }
 }

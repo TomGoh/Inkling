@@ -169,6 +169,10 @@ export function useSourceModeTransition({
   getWysiwygTopPos,
 }: SourceModeTransitionOptions) {
   const prevSourceModeRef = useRef(sourceMode);
+  // Parsing failure updates local snapshot state and asynchronously flips the
+  // store back to source mode. Ignore the intermediate local re-render so the
+  // failing parser is not called in an update loop before the prop catches up.
+  const parseFailurePendingRef = useRef(false);
   const exitSnapshotRef = useRef<CursorScrollSnapshot | null>(null);
   const [enterSnapshot, setEnterSnapshot] = useState<CursorScrollSnapshot | null>(
     sourceMode ? { cursor: 0, scrollTop: 0 } : null,
@@ -178,6 +182,11 @@ export function useSourceModeTransition({
 
   useLayoutEffect(() => {
     const prev = prevSourceModeRef.current;
+    if (parseFailurePendingRef.current) {
+      if (sourceMode) parseFailurePendingRef.current = false;
+      prevSourceModeRef.current = sourceMode;
+      return;
+    }
     if (sourceMode && !prev) {
       const settings = useSettings.getState();
       if (settings.focusMode) settings.setFocusMode(false);
@@ -325,7 +334,7 @@ export function useSourceModeTransition({
             anchorOffset: snap?.anchorOffset,
           });
           useWorkspace.getState().setTabSourceMode(true, filePath);
-          prevSourceModeRef.current = true;
+          parseFailurePendingRef.current = true;
           return;
         }
         setEnterSnapshot(null);

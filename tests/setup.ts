@@ -5,6 +5,27 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, vi } from "vitest";
 
+// Node 26 exposes experimental storage properties whose values are undefined
+// unless --localstorage-file is supplied. That also shadows happy-dom's storage.
+// Install deterministic per-worker in-memory implementations for tests.
+function createMemoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() { return values.size; },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(String(key)) ?? null,
+    key: (index) => Array.from(values.keys())[index] ?? null,
+    removeItem: (key) => { values.delete(String(key)); },
+    setItem: (key, value) => { values.set(String(key), String(value)); },
+  };
+}
+const localStorageMock = createMemoryStorage();
+const sessionStorageMock = createMemoryStorage();
+Object.defineProperty(window, "localStorage", { configurable: true, value: localStorageMock });
+Object.defineProperty(window, "sessionStorage", { configurable: true, value: sessionStorageMock });
+vi.stubGlobal("localStorage", localStorageMock);
+vi.stubGlobal("sessionStorage", sessionStorageMock);
+
 // happy-dom 不实现 matchMedia，部分库（如主题相关）会调用，桩一个最小实现
 if (!window.matchMedia) {
   window.matchMedia = (query: string) => ({
@@ -20,7 +41,7 @@ if (!window.matchMedia) {
 }
 
 beforeEach(() => {
-  localStorage.clear();
+  window.localStorage.clear();
 });
 
 afterEach(() => {

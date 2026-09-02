@@ -309,6 +309,30 @@ mod tests {
         assert!(!root.children[1].is_dir);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn does_not_follow_directory_symlinks() {
+        use std::os::windows::fs::{symlink_dir, symlink_file};
+
+        let temp = TestDir::new("symlink");
+        let target = TestDir::new("symlink-target");
+        let real_dir = temp.path.join("real");
+        fs::create_dir(&real_dir).unwrap();
+        touch(&real_dir.join("inside.md"));
+        let target_file = target.path.join("source.md");
+        touch(&target_file);
+        if symlink_dir(&real_dir, temp.path.join("linked")).is_err()
+            || symlink_dir(&temp.path, temp.path.join("loop")).is_err()
+            || symlink_file(&target_file, temp.path.join("linked.md")).is_err()
+        {
+            return; // Windows CI without Developer Mode cannot create symlinks.
+        }
+
+        let root = list_dir_shallow(&temp.path).unwrap();
+        let names: Vec<_> = root.children.iter().map(|child| child.name.as_str()).collect();
+        assert_eq!(names, ["real", "linked.md"]);
+    }
+
     #[test]
     fn test_file_operations_crud() {
         let temp = TestDir::new("file_ops");
@@ -389,6 +413,32 @@ mod tests {
         let mtime_err =
             file_mtime_sync(temp.path.join("nonexistent.md").to_string_lossy().to_string()).unwrap_err();
         assert!(mtime_err.contains("文件不存在"));
+    }
+
+    #[test]
+    fn rename_rejects_an_existing_target_without_overwriting_it() {
+        let temp = TestDir::new("rename-existing");
+        let source = temp.path.join("source.md");
+        let target = temp.path.join("target.md");
+        fs::write(&source, "source").unwrap();
+        fs::write(&target, "target").unwrap();
+
+        let error = rename_path_sync(
+            source.to_string_lossy().into_owned(),
+            target.to_string_lossy().into_owned(),
+        )
+        .unwrap_err();
+        assert!(error.contains("目标已存在"));
+        assert_eq!(fs::read_to_string(&source).unwrap(), "source");
+        assert_eq!(fs::read_to_string(&target).unwrap(), "target");
+    }
+
+    #[test]
+    fn delete_reports_a_missing_path_instead_of_succeeding() {
+        let temp = TestDir::new("delete-missing");
+        let missing = temp.path.join("missing.md");
+        let error = delete_path_sync(missing.to_string_lossy().into_owned()).unwrap_err();
+        assert!(error.contains("路径不存在"));
     }
 
     #[test]

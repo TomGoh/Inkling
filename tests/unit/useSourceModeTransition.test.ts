@@ -4,6 +4,7 @@ import { useSourceModeTransition } from "../../src/components/Editor/useSourceMo
 import { editorViewCtx, parserCtx } from "@milkdown/kit/core";
 import { markdownOffsetToProsePos } from "../../src/lib/source-mode-cursor";
 import { useWorkspace } from "../../src/store/workspace";
+import * as dialogs from "../../src/lib/dialogs";
 
 describe("useSourceModeTransition", () => {
   it("enters source mode: captures non-zero scroll snapshot and content anchor from WYSIWYG", () => {
@@ -550,5 +551,78 @@ describe("useSourceModeTransition", () => {
     expect(result.current.enterSnapshot!.scrollHeight).toBe(63446);
     expect(result.current.enterSnapshot!.anchorOffset).toBe(18);
     expect(result.current.enterSnapshot!.cursor).toBe(18);
+  });
+
+  it("restores source mode, snapshot, and content protection when parsing malformed markdown fails", () => {
+    const filePath = "/tmp/malformed.md";
+    const malformed = "# still mine\n\n<broken % markdown";
+    const lastSyncedRef = { current: "previous rendered value" };
+    const clipboardWrite = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: clipboardWrite },
+    });
+    const messageSpy = vi.spyOn(dialogs, "showMessage").mockResolvedValue(undefined);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    useWorkspace.setState({
+      activeTabPath: filePath,
+      currentFile: filePath,
+      currentContent: malformed,
+      openTabs: [{
+        path: filePath,
+        content: malformed,
+        dirty: true,
+        lastSavedAt: null,
+        cursorPos: null,
+        scrollTop: null,
+        sourceMode: true,
+      }],
+    });
+
+    const mockEditor: any = {
+      action: (fn: (ctx: any) => void) => fn({
+        get: (key: any) => {
+          if (key === editorViewCtx) return { state: { tr: {}, doc: { content: { size: 1 } } } };
+          if (key === parserCtx) return () => { throw new Error("parse exploded"); };
+          return null;
+        },
+      }),
+    };
+
+    const { result, rerender } = renderHook(
+      ({ sourceMode }) => useSourceModeTransition({
+        filePath,
+        sourceMode,
+        value: malformed,
+        getEditor: () => mockEditor,
+        lastSyncedRef,
+      }),
+      { initialProps: { sourceMode: true } },
+    );
+    result.current.exitSnapshotRef.current = {
+      cursor: 17,
+      scrollTop: 240,
+      scrollHeight: 900,
+      anchorOffset: 11,
+      cursorVisible: true,
+    };
+
+    rerender({ sourceMode: false });
+
+    expect(clipboardWrite).toHaveBeenCalledWith(malformed);
+    expect(messageSpy).toHaveBeenCalledWith(
+      expect.stringContaining("当前 Markdown 仍保留"),
+      { title: "解析失败", kind: "error" },
+    );
+    expect(useWorkspace.getState().getTabSourceMode(filePath)).toBe(true);
+    expect(result.current.enterSnapshot).toEqual({
+      cursor: 17,
+      scrollTop: 240,
+      scrollHeight: 900,
+      anchorOffset: 11,
+    });
+    expect(lastSyncedRef.current).toBe("previous rendered value");
+    expect(useWorkspace.getState().openTabs[0].content).toBe(malformed);
   });
 });

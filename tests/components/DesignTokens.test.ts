@@ -1,26 +1,33 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, it, expect } from "vitest";
 
 describe("UI/UX Design Tokens & Layout 验证", () => {
   it("CSS 变量体系规范验证", () => {
-    // 验证核心 Design Tokens 是否完备
+    const css = readFileSync(resolve(process.cwd(), "src/App.css"), "utf8");
     const tokens = [
-      "--space-1",
-      "--space-2",
-      "--space-3",
-      "--space-4",
+      "--ease",
+      "--duration",
+      "--mono-font",
       "--radius-sm",
       "--radius-md",
       "--radius-lg",
-      "--bg-canvas",
-      "--bg-sidebar",
-      "--bg-surface",
       "--bg-elevated",
-      "--border-subtle",
-      "--text-primary",
-      "--text-secondary",
-      "--text-tertiary",
+      "--bg-subtle",
+      "--editor-bg",
+      "--border",
+      "--text",
+      "--text-muted",
       "--accent",
+      "--accent-hover",
+      "--success",
+      "--danger",
+      "--ring",
     ];
-    expect(tokens.length).toBeGreaterThan(10);
+    for (const token of tokens) {
+      expect(css, `${token} should be declared in App.css`).toMatch(
+        new RegExp(`${token.replace(/-/g, "\\-")}\\s*:`),
+      );
+    }
   });
 });
