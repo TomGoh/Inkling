@@ -87,7 +87,8 @@
 .workspace-tree-scroll {
   position: relative;
   flex: 1;
-  min-height: 0;
+  /* issue #167：保底高度，低窗口 + 区块全展开时文件树不被压缩到 0 */
+  min-height: 120px;
   overflow: auto;
 }
 
@@ -260,7 +261,9 @@
 
 /* 最近打开文件区块 */
 .recent-section {
-  flex-shrink: 0;
+  /* issue #167：允许收缩，低窗口下先压缩区块（至少保留标题行）而不是挤没文件树 */
+  flex-shrink: 1;
+  min-height: 26px;
   max-height: 35%;
   overflow-y: auto;
   border-bottom: 1px solid var(--border, #eaeef2);

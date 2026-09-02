@@ -1,7 +1,7 @@
 // 最近打开文件区块
 
-import { useState } from "react";
 import { useWorkspace } from "../../store/workspace";
+import { useUI } from "../../store/ui";
 import { IconChevronDown, IconChevronRight, IconFileText } from "../icons";
 import { FileOpenStatus } from "./FileOpenStatus";
 import { basename } from "./treeShared";
@@ -12,13 +12,15 @@ export function RecentFiles() {
   const openFile = useWorkspace((s) => s.openFile);
   const openingFiles = useWorkspace((s) => s.openingFiles);
   const fileOpenErrors = useWorkspace((s) => s.fileOpenErrors);
-  const [expanded, setExpanded] = useState(true);
+  // 折叠状态持久化到 UI store（issue #167），重挂载/切换工作区后保持
+  const expanded = useUI((s) => s.sectionExpanded.recents);
+  const toggleSectionExpanded = useUI((s) => s.toggleSectionExpanded);
 
   if (recentFiles.length === 0) return null;
 
   return (
     <div className="recent-section">
-      <button className="recent-header" onClick={() => setExpanded((v) => !v)}>
+      <button className="recent-header" onClick={() => toggleSectionExpanded("recents")}>
         <span className="tree-icon">
           {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
         </span>

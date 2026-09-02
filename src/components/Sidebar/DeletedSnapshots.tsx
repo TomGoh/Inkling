@@ -1,8 +1,11 @@
 // 外部删除备份（快照）区块与恢复入口
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useWorkspace } from "../../store/workspace";
+import { useUI } from "../../store/ui";
 import {
+  DELETED_FILE_SNAPSHOTS_KEY,
+  SNAPSHOTS_CHANGED_EVENT,
   clearDeletedSnapshots,
   loadDeletedSnapshots,
   probeSnapshotStorageHealth,
@@ -15,24 +18,37 @@ import { askConfirmation } from "../../lib/dialogs";
 
 export function DeletedSnapshots() {
   const [snapshots, setSnapshots] = useState<DeletedFileSnapshot[]>([]);
-  const [expanded, setExpanded] = useState(true);
   const [health, setHealth] = useState<{
     sizeChars: number;
     writable: boolean;
   } | null>(null);
   const openUntitledTabWithContent = useWorkspace((s) => s.openUntitledTabWithContent);
+  // 折叠状态持久化到 UI store（issue #167），重挂载/切换工作区后保持
+  const expanded = useUI((s) => s.sectionExpanded.snapshots);
+  const toggleSectionExpanded = useUI((s) => s.toggleSectionExpanded);
 
-  // 定期或初始同步 localStorage 快照与健康状态
-  const refresh = () => {
+  // 同步 localStorage 快照与健康状态（探测已改为只写 1 字节哨兵，开销极低）
+  const refresh = useCallback(() => {
     setSnapshots(loadDeletedSnapshots());
     setHealth(probeSnapshotStorageHealth());
-  };
+  }, []);
 
+  // 事件驱动刷新（issue #153）：不再每 2 秒轮询全量重写。
+  // - 挂载时读一次
+  // - 同窗口内写入/恢复/清空经 SNAPSHOTS_CHANGED_EVENT 广播
+  // - 其他窗口写入经原生 storage 事件同步（issue #165 快照部分）
   useEffect(() => {
     refresh();
-    const timer = window.setInterval(refresh, 2000);
-    return () => window.clearInterval(timer);
-  }, []);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === DELETED_FILE_SNAPSHOTS_KEY) refresh();
+    };
+    window.addEventListener(SNAPSHOTS_CHANGED_EVENT, refresh);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(SNAPSHOTS_CHANGED_EVENT, refresh);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [refresh]);
 
   if (snapshots.length === 0) return null;
 
@@ -62,7 +78,7 @@ export function DeletedSnapshots() {
         <button
           className="recent-header"
           style={{ flex: 1 }}
-          onClick={() => setExpanded((v) => !v)}
+          onClick={() => toggleSectionExpanded("snapshots")}
           title="外部删除的文件残留快照"
         >
           <span className="tree-icon">
