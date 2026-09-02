@@ -102,7 +102,11 @@ describe("TOC live updates", () => {
       + 1;
     view.dispatch(view.state.tr.insertText(" changed", paragraphStart + 4));
     vi.advanceTimersByTime(150);
-    expect(Array.from(mount.querySelectorAll(".toc-item a"))).toEqual(originalLinks);
+    const linksAfterParagraphEdit = Array.from(mount.querySelectorAll(".toc-item a"));
+    expect(linksAfterParagraphEdit).toHaveLength(originalLinks.length);
+    linksAfterParagraphEdit.forEach((link, index) => {
+      expect(link).toBe(originalLinks[index]);
+    });
 
     view.dispatch(view.state.tr.insertText("Updated ", 2));
     vi.advanceTimersByTime(150);
