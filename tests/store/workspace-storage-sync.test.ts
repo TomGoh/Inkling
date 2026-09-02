@@ -14,7 +14,6 @@ import {
   BOOKMARKS_KEY,
   EXPANDED_DIRS_KEY,
   RECENT_FILES_KEY,
-  persistBookmarks,
   persistRecentFiles,
 } from "../../src/store/workspace/shared";
 
