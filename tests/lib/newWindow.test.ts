@@ -2,15 +2,20 @@
 // 覆盖 getNewWindowFilePath 的 URL 查询参数解析
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-const { isTauriMock, windowCreateMock } = vi.hoisted(() => ({
+const { isTauriMock, windowCreateMock, windowEventHandlers } = vi.hoisted(() => ({
   isTauriMock: vi.fn(() => true),
   windowCreateMock: vi.fn(),
+  windowEventHandlers: new Map<string, (event: { payload: unknown }) => void>(),
 }));
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: isTauriMock }));
 vi.mock("@tauri-apps/api/webviewWindow", () => ({
   WebviewWindow: class {
     constructor(label: string, options: unknown) {
       windowCreateMock(label, options);
+    }
+    once(event: string, handler: (event: { payload: unknown }) => void) {
+      windowEventHandlers.set(event, handler);
+      return Promise.resolve(vi.fn());
     }
   },
 }));
@@ -26,7 +31,18 @@ beforeEach(() => {
   window.history.replaceState({}, "", "/");
   isTauriMock.mockReturnValue(true);
   windowCreateMock.mockReset();
+  windowEventHandlers.clear();
 });
+
+async function finishWindowCreation(
+  request: Promise<boolean>,
+  event: "tauri://created" | "tauri://error",
+  payload?: unknown,
+) {
+  await vi.waitFor(() => expect(windowEventHandlers.has(event)).toBe(true));
+  windowEventHandlers.get(event)?.({ payload });
+  return request;
+}
 
 describe("openInNewWindow", () => {
   it("encodes the file path and creates a uniquely labelled desktop window", async () => {
@@ -34,7 +50,8 @@ describe("openInNewWindow", () => {
     vi.spyOn(Math, "random").mockReturnValue(0.123456789);
     const path = "C:\\用户\\notes & drafts\\read me.md";
 
-    await expect(openInNewWindow(path)).resolves.toBe(true);
+    const request = openInNewWindow(path);
+    await expect(finishWindowCreation(request, "tauri://created")).resolves.toBe(true);
     expect(windowCreateMock).toHaveBeenCalledTimes(1);
     const [label, options] = windowCreateMock.mock.calls[0];
     expect(label).toMatch(/^inkling-1700000000000-[a-z0-9]{6}$/);
@@ -49,15 +66,19 @@ describe("openInNewWindow", () => {
   it("uses a different label for successive windows", async () => {
     vi.spyOn(Date, "now").mockReturnValue(42);
     vi.spyOn(Math, "random").mockReturnValueOnce(0.1).mockReturnValueOnce(0.2);
-    await openInNewWindow("/docs/a.md");
-    await openInNewWindow("/docs/b.md");
+    const first = openInNewWindow("/docs/a.md");
+    await finishWindowCreation(first, "tauri://created");
+    windowEventHandlers.clear();
+    const second = openInNewWindow("/docs/b.md");
+    await finishWindowCreation(second, "tauri://created");
     expect(windowCreateMock.mock.calls[0][0]).not.toBe(windowCreateMock.mock.calls[1][0]);
   });
 
-  it("returns false when desktop window construction fails", async () => {
+  it("returns false when Tauri emits an asynchronous creation error", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    windowCreateMock.mockImplementationOnce(() => { throw new Error("duplicate label"); });
-    await expect(openInNewWindow("/docs/a.md")).resolves.toBe(false);
+    const request = openInNewWindow("/docs/a.md");
+    await expect(finishWindowCreation(request, "tauri://error", "duplicate label"))
+      .resolves.toBe(false);
   });
 
   it("does not load desktop window APIs in browser mode", async () => {
@@ -87,6 +108,12 @@ describe("getNewWindowFilePath", () => {
 
   it("含中文的路径正确解码", () => {
     const path = "/用户/文档/笔记.md";
+    window.history.replaceState({}, "", `/?${NEW_WINDOW_FILE_KEY}=${encodeURIComponent(path)}`);
+    expect(getNewWindowFilePath()).toBe(path);
+  });
+
+  it("文件名中的字面百分号序列只解码一次", () => {
+    const path = "C:\\docs\\100%20-ready-%E4.md";
     window.history.replaceState({}, "", `/?${NEW_WINDOW_FILE_KEY}=${encodeURIComponent(path)}`);
     expect(getNewWindowFilePath()).toBe(path);
   });

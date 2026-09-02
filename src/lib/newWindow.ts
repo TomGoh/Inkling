@@ -16,7 +16,9 @@ export function getNewWindowFilePath(): string | null {
   try {
     const params = new URLSearchParams(window.location.search);
     const v = params.get(NEW_WINDOW_FILE_KEY);
-    return v ? decodeURIComponent(v) : null;
+    // URLSearchParams.get() already decodes percent escapes once. Decoding a
+    // second time corrupts literal sequences in filenames (for example `%20`).
+    return v || null;
   } catch {
     return null;
   }
@@ -39,7 +41,7 @@ export async function openInNewWindow(filePath: string): Promise<boolean> {
   const label = `inkling-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const title = filePath.split(/[\\/]/).pop() ?? "InklingMD";
   try {
-    await new WebviewWindow(label, {
+    const webview = new WebviewWindow(label, {
       url,
       title,
       width: 1200,
@@ -47,7 +49,31 @@ export async function openInNewWindow(filePath: string): Promise<boolean> {
       minWidth: 720,
       minHeight: 480,
     });
-    return true;
+    // Tauri reports native creation asynchronously. The constructor itself
+    // returns immediately, so awaiting `new WebviewWindow(...)` cannot detect
+    // failures such as a duplicate label or an invalid URL.
+    return await new Promise<boolean>((resolve) => {
+      let settled = false;
+      let unlistenCreated: (() => void) | undefined;
+      let unlistenError: (() => void) | undefined;
+      const settle = (created: boolean, error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        unlistenCreated?.();
+        unlistenError?.();
+        if (error !== undefined) console.error("创建新窗口失败:", error);
+        resolve(created);
+      };
+
+      void webview.once("tauri://created", () => settle(true)).then((unlisten) => {
+        unlistenCreated = unlisten;
+        if (settled) unlisten();
+      }).catch((error) => settle(false, error));
+      void webview.once("tauri://error", (event) => settle(false, event.payload)).then((unlisten) => {
+        unlistenError = unlisten;
+        if (settled) unlisten();
+      }).catch((error) => settle(false, error));
+    });
   } catch (e) {
     console.error("创建新窗口失败:", e);
     return false;

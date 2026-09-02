@@ -19,12 +19,20 @@ function createMemoryStorage(): Storage {
     setItem: (key, value) => { values.set(String(key), String(value)); },
   };
 }
-const localStorageMock = createMemoryStorage();
-const sessionStorageMock = createMemoryStorage();
-Object.defineProperty(window, "localStorage", { configurable: true, value: localStorageMock });
-Object.defineProperty(window, "sessionStorage", { configurable: true, value: sessionStorageMock });
-vi.stubGlobal("localStorage", localStorageMock);
-vi.stubGlobal("sessionStorage", sessionStorageMock);
+const storageWindow = window as Window & {
+  localStorage?: Storage;
+  sessionStorage?: Storage;
+};
+const testLocalStorage = storageWindow.localStorage ?? createMemoryStorage();
+const testSessionStorage = storageWindow.sessionStorage ?? createMemoryStorage();
+if (!storageWindow.localStorage) {
+  Object.defineProperty(window, "localStorage", { configurable: true, value: testLocalStorage });
+}
+if (!storageWindow.sessionStorage) {
+  Object.defineProperty(window, "sessionStorage", { configurable: true, value: testSessionStorage });
+}
+vi.stubGlobal("localStorage", testLocalStorage);
+vi.stubGlobal("sessionStorage", testSessionStorage);
 
 // happy-dom 不实现 matchMedia，部分库（如主题相关）会调用，桩一个最小实现
 if (!window.matchMedia) {
@@ -42,6 +50,7 @@ if (!window.matchMedia) {
 
 beforeEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 afterEach(() => {

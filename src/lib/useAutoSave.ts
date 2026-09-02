@@ -1,6 +1,6 @@
 // 保存逻辑：Ctrl/Cmd+S 手动保存 + dirty 变化后防抖自动保存（支持连续失败指数退避与非阻塞模式）
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { flushAllMarkdownPublishers } from "../components/Editor/markdown-publisher";
 import { useWorkspace } from "../store/workspace";
 
@@ -25,6 +25,10 @@ export function useAutoSave() {
 
   // 连续失败次数计数器
   const failCountRef = useRef(0);
+  // saveCurrent toggles `saving` back to false before this hook can inspect
+  // saveError. Bump a revision after updating failCount so the effect replaces
+  // the prematurely scheduled base-delay timer with the correct backoff timer.
+  const [retryRevision, setRetryRevision] = useState(0);
 
   // 手动保存快捷键
   useEffect(() => {
@@ -63,11 +67,13 @@ export function useAutoSave() {
           failCountRef.current = 0;
         } else if (state.saveError) {
           failCountRef.current = Math.min(failCountRef.current + 1, 6);
+          setRetryRevision((revision) => revision + 1);
         }
       } catch {
         failCountRef.current = Math.min(failCountRef.current + 1, 6);
+        setRetryRevision((revision) => revision + 1);
       }
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [dirty, saving, currentFile, activeTabIsUntitled, saveCurrent]);
+  }, [dirty, saving, currentFile, activeTabIsUntitled, saveCurrent, retryRevision]);
 }

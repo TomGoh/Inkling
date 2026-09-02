@@ -785,12 +785,22 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn directory_symlink_self_loop_is_not_followed() {
-        use std::os::windows::fs::symlink_dir;
+        use std::process::Command;
         let temp = TestDir::new("symlink-loop");
         write(&temp.path.join("visible.md"), "needle\n");
-        if symlink_dir(&temp.path, temp.path.join("loop")).is_err() {
-            return; // Windows CI without Developer Mode cannot create symlinks.
-        }
+        // Directory junctions are reparse points like directory symlinks but do
+        // not require Windows Developer Mode or SeCreateSymbolicLinkPrivilege.
+        let output = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(temp.path.join("loop"))
+            .arg(&temp.path)
+            .output()
+            .expect("cmd.exe should create a directory junction");
+        assert!(
+            output.status.success(),
+            "failed to create junction: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
 
         let result = search(&temp.path, "needle");
         assert_eq!(result.hits.len(), 1);

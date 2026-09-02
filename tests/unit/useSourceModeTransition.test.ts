@@ -580,11 +580,24 @@ describe("useSourceModeTransition", () => {
       }],
     });
 
+    let parseShouldFail = true;
+    const parserMock = vi.fn(() => {
+      if (parseShouldFail) throw new Error("parse exploded");
+      return { content: { size: malformed.length } };
+    });
+    const mockTr = {
+      replaceWith: vi.fn().mockReturnThis(),
+      setMeta: vi.fn().mockReturnThis(),
+    };
+    const dispatch = vi.fn();
     const mockEditor: any = {
       action: (fn: (ctx: any) => void) => fn({
         get: (key: any) => {
-          if (key === editorViewCtx) return { state: { tr: {}, doc: { content: { size: 1 } } } };
-          if (key === parserCtx) return () => { throw new Error("parse exploded"); };
+          if (key === editorViewCtx) return {
+            state: { tr: mockTr, plugins: [], doc: { content: { size: 1 } } },
+            dispatch,
+          };
+          if (key === parserCtx) return parserMock;
           return null;
         },
       }),
@@ -624,5 +637,19 @@ describe("useSourceModeTransition", () => {
     });
     expect(lastSyncedRef.current).toBe("previous rendered value");
     expect(useWorkspace.getState().openTabs[0].content).toBe(malformed);
+
+    // Complete the real prop round-trip, then prove the failure latch clears
+    // and a corrected document can leave source mode normally.
+    rerender({ sourceMode: true });
+    expect(parserMock).toHaveBeenCalledTimes(1);
+    parseShouldFail = false;
+    useWorkspace.getState().setTabSourceMode(false, filePath);
+    rerender({ sourceMode: false });
+
+    expect(parserMock).toHaveBeenCalledTimes(2);
+    expect(mockTr.replaceWith).toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalled();
+    expect(result.current.enterSnapshot).toBeNull();
+    expect(lastSyncedRef.current).toBe(malformed);
   });
 });

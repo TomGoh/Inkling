@@ -210,19 +210,6 @@ export function uint8ArrayToBase64(data: Uint8Array): string {
 }
 
 /**
- * 将 base64 字符串解码为 Uint8Array。
- */
-export function base64ToUint8Array(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const len = binary.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
-/**
  * 写入二进制文件（图片等）。
  * 桌面端将数据编码为 base64 后调用 Rust write_binary_file 命令（避免 JSON 数字数组导致的 IPC 膨胀）；
  * 浏览器端无真实 fs，仅返回成功（mock 无法持久化二进制）。
