@@ -132,14 +132,17 @@ describe("useAutoSave hook", () => {
     rerender();
 
     // 让文件 A 连续失败若干轮，累积退避计数。
-    // 12s 内触发 3 次（而非 6 次）即证明重试间隔随失败次数拉长（退避生效）
+    // 合并 PR #194 的 retryRevision 后退避严格生效：尝试点为 t=2s（fails=0 基线）、
+    // t=6s（fails=1 → 4s）、t=14s（fails=2 → 8s），12s 内仅触发 2 次。
+    // 旧实现首次失败后的重试会以过早调度的 2s 基线定时器提前触发（12s 内 3 次），
+    // 即 #194 修复的「退避状态更新过晚」问题。
     for (let round = 0; round < 4; round++) {
       await act(async () => {
         vi.advanceTimersByTime(3000);
       });
     }
     const callsAfterA = saveCurrentMock.mock.calls.length;
-    expect(callsAfterA).toBe(3);
+    expect(callsAfterA).toBe(2);
     expect(useWorkspace.getState().saveError).toBe("disk full");
 
     // 切换到文件 B：failCount 按文件隔离 → B 仍以 2s 基线触发。
