@@ -32,6 +32,21 @@ test("链接对话框在浅色和深色主题下使用应用主题样式", async
     "rgb(33, 38, 45)",
   );
 
+  await page.addStyleTag({
+    content: `[data-theme="dark"] {
+      --accent: #ffffff;
+      --accent-fg: #000000;
+      --ring: 0 0 0 3px rgb(255, 0, 0);
+    }`,
+  });
+  const confirm = page.getByRole("button", { name: "确认插入" });
+  await expect(confirm).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  await expect(confirm).toHaveCSS("color", "rgb(0, 0, 0)");
+
+  const urlInput = page.getByLabel("链接地址 (URL)");
+  await urlInput.focus();
+  await expect(urlInput).toHaveCSS("box-shadow", "rgb(255, 0, 0) 0px 0px 0px 3px");
+
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
 });

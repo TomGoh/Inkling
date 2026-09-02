@@ -95,7 +95,7 @@
 
 .link-dialog-field input:focus {
   border-color: var(--accent, #58a6ff);
-  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
+  box-shadow: var(--ring, 0 0 0 2px rgba(88, 166, 255, 0.2));
 }
 
 .link-dialog-actions {
@@ -127,7 +127,7 @@
 .link-dialog-btn-confirm {
   background: var(--accent, #0969da);
   border: 1px solid transparent;
-  color: #ffffff;
+  color: var(--accent-fg, #ffffff);
 }
 
 .link-dialog-btn-confirm:hover:not(:disabled) {
