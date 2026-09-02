@@ -8,7 +8,7 @@ import { loadJSON, writeJSON } from "../../lib/storage";
 export { parentDir, rebasePathPrefix };
 
 /** 最近打开文件列表的持久化 key */
-const RECENT_FILES_KEY = "inkling-recent-files";
+export const RECENT_FILES_KEY = "inkling-recent-files";
 const RECENT_FILES_MAX = 10;
 
 /** 读取持久化的最近文件列表 */
@@ -23,7 +23,7 @@ export function persistRecentFiles(files: string[]): void {
 }
 
 /** 展开目录列表的持久化 key（未记录的目录默认折叠） */
-const EXPANDED_DIRS_KEY = "inkling-expanded-dirs-v2";
+export const EXPANDED_DIRS_KEY = "inkling-expanded-dirs-v2";
 
 /** 读取持久化的展开目录列表 */
 export function loadExpandedDirs(): Set<string> {
@@ -37,10 +37,24 @@ export function persistExpandedDirs(dirs: Set<string>): void {
 }
 
 /** 书签列表的持久化 key */
-const BOOKMARKS_KEY = "inkling-bookmarks";
+export const BOOKMARKS_KEY = "inkling-bookmarks";
 
 /** 删除文件时未保存修改的内存快照备份 key */
-const DELETED_FILE_SNAPSHOTS_KEY = "inkling-deleted-snapshots";
+export const DELETED_FILE_SNAPSHOTS_KEY = "inkling-deleted-snapshots";
+
+/**
+ * 快照列表变更的窗口内广播事件（issue #153）：
+ * 健康探测与区块刷新改为事件驱动后，同窗口内的写入/移除/清空
+ * 通过该事件通知 UI，替代原先每 2 秒的全量轮询。
+ */
+export const SNAPSHOTS_CHANGED_EVENT = "inkling-deleted-snapshots-changed";
+
+/** 广播快照列表已变更（仅浏览器环境；测试环境 window 恒存在） */
+function notifySnapshotsChanged(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(SNAPSHOTS_CHANGED_EVENT));
+  }
+}
 
 export interface DeletedFileSnapshot {
   path: string;
@@ -57,6 +71,7 @@ export function persistDeletedSnapshot(path: string, content: string): boolean {
     // 尝试修剪历史备份只保留最新条目
     ok = writeJSON(DELETED_FILE_SNAPSHOTS_KEY, [{ path, content, deletedAt: Date.now() }]);
   }
+  if (ok) notifySnapshotsChanged();
   return ok;
 }
 
@@ -64,6 +79,9 @@ export function persistDeletedSnapshot(path: string, content: string): boolean {
 export function loadDeletedSnapshots(): DeletedFileSnapshot[] {
   return loadJSON<DeletedFileSnapshot[]>(DELETED_FILE_SNAPSHOTS_KEY, [], Array.isArray);
 }
+
+/** 健康探测专用哨兵键（issue #153）：只写 1 字节即可确认剩余写入能力，避免把数 MB 的快照列表整体重新序列化写回 */
+const SNAPSHOT_HEALTH_PROBE_KEY = "inkling-deleted-snapshots-health-probe";
 
 /** 估算当前快照占用的字符数与写入状态：sizeChars 越高越接近 localStorage 5MB 上限；writable=false 表明确认写入失败（配额已耗尽） */
 export function probeSnapshotStorageHealth(): {
@@ -76,12 +94,11 @@ export function probeSnapshotStorageHealth(): {
     (acc, item) => acc + (item.path?.length ?? 0) + (item.content?.length ?? 0) + 16,
     0,
   );
-  // 试探写一个极小哨兵值再恢复，确认剩余写入能力
+  // 试探写一个极小哨兵值再移除，确认剩余写入能力（不触碰快照内容本身）
   let writable = true;
   try {
-    const raw = localStorage.getItem(DELETED_FILE_SNAPSHOTS_KEY);
-    localStorage.setItem(DELETED_FILE_SNAPSHOTS_KEY, JSON.stringify(list));
-    if (raw !== null) localStorage.setItem(DELETED_FILE_SNAPSHOTS_KEY, raw);
+    localStorage.setItem(SNAPSHOT_HEALTH_PROBE_KEY, "1");
+    localStorage.removeItem(SNAPSHOT_HEALTH_PROBE_KEY);
   } catch {
     writable = false;
   }
@@ -91,6 +108,7 @@ export function probeSnapshotStorageHealth(): {
 /** 清空被删除文件的快照备份 */
 export function clearDeletedSnapshots(): void {
   writeJSON(DELETED_FILE_SNAPSHOTS_KEY, []);
+  notifySnapshotsChanged();
 }
 
 /** 移除单条快照备份 */
@@ -100,6 +118,7 @@ export function removeDeletedSnapshot(path: string): void {
     DELETED_FILE_SNAPSHOTS_KEY,
     list.filter((item) => item.path !== path),
   );
+  notifySnapshotsChanged();
 }
 
 /** 读取持久化的书签列表 */

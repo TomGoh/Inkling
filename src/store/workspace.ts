@@ -16,13 +16,18 @@ import { createFileTreeSlice } from "./workspace/fileTree";
 import { createTabsSlice } from "./workspace/tabs";
 import { createBookmarksSlice } from "./workspace/bookmarks";
 import { createRecentsSlice } from "./workspace/recents";
+import { subscribeWorkspaceStorageSync } from "./workspace/storageSync";
 import type { WorkspaceState } from "./workspace/types";
 
 export type { OpenTab, WorkspaceState } from "./workspace/types";
 
-export const useWorkspace = create<WorkspaceState>()((...a) => ({
-  ...createFileTreeSlice(...a),
-  ...createTabsSlice(...a),
-  ...createBookmarksSlice(...a),
-  ...createRecentsSlice(...a),
-}));
+export const useWorkspace = create<WorkspaceState>()((...a) => {
+  // 最近文件/书签/展开目录的多窗口同步（issue #165）：store 单例创建时注册一次
+  subscribeWorkspaceStorageSync(a[0]);
+  return {
+    ...createFileTreeSlice(...a),
+    ...createTabsSlice(...a),
+    ...createBookmarksSlice(...a),
+    ...createRecentsSlice(...a),
+  };
+});

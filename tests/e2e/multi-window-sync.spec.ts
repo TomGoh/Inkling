@@ -46,3 +46,64 @@ test.describe("跨窗口 / 多页面存储同步 (#133)", () => {
     await context.close();
   });
 });
+
+// #165：workspace 域（最近文件/书签）此前没有 storage 事件同步，
+// 多窗口下后写覆盖先写。这里验证窗口 A 的真实应用写入（加入书签 / 打开文件）
+// 经原生 storage 事件自动出现在窗口 B 的侧边栏。
+test.describe("workspace 持久化的跨窗口同步 (#165)", () => {
+  test("窗口 A 加入书签后，窗口 B 侧边栏自动出现书签条目", async ({ browser }) => {
+    const context = await browser.newContext();
+    const pageA = await context.newPage();
+    const pageB = await context.newPage();
+
+    await openMockWorkspace(pageA);
+    await openMockWorkspace(pageB);
+
+    // 初始两窗口都没有书签区块
+    const bookmarkSectionB = pageB.locator(".recent-section").filter({ hasText: "书签" });
+    await expect(bookmarkSectionB).toHaveCount(0);
+
+    // 窗口 A 走真实应用路径加入书签（右键菜单 → toggleBookmark → persistBookmarks）
+    await pageA
+      .locator('[data-tree-row][data-path="/mock-workspace/notes"]')
+      .click(); // 展开 notes 目录
+    await pageA
+      .locator('[data-tree-row][data-path="/mock-workspace/notes/readme.md"]')
+      .click({ button: "right" });
+    await pageA.locator(".tree-context-item").filter({ hasText: "加入书签" }).click();
+    await expect(
+      pageA.locator(".recent-section").filter({ hasText: "书签" }).getByText("readme.md"),
+    ).toBeVisible();
+
+    // 窗口 B 经原生 storage 事件同步：书签区块自动出现且包含 readme.md
+    await expect
+      .poll(async () => bookmarkSectionB.getByText("readme.md").isVisible().catch(() => false))
+      .toBe(true);
+
+    await context.close();
+  });
+
+  test("窗口 A 打开文件后，窗口 B 侧边栏自动记录最近打开", async ({ browser }) => {
+    const context = await browser.newContext();
+    const pageA = await context.newPage();
+    const pageB = await context.newPage();
+
+    await openMockWorkspace(pageA);
+    await openMockWorkspace(pageB);
+
+    const recentSectionB = pageB.locator(".recent-section").filter({ hasText: "最近打开" });
+
+    // 窗口 A 打开 intro.md（真实打开链路：激活后写入最近文件）
+    await pageA
+      .locator('[data-tree-row][data-path="/mock-workspace/intro.md"]')
+      .click();
+    await expect(pageA.locator(".tab-active")).toContainText("intro.md");
+
+    // 窗口 B 经原生 storage 事件同步：最近打开区块出现 intro.md
+    await expect
+      .poll(async () => recentSectionB.getByText("intro.md").isVisible().catch(() => false))
+      .toBe(true);
+
+    await context.close();
+  });
+});
