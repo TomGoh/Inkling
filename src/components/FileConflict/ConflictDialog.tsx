@@ -53,7 +53,13 @@ export function ConflictDialog() {
   const { filePath, localContent, diskContent } = conflict;
 
   const handleDismiss = () => {
-    // 用户选择保留当前编辑继续修改时，将 diskContent 同步为当前磁盘基线，避免下次保存重复弹窗
+    // 用户选择「继续编辑（稍后自行保存会覆盖磁盘）」，只同步磁盘基线：
+    // setTabDiskContent 让基线追上磁盘最新内容，后续 saveCurrent 不再判定为冲突、
+    // 静默落盘，也不会重复弹窗。
+    // 注意：此处**有意不清除** conflictPending。用户明确选择「稍后**自行**保存」，
+    // 清除标志会让自动保存 2s 后自动覆盖磁盘，与用户选择直接矛盾；保留标志 =
+    // 自动保存持续暂停 + 状态栏可见 + 指示器可点击触发手动保存（issue #149）。
+    // 该语义由 tests/unit/conflict-dismiss-autosave.test.tsx 锁定。
     setTabDiskContent(filePath, diskContent);
     dismiss();
   };

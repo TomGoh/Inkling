@@ -16,6 +16,7 @@ export function useAutoSave() {
   const dirty = useWorkspace((s) => s.dirty);
   const saving = useWorkspace((s) => s.saving);
   const currentFile = useWorkspace((s) => s.currentFile);
+  const conflictPending = useWorkspace((s) => s.conflictPending);
   // 只订阅「活跃 tab 是否未命名」这一布尔派生值，避免 openTabs 因 content 变化时重订阅 effect
   const activeTabIsUntitled = useWorkspace((s) => {
     const tab = s.openTabs.find((t) => t.path === s.activeTabPath);
@@ -23,8 +24,9 @@ export function useAutoSave() {
   });
   const saveCurrent = useWorkspace((s) => s.saveCurrent);
 
-  // 连续失败次数计数器
-  const failCountRef = useRef(0);
+  // 连续失败次数计数器：按文件维护（issue #149），
+  // 避免一个文件的失败退避连带拖慢其他文件的自动保存
+  const failCountRef = useRef<Map<string, number>>(new Map());
 
   // 手动保存快捷键
   useEffect(() => {
@@ -46,28 +48,37 @@ export function useAutoSave() {
   useEffect(() => {
     if (!dirty || saving || !currentFile) return;
     if (activeTabIsUntitled) return;
+    // 冲突待处理：暂停自动保存，等待用户通过冲突对话框处理（issue #149）。
+    // 否则冲突态下每 2 秒 stat + 全量读盘空转一次，形成隐性 IO 风暴
+    if (conflictPending) return;
 
-    // 指数退避：failCount = 0 -> 2s, failCount = 1 -> 4s, failCount = 2 -> 8s... 最大 60s
-    const delay = failCountRef.current === 0
+    const filePath = currentFile;
+    // 指数退避：fails = 0 -> 2s, 1 -> 4s, 2 -> 8s... 最大 60s
+    const fails = failCountRef.current.get(filePath) ?? 0;
+    const delay = fails === 0
       ? BASE_AUTOSAVE_DEBOUNCE_MS
-      : Math.min(MAX_AUTOSAVE_DEBOUNCE_MS, BASE_AUTOSAVE_DEBOUNCE_MS * Math.pow(2, failCountRef.current));
+      : Math.min(MAX_AUTOSAVE_DEBOUNCE_MS, BASE_AUTOSAVE_DEBOUNCE_MS * Math.pow(2, fails));
 
     const timer = window.setTimeout(async () => {
       // 脏状态可能来自上一次保存；定时器到点时最新编辑或仍在防抖窗口内，
       // 与手动保存同样先 flush，避免保存旧内容（PR #34 review）
       flushAllMarkdownPublishers();
+      const bumpFail = () => {
+        const next = Math.min((failCountRef.current.get(filePath) ?? 0) + 1, 6);
+        failCountRef.current.set(filePath, next);
+      };
       try {
         await saveCurrent({ interactive: false });
         const state = useWorkspace.getState();
-        if (!state.dirty && !state.saveError) {
-          failCountRef.current = 0;
-        } else if (state.saveError) {
-          failCountRef.current = Math.min(failCountRef.current + 1, 6);
+        if (!state.dirty && !state.saveError && !state.conflictPending) {
+          failCountRef.current.delete(filePath);
+        } else if (state.saveError || state.conflictPending) {
+          bumpFail();
         }
       } catch {
-        failCountRef.current = Math.min(failCountRef.current + 1, 6);
+        bumpFail();
       }
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [dirty, saving, currentFile, activeTabIsUntitled, saveCurrent]);
+  }, [dirty, saving, currentFile, activeTabIsUntitled, conflictPending, saveCurrent]);
 }
