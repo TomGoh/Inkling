@@ -71,6 +71,12 @@ export const MOCK_TREE: FileNode = {
           is_dir: false,
           children: [],
         },
+        {
+          name: "attachment.txt",
+          path: "/mock-workspace/notes/attachment.txt",
+          is_dir: false,
+          children: [],
+        },
       ],
     },
     {
