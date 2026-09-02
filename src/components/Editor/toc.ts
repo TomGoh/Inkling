@@ -125,8 +125,27 @@ interface TocViewExt {
   _tocEmpty?: HTMLElement;
 }
 
+type TocRenderer = (items?: TocItem[]) => void;
+
+/** 当前编辑器中存活的 TOC NodeView 重绘函数。 */
+const tocRenderers = new WeakMap<PMView, Set<TocRenderer>>();
+
+function registerTocRenderer(view: PMView, render: TocRenderer): () => void {
+  let renderers = tocRenderers.get(view);
+  if (!renderers) {
+    renderers = new Set();
+    tocRenderers.set(view, renderers);
+  }
+  renderers.add(render);
+
+  return () => {
+    renderers.delete(render);
+    if (renderers.size === 0) tocRenderers.delete(view);
+  };
+}
+
 /** toc 节点视图：根据文档标题实时渲染目录列表 */
-function createTocView(): NodeViewConstructor {
+export function createTocView(): NodeViewConstructor {
   return (_node: Node, view: PMView): NodeView => {
     const dom = document.createElement("div") as HTMLElement & TocViewExt;
     dom.className = "toc-block";
@@ -142,8 +161,7 @@ function createTocView(): NodeViewConstructor {
     dom.appendChild(listHost);
     dom._tocListHost = listHost;
 
-    const renderList = () => {
-      const items = collectHeadings(view.state.doc);
+    const renderList: TocRenderer = (items = collectHeadings(view.state.doc)) => {
       // 清空 listHost
       while (listHost.firstChild) listHost.removeChild(listHost.firstChild);
       // 若上一次渲染了 empty，先恢复 listHost
@@ -176,6 +194,7 @@ function createTocView(): NodeViewConstructor {
       }
     };
 
+    const unregisterRenderer = registerTocRenderer(view, renderList);
     renderList();
 
     return {
@@ -188,7 +207,7 @@ function createTocView(): NodeViewConstructor {
         renderList();
         return true;
       },
-      destroy: () => {},
+      destroy: unregisterRenderer,
     };
   };
 }
@@ -197,12 +216,28 @@ function createTocView(): NodeViewConstructor {
 export const tocView = $view(tocSchema.node, () => createTocView());
 
 /**
- * toc ProseMirror 插件：留作扩展点。
- * ProseMirror 在文档变化时会自动检查所有 NodeView 并触发其 update 回调，
- * 因此 toc NodeView.update 会在标题增删/修改时被自动调用并重渲染目录，
- * 此插件本身当前不需要做任何事。
+ * toc ProseMirror 插件：文档变化后通知所有存活的 TOC NodeView 重绘。
+ *
+ * ProseMirror 只会沿实际变化的文档路径调用 NodeView.update；编辑 TOC
+ * 之外的标题不会触达原子 TOC 节点，因此不能依赖 NodeView.update 保持目录同步。
  */
 export const tocPlugin = () =>
   new Plugin({
     key: tocKey,
+    view: (view) => {
+      let headingSignature = JSON.stringify(collectHeadings(view.state.doc));
+
+      return {
+        update: (view, previousState) => {
+          if (view.state.doc === previousState.doc) return;
+
+          const headings = collectHeadings(view.state.doc);
+          const nextSignature = JSON.stringify(headings);
+          if (nextSignature === headingSignature) return;
+
+          headingSignature = nextSignature;
+          tocRenderers.get(view)?.forEach((render) => render(headings));
+        },
+      };
+    },
   });
