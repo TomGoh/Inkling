@@ -159,3 +159,37 @@ export const forcedDirectoryRequests = new Map<string, Promise<void>>();
 
 /** 同一文件的并发读取复用一个 Promise，避免重复读取和重复创建 tab */
 export const fileRequests = new Map<string, Promise<string>>();
+
+/**
+ * 删除时仍在途读取的文件路径黑名单（issue #166）：
+ * 文件读取在途时被删除，读取完成后 ensureTab 会照常创建「已删除文件」的
+ * 干净 tab（后续编辑游离在快照保护之外）。删除时把在途路径记入此表，
+ * ensureTab 完成后对照拦截并把读到的内容写入恢复快照。
+ * 值为删除时间戳；在途读取完成的窗口极短，超时条目自动失效，
+ * 避免误拦同名文件重建后的正常打开。
+ */
+export const deletedDuringLoad = new Map<string, number>();
+
+/** deletedDuringLoad 条目有效期：远超正常在途读取耗时即可 */
+export const DELETED_DURING_LOAD_TTL = 60_000;
+
+/** 记录一个「删除时在途读取」的路径 */
+export function markDeletedDuringLoad(path: string): void {
+  deletedDuringLoad.set(path, Date.now());
+}
+
+/** 检查路径是否刚在读取在途时被删除；过期条目顺带清理 */
+export function wasDeletedDuringLoad(path: string): boolean {
+  const deletedAt = deletedDuringLoad.get(path);
+  if (deletedAt === undefined) return false;
+  if (Date.now() - deletedAt > DELETED_DURING_LOAD_TTL) {
+    deletedDuringLoad.delete(path);
+    return false;
+  }
+  return true;
+}
+
+/** 消费（移除）一条删除记录（拦截判定后调用，一次性语义） */
+export function consumeDeletedDuringLoad(path: string): void {
+  deletedDuringLoad.delete(path);
+}
