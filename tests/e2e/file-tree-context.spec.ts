@@ -106,4 +106,20 @@ test.describe("文件树右键菜单", () => {
     const clip = await page.evaluate(() => navigator.clipboard.readText());
     expect(clip).toContain("readme.md");
   });
+
+  test("FC9 非 Markdown 文件也能唤起右键菜单 (#158)", async ({ page }) => {
+    // 修复前该行是原生 disabled，Chromium 抑制 contextmenu，菜单不会出现；
+    // 修复后为 aria-disabled：真实浏览器不阻断鼠标事件，但 Playwright 的
+    // actionability 检查仍把 aria-disabled 当 disabled 拒点，故用 force 右键
+    // （真实派发鼠标事件）——这正是本用例要验证的行为差异
+    const node = page.locator('[data-tree-row][data-path="/mock-workspace/notes/attachment.txt"]');
+    await expect(node).toHaveAttribute("aria-disabled", "true");
+    await node.click({ button: "right", force: true });
+    await expect(page.locator(".tree-context-menu")).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(".tree-context-item").filter({ hasText: /^重命名$/ })).toBeVisible();
+    await expect(page.locator(".tree-context-item").filter({ hasText: /^删除$/ })).toBeVisible();
+    await expect(page.locator(".tree-context-item").filter({ hasText: /^复制路径$/ })).toBeVisible();
+    // 非 md 文件没有「在新窗口打开」（TreeContextMenu 仅对 md 文件显示）
+    await expect(page.locator(".tree-context-item").filter({ hasText: "在新窗口打开" })).toHaveCount(0);
+  });
 });

@@ -118,8 +118,13 @@ export function FileTreeNode({
     <button
       className={`tree-row tree-row-file${md ? "" : " tree-row-file-disabled"}${active ? " tree-row-active" : ""}`}
       style={{ paddingLeft: `${depth * 12 + 24}px` }}
-      disabled={!md}
-      onClick={onOpen}
+      // issue #158：不用原生 disabled——Chromium/WebView2 对 disabled 表单控件
+      // 抑制 contextmenu 等鼠标事件，非 md 文件会完全失去右键菜单（重命名/删除
+      // 等唯一可用操作）。改 aria-disabled 表达禁用态，onClick 内拦截打开。
+      aria-disabled={!md || undefined}
+      onClick={() => {
+        if (md) onOpen();
+      }}
       onContextMenu={onMenu}
       title={openError ?? node.path}
       aria-busy={opening || undefined}

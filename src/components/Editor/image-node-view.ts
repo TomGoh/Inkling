@@ -47,7 +47,13 @@ function encodeImageMeta(width: number | null, align: ImageAlign | null, cleanTi
   return segs.length ? segs.join(", ") : null;
 }
 
-class ImageNodeView implements NodeView {
+/**
+ * 模块级单例游标（issue #184）：同一时间只允许一份图片右键菜单打开。
+ * 打开新菜单前先关闭当前持有者（可能是其他图片节点残留的菜单）。
+ */
+let activeMenuOwner: ImageNodeView | null = null;
+
+export class ImageNodeView implements NodeView {
   dom: HTMLSpanElement;
   private img: HTMLImageElement;
   private handle: HTMLSpanElement;
@@ -61,6 +67,10 @@ class ImageNodeView implements NodeView {
   private width: number | null = null;
   private align: ImageAlign | null = null;
   private cleanTitle: string | null = null;
+  /** 当前打开的右键菜单（issue #184：单例持有，销毁/再次右键时清理） */
+  private contextMenu: HTMLElement | null = null;
+  /** 当前菜单对应的 document 级 mousedown close 监听（随菜单一起清理） */
+  private contextMenuCloseListener: ((ev: MouseEvent) => void) | null = null;
 
   constructor(
     node: Node,
@@ -202,10 +212,36 @@ class ImageNodeView implements NodeView {
     document.addEventListener("mouseup", onUp);
   };
 
+  /**
+   * 关闭当前打开的右键菜单（issue #184）：
+   * 移除菜单 DOM、document 级 mousedown close 监听，并清理单例游标。
+   * 幂等——无菜单时为空操作。
+   */
+  private closeContextMenu(): void {
+    if (this.contextMenu) {
+      if (this.contextMenu.parentNode) {
+        this.contextMenu.parentNode.removeChild(this.contextMenu);
+      }
+      this.contextMenu = null;
+    }
+    if (this.contextMenuCloseListener) {
+      document.removeEventListener("mousedown", this.contextMenuCloseListener);
+      this.contextMenuCloseListener = null;
+    }
+    if (activeMenuOwner === this) activeMenuOwner = null;
+  }
+
   /** 右键菜单：对齐与重置 */
   private onContextMenu = (e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    // 单例保护（issue #184）：同一时间只有一份菜单——
+    // 先关其他图片节点残留的菜单，再关本实例已打开的菜单
+    if (activeMenuOwner && activeMenuOwner !== this) {
+      activeMenuOwner.closeContextMenu();
+    }
+    this.closeContextMenu();
+
     const menu = document.createElement("div");
     menu.className = "image-context-menu";
 
@@ -215,7 +251,8 @@ class ImageNodeView implements NodeView {
       btn.textContent = label;
       btn.addEventListener("click", () => {
         onClick();
-        document.body.removeChild(menu);
+        // 走统一清理路径（原实现只移除 DOM，document 级监听泄漏）
+        this.closeContextMenu();
       });
       menu.appendChild(btn);
     };
@@ -251,16 +288,28 @@ class ImageNodeView implements NodeView {
 
     const close = (ev: MouseEvent) => {
       if (!menu.contains(ev.target as globalThis.Node)) {
-        if (menu.parentNode) document.body.removeChild(menu);
-        document.removeEventListener("mousedown", close);
+        this.closeContextMenu();
       }
     };
-    setTimeout(() => document.addEventListener("mousedown", close), 0);
+    this.contextMenu = menu;
+    this.contextMenuCloseListener = close;
+    activeMenuOwner = this;
+    setTimeout(() => {
+      // 定时器触发前菜单可能已被清理（节点销毁/再次右键）——
+      // 仅当当前菜单仍是本次创建的这份时才挂 close 监听，
+      // 避免给已关闭的菜单残留 document 级监听器
+      if (this.contextMenu === menu) {
+        document.addEventListener("mousedown", close);
+      }
+    }, 0);
   };
 
   destroy() {
     this.destroyed = true;
     this.sourceGeneration += 1;
+    // issue #184：节点销毁时一并清理打开中的菜单与 document 级监听，
+    // 避免删除图片/切文件后菜单永久残留、监听器泄漏
+    this.closeContextMenu();
     this.handle.removeEventListener("mousedown", this.onResizeStart);
     this.dom.removeEventListener("contextmenu", this.onContextMenu);
   }
