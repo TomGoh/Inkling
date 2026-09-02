@@ -9,11 +9,14 @@ import { fileMtime, readTextFile, writeTextFile } from "../../lib/fs";
 import { flushAllMarkdownPublishers } from "../../components/Editor/markdown-publisher";
 import { useConflict } from "../conflict";
 import {
+  consumeDeletedDuringLoad,
   fileRequests,
   intents,
   parentDir,
+  persistDeletedSnapshot,
   persistRecentFiles,
   pushRecent,
+  wasDeletedDuringLoad,
 } from "./shared";
 import type { OpenTab, WorkspaceState } from "./types";
 
@@ -123,6 +126,19 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
   set,
   get,
 ) => {
+  /**
+   * 按请求自身身份查找其注册路径（issue #177）：
+   * 读取在途时重命名会把条目从旧路径迁移到新路径，闭包捕获的旧路径
+   * 查表必然失配。按身份遍历在途表（规模恒等于并发打开数，极小），
+   * 确保无论迁移与否都能清理到位。
+   */
+  const findRequestPath = (request: Promise<string>): string | null => {
+    for (const [path, req] of fileRequests) {
+      if (req === request) return path;
+    }
+    return null;
+  };
+
   /** 读取文件并维护逐文件加载状态；同一路径的并发调用共享同一请求 */
   const readFileOnce = (filePath: string): Promise<string> => {
     const existing = fileRequests.get(filePath);
@@ -140,11 +156,12 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     request = Promise.resolve()
       .then(() => readTextFile(filePath))
       .catch((error) => {
-        if (fileRequests.get(filePath) === request) {
+        const registeredPath = findRequestPath(request);
+        if (registeredPath !== null) {
           set((current) => {
             const fileOpenErrors = new Map(current.fileOpenErrors);
             fileOpenErrors.set(
-              filePath,
+              registeredPath,
               error instanceof Error ? error.message : String(error),
             );
             return { fileOpenErrors };
@@ -153,12 +170,16 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
         throw error;
       })
       .finally(() => {
-        if (fileRequests.get(filePath) !== request) return;
-        fileRequests.delete(filePath);
+        // issue #177：按请求身份清理而非按闭包捕获的路径查表——
+        // 重命名迁移后条目在新路径下，同样要删除缓存并清除加载态，
+        // 否则重开会命中陈旧（或已拒绝）的缓存 Promise
+        const registeredPath = findRequestPath(request);
+        if (registeredPath === null) return;
+        fileRequests.delete(registeredPath);
         set((current) => {
-          if (!current.openingFiles.has(filePath)) return {};
+          if (!current.openingFiles.has(registeredPath)) return {};
           const openingFiles = new Set(current.openingFiles);
-          openingFiles.delete(filePath);
+          openingFiles.delete(registeredPath);
           return { openingFiles };
         });
       });
@@ -172,6 +193,21 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     if (existing) return existing;
 
     const content = await readFileOnce(filePath);
+
+    // issue #166：读取在途期间文件被外部删除时，不得为「已删除文件」
+    // 照常创建干净 tab（后续编辑将游离在快照保护之外）——
+    // 把刚读到的内容写入恢复快照并拒绝建 tab
+    if (wasDeletedDuringLoad(filePath)) {
+      consumeDeletedDuringLoad(filePath);
+      persistDeletedSnapshot(filePath, content);
+      set((current) => {
+        const fileOpenErrors = new Map(current.fileOpenErrors);
+        fileOpenErrors.set(filePath, "文件在加载期间被外部删除，已创建恢复备份");
+        return { fileOpenErrors };
+      });
+      throw new Error("文件在加载期间被外部删除");
+    }
+
     let mtime: number | undefined;
     try {
       mtime = await fileMtime(filePath);

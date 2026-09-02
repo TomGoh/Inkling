@@ -5,6 +5,7 @@
 import type { StateCreator } from "zustand";
 import { listDir, type FileNode } from "../../lib/fs";
 import { showMessage } from "../../lib/dialogs";
+import { flushAllMarkdownPublishers } from "../../components/Editor/markdown-publisher";
 import {
   collectDirectoryPaths,
   isPathWithin,
@@ -16,6 +17,7 @@ import {
   forcedDirectoryRequests,
   intents,
   loadExpandedDirs,
+  markDeletedDuringLoad,
   parentDir,
   persistBookmarks,
   persistDeletedSnapshot,
@@ -335,7 +337,21 @@ export const createFileTreeSlice: StateCreator<
   },
 
   onFileDeleted: (path) => {
+    // issue #166：快照采集前先发布编辑器序列化防抖——用户刚输入但
+    // 150ms 防抖未发布时，tab.content/currentContent 仍是旧内容，
+    // 直接采集会让最近的编辑游离在快照保护之外
+    // （原先依赖的 closeTab flush 发生在快照采集之后，来不及）
+    flushAllMarkdownPublishers();
     const { openTabs, currentContent, expandedDirs, loadedDirs, loadingDirs, directoryErrors } = get();
+
+    // issue #166：读取在途时文件被删除——把在途路径记入黑名单，
+    // 读取完成后 ensureTab 对照拦截漏网 tab（目录删除时覆盖子文件）
+    for (const inFlightPath of fileRequests.keys()) {
+      if (inFlightPath === path || isPathWithin(inFlightPath, path)) {
+        markDeletedDuringLoad(inFlightPath);
+      }
+    }
+
     // 内存保护：若被删除文件包含未保存的 dirty 内容，先写入临时快照
     const affectedTabs = openTabs.filter(
       (t) => t.path === path || t.path.startsWith(path + "/") || t.path.startsWith(path + "\\"),
