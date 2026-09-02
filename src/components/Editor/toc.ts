@@ -225,18 +225,42 @@ export const tocPlugin = () =>
   new Plugin({
     key: tocKey,
     view: (view) => {
-      let headingSignature = JSON.stringify(collectHeadings(view.state.doc));
+      let refreshTimer: number | undefined;
+      let headingSignature = tocRenderers.get(view)?.size
+        ? JSON.stringify(collectHeadings(view.state.doc))
+        : null;
 
       return {
         update: (view, previousState) => {
           if (view.state.doc === previousState.doc) return;
 
-          const headings = collectHeadings(view.state.doc);
-          const nextSignature = JSON.stringify(headings);
-          if (nextSignature === headingSignature) return;
+          const renderers = tocRenderers.get(view);
+          if (!renderers?.size) {
+            if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+            refreshTimer = undefined;
+            headingSignature = null;
+            return;
+          }
 
-          headingSignature = nextSignature;
-          tocRenderers.get(view)?.forEach((render) => render(headings));
+          if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+          refreshTimer = window.setTimeout(() => {
+            refreshTimer = undefined;
+            const currentRenderers = tocRenderers.get(view);
+            if (!currentRenderers?.size) {
+              headingSignature = null;
+              return;
+            }
+
+            const headings = collectHeadings(view.state.doc);
+            const nextSignature = JSON.stringify(headings);
+            if (nextSignature === headingSignature) return;
+
+            headingSignature = nextSignature;
+            currentRenderers.forEach((render) => render(headings));
+          }, 150);
+        },
+        destroy: () => {
+          if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
         },
       };
     },
