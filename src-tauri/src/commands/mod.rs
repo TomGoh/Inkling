@@ -334,6 +334,38 @@ mod tests {
         assert!(!root.children[1].is_dir);
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn does_not_follow_directory_symlinks() {
+        use std::process::Command;
+
+        let temp = TestDir::new("symlink");
+        let real_dir = temp.path.join("real");
+        fs::create_dir(&real_dir).unwrap();
+        touch(&real_dir.join("inside.md"));
+        touch(&temp.path.join("visible.md"));
+        for (link, target) in [
+            (temp.path.join("linked"), real_dir),
+            (temp.path.join("loop"), temp.path.clone()),
+        ] {
+            let output = Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .output()
+                .expect("cmd.exe should create a directory junction");
+            assert!(
+                output.status.success(),
+                "failed to create junction: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        let root = list_dir_shallow(&temp.path).unwrap();
+        let names: Vec<_> = root.children.iter().map(|child| child.name.as_str()).collect();
+        assert_eq!(names, ["real", "visible.md"]);
+    }
+
     #[test]
     fn test_file_operations_crud() {
         let temp = TestDir::new("file_ops");
@@ -414,6 +446,55 @@ mod tests {
         let mtime_err =
             file_mtime_sync(temp.path.join("nonexistent.md").to_string_lossy().to_string()).unwrap_err();
         assert!(mtime_err.contains("文件不存在"));
+    }
+
+    #[test]
+    fn rename_rejects_an_existing_target_without_overwriting_it() {
+        let temp = TestDir::new("rename-existing");
+        let source = temp.path.join("source.md");
+        let target = temp.path.join("target.md");
+        fs::write(&source, "source").unwrap();
+        fs::write(&target, "target").unwrap();
+
+        let error = rename_path_sync(
+            source.to_string_lossy().into_owned(),
+            target.to_string_lossy().into_owned(),
+        )
+        .unwrap_err();
+        assert!(error.contains("目标已存在"));
+        assert_eq!(fs::read_to_string(&source).unwrap(), "source");
+        assert_eq!(fs::read_to_string(&target).unwrap(), "target");
+    }
+
+    #[test]
+    fn delete_reports_a_missing_path_instead_of_succeeding() {
+        let temp = TestDir::new("delete-missing");
+        let missing = temp.path.join("missing.md");
+        let error = delete_path_sync(missing.to_string_lossy().into_owned()).unwrap_err();
+        assert!(error.contains("路径不存在"));
+    }
+
+    #[test]
+    fn delete_preserves_permission_denied_context() {
+        let temp = TestDir::new("delete-permission");
+        let file = temp.path.join("protected.md");
+        touch(&file);
+
+        let error = delete_path_with(
+            &file,
+            |_| {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "access denied by test filesystem",
+                ))
+            },
+            |_| Ok(()),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("删除文件失败"));
+        assert!(error.contains("access denied by test filesystem"));
+        assert!(file.exists(), "failed deletion must leave the source intact");
     }
 
     #[test]
@@ -724,13 +805,25 @@ pub async fn delete_path(path: String) -> Result<(), String> {
 
 fn delete_path_sync(path: String) -> Result<(), String> {
     let p = Path::new(&path);
+    delete_path_with(p, |path| fs::remove_file(path), |path| fs::remove_dir_all(path))
+}
+
+fn delete_path_with<RemoveFile, RemoveDir>(
+    p: &Path,
+    remove_file: RemoveFile,
+    remove_dir_all: RemoveDir,
+) -> Result<(), String>
+where
+    RemoveFile: FnOnce(&Path) -> std::io::Result<()>,
+    RemoveDir: FnOnce(&Path) -> std::io::Result<()>,
+{
     if !p.exists() {
-        return Err(format!("路径不存在: {}", path));
+        return Err(format!("路径不存在: {}", p.display()));
     }
     if p.is_dir() {
-        fs::remove_dir_all(p).map_err(|e| format!("删除目录失败: {}", e))
+        remove_dir_all(p).map_err(|e| format!("删除目录失败: {}", e))
     } else {
-        fs::remove_file(p).map_err(|e| format!("删除文件失败: {}", e))
+        remove_file(p).map_err(|e| format!("删除文件失败: {}", e))
     }
 }
 

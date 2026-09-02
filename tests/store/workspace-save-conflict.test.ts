@@ -7,9 +7,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenTab } from "../../src/store/workspace";
 
-const { readTextFileMock, writeTextFileMock, askMock, isTauriMock } = vi.hoisted(() => ({
+const { readTextFileMock, writeTextFileMock, fileMtimeMock, askMock, isTauriMock } = vi.hoisted(() => ({
   readTextFileMock: vi.fn(),
   writeTextFileMock: vi.fn(),
+  fileMtimeMock: vi.fn(),
   askMock: vi.fn(),
   isTauriMock: vi.fn(() => true),
 }));
@@ -26,6 +27,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 vi.mock("../../src/lib/fs", () => ({
   readTextFile: readTextFileMock,
   writeTextFile: writeTextFileMock,
+  fileMtime: fileMtimeMock,
 }));
 
 import { useWorkspace } from "../../src/store/workspace";
@@ -39,6 +41,7 @@ function tab(path: string, content: string, diskContent: string): OpenTab {
     dirty: true,
     isUntitled: false,
     diskContent,
+    diskMtime: 1_000,
     lastSavedAt: null,
   };
 }
@@ -51,6 +54,7 @@ describe("saveCurrent 外部修改冲突保护", () => {
   beforeEach(() => {
     readTextFileMock.mockReset();
     writeTextFileMock.mockReset();
+    fileMtimeMock.mockReset().mockResolvedValue(1_000);
     askMock.mockReset();
     isTauriMock.mockReset();
     isTauriMock.mockReturnValue(true);
@@ -76,6 +80,8 @@ describe("saveCurrent 外部修改冲突保护", () => {
     await useWorkspace.getState().saveCurrent();
 
     expect(askMock).not.toHaveBeenCalled();
+    expect(fileMtimeMock).toHaveBeenCalledWith("/docs/a.md");
+    expect(readTextFileMock).not.toHaveBeenCalled();
     expect(writeTextFileMock).toHaveBeenCalledWith("/docs/a.md", "本地编辑");
     const s = useWorkspace.getState();
     expect(s.dirty).toBe(false);
@@ -84,6 +90,7 @@ describe("saveCurrent 外部修改冲突保护", () => {
   });
 
   it("磁盘被外部修改：用户拒绝覆盖则不保存", async () => {
+    fileMtimeMock.mockResolvedValue(2_000);
     readTextFileMock.mockResolvedValue("外部新内容");
     askMock.mockResolvedValue(false);
 
@@ -95,6 +102,7 @@ describe("saveCurrent 外部修改冲突保护", () => {
   });
 
   it("磁盘被外部修改：用户确认覆盖则保存并更新基线", async () => {
+    fileMtimeMock.mockResolvedValue(2_000);
     readTextFileMock.mockResolvedValue("外部新内容");
     askMock.mockResolvedValue(true);
 
@@ -108,6 +116,7 @@ describe("saveCurrent 外部修改冲突保护", () => {
   });
 
   it("磁盘读取失败（文件被删）：继续尝试保存", async () => {
+    fileMtimeMock.mockResolvedValue(2_000);
     readTextFileMock.mockRejectedValue(new Error("文件不存在"));
 
     await useWorkspace.getState().saveCurrent();
@@ -116,6 +125,7 @@ describe("saveCurrent 外部修改冲突保护", () => {
     expect(writeTextFileMock).toHaveBeenCalledWith("/docs/a.md", "本地编辑");
   });
   it("自动保存（非交互）：外部冲突时不弹窗，标记 conflictPending", async () => {
+    fileMtimeMock.mockResolvedValue(2_000);
     readTextFileMock.mockResolvedValue("外部新内容");
 
     await useWorkspace.getState().saveCurrent({ interactive: false });
@@ -125,12 +135,62 @@ describe("saveCurrent 外部修改冲突保护", () => {
     expect(useWorkspace.getState().conflictPending).toBe(true);
     expect(useWorkspace.getState().openTabs[0].conflictPending).toBe(true);
   });
+
+  it("mtime 获取失败时回退到磁盘全文比对", async () => {
+    fileMtimeMock.mockRejectedValue(new Error("mtime unavailable"));
+    readTextFileMock.mockResolvedValue("磁盘基线");
+    await useWorkspace.getState().saveCurrent();
+    expect(readTextFileMock).toHaveBeenCalledWith("/docs/a.md");
+    expect(writeTextFileMock).toHaveBeenCalledWith("/docs/a.md", "本地编辑");
+  });
+
+  it.each([
+    { mtime: 1_004, readsDisk: false, label: "4ms remains inside tolerance" },
+    { mtime: 1_005, readsDisk: true, label: "5ms reaches the fallback boundary" },
+  ])("uses the documented mtime boundary: $label", async ({ mtime, readsDisk }) => {
+    fileMtimeMock.mockResolvedValue(mtime);
+    readTextFileMock.mockResolvedValue("磁盘基线");
+    await useWorkspace.getState().saveCurrent();
+    expect(readTextFileMock).toHaveBeenCalledTimes(readsDisk ? 1 : 0);
+  });
+
+  it("写盘失败后下一次自动保存可重试并清除错误", async () => {
+    writeTextFileMock
+      .mockRejectedValueOnce(new Error("disk full"))
+      .mockResolvedValueOnce(undefined);
+
+    await useWorkspace.getState().saveCurrent({ interactive: false });
+    expect(useWorkspace.getState().saveError).toBe("disk full");
+    expect(useWorkspace.getState().dirty).toBe(true);
+
+    await useWorkspace.getState().saveCurrent({ interactive: false });
+    expect(writeTextFileMock).toHaveBeenCalledTimes(2);
+    expect(useWorkspace.getState().saveError).toBeNull();
+    expect(useWorkspace.getState().dirty).toBe(false);
+  });
+
+  it("detects a competing window write through the shared file mtime and baseline", async () => {
+    // This store instance represents window B. Window A has already written a
+    // different body and advanced the filesystem mtime since B loaded the file.
+    fileMtimeMock.mockResolvedValue(1_010);
+    readTextFileMock.mockResolvedValue("window A content");
+    askMock.mockResolvedValue(false);
+
+    await useWorkspace.getState().saveCurrent();
+
+    expect(fileMtimeMock).toHaveBeenCalledWith("/docs/a.md");
+    expect(readTextFileMock).toHaveBeenCalledWith("/docs/a.md");
+    expect(askMock).toHaveBeenCalledTimes(1);
+    expect(writeTextFileMock).not.toHaveBeenCalled();
+    expect(useWorkspace.getState().dirty).toBe(true);
+  });
 });
 
 describe("reloadFile 强制重载", () => {
   beforeEach(() => {
     readTextFileMock.mockReset();
     writeTextFileMock.mockReset();
+    fileMtimeMock.mockReset().mockResolvedValue(1_000);
     isTauriMock.mockReset();
     isTauriMock.mockReturnValue(true);
     readTextFileMock.mockResolvedValue("磁盘最新内容");

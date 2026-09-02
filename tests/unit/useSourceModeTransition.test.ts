@@ -4,6 +4,7 @@ import { useSourceModeTransition } from "../../src/components/Editor/useSourceMo
 import { editorViewCtx, parserCtx } from "@milkdown/kit/core";
 import { markdownOffsetToProsePos } from "../../src/lib/source-mode-cursor";
 import { useWorkspace } from "../../src/store/workspace";
+import * as dialogs from "../../src/lib/dialogs";
 
 describe("useSourceModeTransition", () => {
   it("enters source mode: captures non-zero scroll snapshot and content anchor from WYSIWYG", () => {
@@ -550,5 +551,105 @@ describe("useSourceModeTransition", () => {
     expect(result.current.enterSnapshot!.scrollHeight).toBe(63446);
     expect(result.current.enterSnapshot!.anchorOffset).toBe(18);
     expect(result.current.enterSnapshot!.cursor).toBe(18);
+  });
+
+  it("restores source mode, snapshot, and content protection when parsing malformed markdown fails", () => {
+    const filePath = "/tmp/malformed.md";
+    const malformed = "# still mine\n\n<broken % markdown";
+    const lastSyncedRef = { current: "previous rendered value" };
+    const clipboardWrite = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: clipboardWrite },
+    });
+    const messageSpy = vi.spyOn(dialogs, "showMessage").mockResolvedValue(undefined);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    useWorkspace.setState({
+      activeTabPath: filePath,
+      currentFile: filePath,
+      currentContent: malformed,
+      openTabs: [{
+        path: filePath,
+        content: malformed,
+        dirty: true,
+        lastSavedAt: null,
+        cursorPos: null,
+        scrollTop: null,
+        sourceMode: true,
+      }],
+    });
+
+    let parseShouldFail = true;
+    const parserMock = vi.fn(() => {
+      if (parseShouldFail) throw new Error("parse exploded");
+      return { content: { size: malformed.length } };
+    });
+    const mockTr = {
+      replaceWith: vi.fn().mockReturnThis(),
+      setMeta: vi.fn().mockReturnThis(),
+    };
+    const dispatch = vi.fn();
+    const mockEditor: any = {
+      action: (fn: (ctx: any) => void) => fn({
+        get: (key: any) => {
+          if (key === editorViewCtx) return {
+            state: { tr: mockTr, plugins: [], doc: { content: { size: 1 } } },
+            dispatch,
+          };
+          if (key === parserCtx) return parserMock;
+          return null;
+        },
+      }),
+    };
+
+    const { result, rerender } = renderHook(
+      ({ sourceMode }) => useSourceModeTransition({
+        filePath,
+        sourceMode,
+        value: malformed,
+        getEditor: () => mockEditor,
+        lastSyncedRef,
+      }),
+      { initialProps: { sourceMode: true } },
+    );
+    result.current.exitSnapshotRef.current = {
+      cursor: 17,
+      scrollTop: 240,
+      scrollHeight: 900,
+      anchorOffset: 11,
+      cursorVisible: true,
+    };
+
+    rerender({ sourceMode: false });
+
+    expect(clipboardWrite).toHaveBeenCalledWith(malformed);
+    expect(messageSpy).toHaveBeenCalledWith(
+      expect.stringContaining("当前 Markdown 仍保留"),
+      { title: "解析失败", kind: "error" },
+    );
+    expect(useWorkspace.getState().getTabSourceMode(filePath)).toBe(true);
+    expect(result.current.enterSnapshot).toEqual({
+      cursor: 17,
+      scrollTop: 240,
+      scrollHeight: 900,
+      anchorOffset: 11,
+    });
+    expect(lastSyncedRef.current).toBe("previous rendered value");
+    expect(useWorkspace.getState().openTabs[0].content).toBe(malformed);
+
+    // Complete the real prop round-trip, then prove the failure latch clears
+    // and a corrected document can leave source mode normally.
+    rerender({ sourceMode: true });
+    expect(parserMock).toHaveBeenCalledTimes(1);
+    parseShouldFail = false;
+    useWorkspace.getState().setTabSourceMode(false, filePath);
+    rerender({ sourceMode: false });
+
+    expect(parserMock).toHaveBeenCalledTimes(2);
+    expect(mockTr.replaceWith).toHaveBeenCalled();
+    expect(dispatch).toHaveBeenCalled();
+    expect(result.current.enterSnapshot).toBeNull();
+    expect(lastSyncedRef.current).toBe(malformed);
   });
 });

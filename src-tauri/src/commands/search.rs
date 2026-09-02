@@ -748,4 +748,62 @@ mod tests {
         assert_eq!(result.hits.len(), 1, "应跳过 node_modules 和 target 目录");
         assert!(result.hits[0].path.contains("src"));
     }
+
+    #[test]
+    fn search_stops_beyond_the_maximum_directory_depth() {
+        let temp = TestDir::new("max-depth");
+        let mut current = temp.path.clone();
+        for depth in 1..=MAX_SEARCH_DEPTH + 1 {
+            current = current.join(format!("level-{depth}"));
+            fs::create_dir(&current).unwrap();
+            if depth == MAX_SEARCH_DEPTH {
+                write(&current.join("included.md"), "needle\n");
+            }
+            if depth == MAX_SEARCH_DEPTH + 1 {
+                write(&current.join("excluded.md"), "needle\n");
+            }
+        }
+
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), 1);
+        assert!(result.hits[0].path.ends_with("included.md"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_symlink_self_loop_is_not_followed() {
+        use std::os::unix::fs::symlink;
+        let temp = TestDir::new("symlink-loop");
+        write(&temp.path.join("visible.md"), "needle\n");
+        symlink(&temp.path, temp.path.join("loop")).unwrap();
+
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), 1);
+        assert!(result.hits[0].path.ends_with("visible.md"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn directory_symlink_self_loop_is_not_followed() {
+        use std::process::Command;
+        let temp = TestDir::new("symlink-loop");
+        write(&temp.path.join("visible.md"), "needle\n");
+        // Directory junctions are reparse points like directory symlinks but do
+        // not require Windows Developer Mode or SeCreateSymbolicLinkPrivilege.
+        let output = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(temp.path.join("loop"))
+            .arg(&temp.path)
+            .output()
+            .expect("cmd.exe should create a directory junction");
+        assert!(
+            output.status.success(),
+            "failed to create junction: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let result = search(&temp.path, "needle");
+        assert_eq!(result.hits.len(), 1);
+        assert!(result.hits[0].path.ends_with("visible.md"));
+    }
 }

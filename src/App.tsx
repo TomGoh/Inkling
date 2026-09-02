@@ -21,9 +21,7 @@ import { useFileWatcher } from "./lib/useFileWatcher";
 import { useCtrlWheelZoom } from "./lib/useCtrlWheelZoom";
 import { useGlobalShortcuts } from "./lib/useGlobalShortcuts";
 import { useStartupFile } from "./lib/useStartupFile";
-import { isTauri } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { flushAllMarkdownPublishers } from "./components/Editor/markdown-publisher";
+import { useExitHandler } from "./lib/useExitHandler";
 import { type EditorOutlineSnapshot } from "./lib/outline";
 import { useOutline } from "./store/outline";
 import { IconPanelLeft } from "./components/icons";
@@ -137,76 +135,7 @@ function App() {
   useFileWatcher();
   // 启动时打开目标文件（派生窗口 / 文件关联 / 单实例转发）
   useStartupFile();
-
-  // 窗口关闭 / 刷新时统一 flush 存活编辑器的待发变更，若有未保存文件在退出时落盘
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      flushAllMarkdownPublishers();
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-
-    let disposed = false;
-    let unlistenClose: (() => void) | undefined;
-    if (isTauri()) {
-      const win = getCurrentWindow();
-      void win.onCloseRequested(async (event) => {
-        event.preventDefault();
-        flushAllMarkdownPublishers();
-        const currentTabs = useWorkspace.getState().openTabs;
-        const dirtyTabs = currentTabs.filter((t) => t.dirty);
-        const originalActivePath = useWorkspace.getState().activeTabPath;
-        if (dirtyTabs.length > 0) {
-          // 遍历所有 dirty tabs，逐个切换并执行保存
-          for (const tab of dirtyTabs) {
-            try {
-              useWorkspace.getState().switchTab(tab.path);
-              await useWorkspace.getState().saveCurrent();
-            } catch {
-              // 捕获保存异常继续处理后续 tab
-            }
-          }
-          // 重新检查是否仍有 dirty tab（如未命名取消保存/冲突拒绝覆盖/磁盘错误）
-          const latestTabs = useWorkspace.getState().openTabs;
-          const stillDirty = latestTabs.some((t) => t.dirty);
-          if (stillDirty) {
-            try {
-              const { ask } = await import("@tauri-apps/plugin-dialog");
-              const confirmed = await ask(
-                "存在未保存的文档修改。退出将丢失这些修改，确定要退出吗？",
-                { title: "退出确认", kind: "warning" },
-              );
-              if (!confirmed) {
-                // 用户取消退出留在应用时，恢复到原先的 activeTab
-                if (originalActivePath) {
-                  useWorkspace.getState().switchTab(originalActivePath);
-                }
-                return;
-              }
-            } catch {
-              // 弹窗失败采用 fail-safe 策略：不强制销毁窗口，保护用户数据
-              if (originalActivePath) {
-                useWorkspace.getState().switchTab(originalActivePath);
-              }
-              return;
-            }
-          }
-        }
-        await win.destroy();
-      }).then((fn) => {
-        if (disposed) {
-          fn();
-        } else {
-          unlistenClose = fn;
-        }
-      });
-    }
-
-    return () => {
-      disposed = true;
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-      unlistenClose?.();
-    };
-  }, []);
+  useExitHandler();
 
   // 稳定引用：避免 OutlinePanel 列表项 memo 因 getEditor 身份变化失效
   const getEditor = useCallback(() => getEditorRef.current?.(), []);

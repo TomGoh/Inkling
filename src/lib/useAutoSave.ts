@@ -1,6 +1,6 @@
 // 保存逻辑：Ctrl/Cmd+S 手动保存 + dirty 变化后防抖自动保存（支持连续失败指数退避与非阻塞模式）
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { flushAllMarkdownPublishers } from "../components/Editor/markdown-publisher";
 import { useWorkspace } from "../store/workspace";
 
@@ -27,6 +27,11 @@ export function useAutoSave() {
   // 连续失败次数计数器：按文件维护（issue #149），
   // 避免一个文件的失败退避连带拖慢其他文件的自动保存
   const failCountRef = useRef<Map<string, number>>(new Map());
+  // saveCurrent flips `saving` back to false (re-running this effect) before
+  // the timer callback can increment failCount, so the effect schedules a
+  // base-delay timer with a stale count. Bump a revision after the increment
+  // so the effect replaces that premature timer with the correct backoff timer.
+  const [retryRevision, setRetryRevision] = useState(0);
 
   // 手动保存快捷键
   useEffect(() => {
@@ -72,13 +77,19 @@ export function useAutoSave() {
         const state = useWorkspace.getState();
         if (!state.dirty && !state.saveError && !state.conflictPending) {
           failCountRef.current.delete(filePath);
-        } else if (state.saveError || state.conflictPending) {
+        } else if (state.saveError) {
+          bumpFail();
+          setRetryRevision((revision) => revision + 1);
+        } else if (state.conflictPending) {
+          // 冲突态自动保存已被上方暂停（effect 早退不调度定时器），
+          // 无需替换定时器，仅累计退避计数
           bumpFail();
         }
       } catch {
         bumpFail();
+        setRetryRevision((revision) => revision + 1);
       }
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [dirty, saving, currentFile, activeTabIsUntitled, conflictPending, saveCurrent]);
+  }, [dirty, saving, currentFile, activeTabIsUntitled, conflictPending, saveCurrent, retryRevision]);
 }
