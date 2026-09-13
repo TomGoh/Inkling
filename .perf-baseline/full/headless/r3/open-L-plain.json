@@ -15,15 +15,17 @@
   },
   "metrics": {
     "ttiMs": {
-      "median": 2429.8,
-      "p95": 2446.6,
-      "max": 2446.6,
+      "median": 2430.2,
+      "p95": 2463.6,
+      "max": 2463.6,
       "n": 3,
       "history": [
-        2429.8
+        2429.8,
+        2430.2
       ],
       "historyP95": [
-        2446.6
+        2446.6,
+        2463.6
       ]
     },
     "longTaskCount": {
@@ -33,17 +35,19 @@
       "n": null,
       "scalar": true,
       "history": [
+        2,
         2
       ]
     },
     "longTaskMs": {
-      "median": 2089.33,
+      "median": 2106.67,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        2089.33
+        2089.33,
+        2106.67
       ]
     },
     "cls": {
@@ -53,6 +57,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0
       ]
     },
@@ -63,9 +68,10 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0
       ]
     }
   },
-  "updatedAt": "2026-09-13T11:39:17.197Z"
+  "updatedAt": "2026-09-13T11:55:02.019Z"
 }

@@ -15,35 +15,39 @@
   },
   "metrics": {
     "searchMs": {
-      "median": 2453.6,
-      "p95": 3398.8,
-      "max": 3398.8,
+      "median": 3510.3,
+      "p95": 3759.1,
+      "max": 3759.1,
       "n": 3,
       "history": [
-        2453.6
+        2453.6,
+        3510.3
       ],
       "historyP95": [
-        3398.8
+        3398.8,
+        3759.1
       ]
     },
     "longTaskCount": {
-      "median": 12.33,
+      "median": 18,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        12.33
+        12.33,
+        18
       ]
     },
     "longTaskMs": {
-      "median": 2651.33,
+      "median": 3584,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        2651.33
+        2651.33,
+        3584
       ]
     },
     "cls": {
@@ -53,6 +57,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0
       ]
     },
@@ -63,9 +68,10 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0
       ]
     }
   },
-  "updatedAt": "2026-09-13T11:39:17.201Z"
+  "updatedAt": "2026-09-13T11:55:02.025Z"
 }

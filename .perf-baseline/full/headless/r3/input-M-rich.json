@@ -15,27 +15,31 @@
   },
   "metrics": {
     "inputPaintMs": {
-      "median": 39.9,
-      "p95": 49.5,
-      "max": 70.6,
+      "median": 41.4,
+      "p95": 49.2,
+      "max": 74.1,
       "n": 180,
       "history": [
-        39.9
+        39.9,
+        41.4
       ],
       "historyP95": [
-        49.5
+        49.5,
+        49.2
       ]
     },
     "inputSyncMs": {
-      "median": 9.7,
-      "p95": 12.7,
-      "max": 17.9,
+      "median": 10.3,
+      "p95": 11.6,
+      "max": 20.4,
       "n": 180,
       "history": [
-        9.7
+        9.7,
+        10.3
       ],
       "historyP95": [
-        12.7
+        12.7,
+        11.6
       ]
     },
     "longTaskCount": {
@@ -45,17 +49,19 @@
       "n": null,
       "scalar": true,
       "history": [
+        1.67,
         1.67
       ]
     },
     "longTaskMs": {
-      "median": 89,
+      "median": 103,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        89
+        89,
+        103
       ]
     },
     "cls": {
@@ -65,6 +71,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0
       ]
     },
@@ -75,9 +82,10 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0
       ]
     }
   },
-  "updatedAt": "2026-09-13T11:39:17.196Z"
+  "updatedAt": "2026-09-13T11:55:02.018Z"
 }
