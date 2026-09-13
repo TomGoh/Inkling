@@ -145,6 +145,8 @@ PERF_DOC_FILE=md_editor_stress_test.md pnpm run benchmark
   若默认启用，无 baseline 的首次运行就会因掉帧率贴线而打印「回归确认」并以 exit 1 结束，
   与真实回归无法区分。`PERF_ABSOLUTE=1` 可强制开启（调试/复现用），`=0` 可强制关闭。
   绝对判定所依赖的模式会随采样一起落盘，因此事后单独复算不会改变结论。
+- 每次运行都会在报告与控制台打印 **判定覆盖：N/M 个场景参与相对判定**——它与 FAIL 计数同等重要：
+  没参与判定的场景既不算 PASS 也不算 FAIL（基线缺失或不可比），只看「FAIL：0」会误读成"没有回归"。
 - **判定分层**：只有主指标（`ttiMs` / `frameMs` / `switchMs` / `searchMs` / `saveMs` / `inputSyncMs` /
   `inputPaintMs`，含其 `.p95`）可以**单独**判 FAIL；派生指标（`longTaskMs` / `longTaskCount` /
   `jankRatePct` / `cls` / `heapDeltaMB` 等，以及未登记的新指标）需要**同一场景内有主指标同样超阈值**才判 FAIL，
@@ -191,14 +193,40 @@ CI 上 Benchmark **不阻断合并**，只上传 `.perf-output/` 产物并写入
   `基线历史重新起头（id）：FIXTURE_CHANGED`。
 - 本地：`pnpm run benchmark -- --update-baseline`，结果落在
   `.perf-baseline/local/<profile>/<mode>/r<rounds>/`（`local/` 整棵子树已 gitignore）。
-- CI：Actions → **Benchmark** → Run workflow，勾选 `update_baseline`（档位选 quick），
-  跑完从 artifact 取回 `.perf-baseline/<profile>/<mode>/r<rounds>/`（即
-  `.perf-baseline/quick/headless/r2/`）并提交；不勾选时 CI 只做比较，不会写仓库。
+- CI：Actions → **Benchmark** → Run workflow，勾选 `update_baseline`，跑完从 artifact 取回
+  `.perf-baseline/<profile>/<mode>/r<rounds>/` 并提交；不勾选时 CI 只做比较，不会写仓库。
+  仓库里维护**两套** CI 基线（因为触发场景用不同档位）：
+  - `.perf-baseline/quick/headless/r2/` —— PR 运行与 main push 用（16 个场景）
+  - `.perf-baseline/full/headless/r3/` —— **tag 运行（发版验证）用**（24 个场景，含 2 万行档）
+
+  重建/补充某一套：`workflow_dispatch(profile=<quick|full>, update_baseline=true)` → 取回产物提交。
+  噪声门槛需要 ≥3 个历史点才生效，因此**连续跑 3 次**（每次都要提交后再触发下一次，
+  历史才会逐次累积）；不足 3 点时报告头部会显式说明门槛未启用。
 - 任何 fixture 生成规则变更都必须提升 `FIXTURE_VERSION`，旧基线会自动整体作废。
 - 可比性校验仍覆盖 **env / profile / mode / rounds / fixture** 五维，作用是**不变量守卫**：
   前四维已由路径保证，若仍不匹配，说明基线文件被手工搬动或路径方案变了（该拦下的异常）；
   真正会命中并触发重建的通常是 fixture。报告里会显式列出
   `未参与相对判定：FIXTURE_CHANGED(...)` 之类的原因。
+
+### 发版验证（tag 运行）
+
+`push: tags: ["v*"]` 会自动触发 Benchmark（档位 **full**，比 PR 的 quick 多一个 2 万行档），
+也就是每次发包都会自动跑一次"本次版本 vs 基线"的比较。
+
+**关键：报告必须有「判定覆盖：N/M」这一行，N 必须等于 M。**
+基线缺失时所有场景都是 NEW，报告照样会打印「FAIL：0」——那看起来像"没有回归"，
+实际是"什么都没比"。因此 tag 运行注入 `PERF_REQUIRE_COMPARISON=1`：
+覆盖不足时 report 直接 `exit 2`（infra 故障）并在 stderr 写明
+「本次结论**不构成性能验证**」；本工作流对 tag 关闭 `continue-on-error`，所以会红着报出来。
+（PR 运行仍是"只提示、不阻断合并"，不做门禁——issue #216 的既定要求。）
+
+- 为什么必须显式失败：`FAIL：0` 与"没比"在绿色勾选下无法区分，而发版验证恰恰是最不能含糊的一次。
+- 发版 job 在 `build.yml`（独立工作流），所以 Benchmark 变红**不会**拦住发版产物；
+  它是"发版性能信号"，不是发版门禁。若将来要硬门禁，需要把 benchmark 作为 job 并入 `build.yml`
+  并加进 `release.needs`。
+- 代价与前提：tag 用 full 档，因此必须维护 `.perf-baseline/full/headless/r3/`；
+  该基线重建一次约 12-15 分钟（quick 约 3 分钟）。若长期不维护它会退化成"覆盖不足"并显式报错，
+  不会静默放过。
 
 ## 代码风格
 
