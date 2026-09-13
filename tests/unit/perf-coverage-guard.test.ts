@@ -1,0 +1,135 @@
+// 判定覆盖守卫的端到端测试
+//
+// 背景：基线缺失时所有场景都是 NEW，报告仍会打印「FAIL：0」——那看起来像"没有回归"，
+// 实际是"什么都没比"。发版验证（tag 运行）尤其不能被这种假绿灯掩盖，
+// 因此引入 PERF_REQUIRE_COMPARISON=1：覆盖不足时退出码 2（infra 故障），并显式说明
+// 「本次结论不构成性能验证」。
+//
+// 这里用子进程真实调用 report.mjs，覆盖四种组合（有/无基线 × 有/无守卫）。
+
+import { execFileSync } from "node:child_process";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createPerfReportWorkspace, type PerfReportWorkspace } from "./perf-report-env";
+
+const REPORT = "tests/perf/report.mjs";
+const ID = "scroll-C-coverage";
+
+const roots: string[] = [];
+let perf: PerfReportWorkspace;
+
+interface RunResult {
+  status: number;
+  stdout: string;
+  stderr: string;
+}
+
+function writeRaw(): void {
+  const raw = {
+    id: ID,
+    scenario: "scroll",
+    tier: "S",
+    kind: "rich",
+    env: "local",
+    profile: "quick",
+    rounds: 2,
+    warmups: 1,
+    mode: "headless",
+    absoluteEligible: false,
+    fixture: { version: 2, hash: "coverage0001", lines: 1000, source: "generated:rich" },
+    samples: { frameMs: Array.from({ length: 120 }, (_, i) => 16.7 + (i % 3) * 0.1) },
+    scalars: {
+      frameBudgetMs: 16.7,
+      jankFactor: 1.5,
+      step: 240,
+      jankCount: 0,
+      jankRatePct: 0,
+      longFrameCount: 0,
+      longTaskCount: 0,
+      longTaskMs: 0,
+      cls: 0,
+      heapDeltaMB: 0,
+    },
+  };
+  writeFileSync(join(perf.rawDir, `${ID}.json`), JSON.stringify(raw, null, 2), "utf8");
+}
+
+/** 跑 report.mjs；requireComparison 模拟 tag 运行的 PERF_REQUIRE_COMPARISON=1 */
+function runReport(
+  phase: "check" | "final",
+  { requireComparison = false, updateBaseline = false } = {},
+): RunResult {
+  const args = [REPORT, `--phase=${phase}`];
+  if (updateBaseline) args.push("--update-baseline=1");
+  const env = perf.env(
+    requireComparison ? { PERF_REQUIRE_COMPARISON: "1" } : {},
+  );
+  delete env.PERF_ABSOLUTE;
+
+  try {
+    const stdout = execFileSync(process.execPath, args, { env, encoding: "utf8" });
+    return { status: 0, stdout, stderr: "" };
+  } catch (error) {
+    const e = error as { status?: number; stdout?: string; stderr?: string };
+    return { status: e.status ?? -1, stdout: e.stdout ?? "", stderr: e.stderr ?? "" };
+  }
+}
+
+function report(): string {
+  return readFileSync(join(perf.outDir, "report.md"), "utf8");
+}
+
+beforeEach(() => {
+  perf = createPerfReportWorkspace("perf-cov-");
+  roots.push(perf.root);
+  writeRaw();
+});
+
+afterEach(() => {
+  perf.assertRepoBaselineUntouched();
+});
+
+afterAll(() => {
+  for (const dir of roots) rmSync(dir, { recursive: true, force: true });
+});
+
+describe("判定覆盖守卫（PERF_REQUIRE_COMPARISON）", () => {
+  it("无基线 + 守卫开启 → exit 2，且明确说明「不构成性能验证」", () => {
+    const result = runReport("final", { requireComparison: true });
+
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("判定覆盖不足");
+    expect(result.stderr).toContain("不构成性能验证");
+    // 报告本身也要说清覆盖面，而不是只留一个 FAIL：0
+    expect(report()).toContain("判定覆盖：0/1 个场景参与相对判定");
+    expect(result.stdout).toContain("[perf] 判定覆盖：0/1");
+  });
+
+  it("无基线 + 守卫关闭（PR 运行/首次建立基线）→ exit 0，行为不变", () => {
+    const result = runReport("final");
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).not.toContain("判定覆盖不足");
+    expect(report()).toContain("判定覆盖：0/1 个场景参与相对判定");
+  });
+
+  it("check 阶段不受守卫影响：否则首个 --update-baseline 运行会被中途判为 infra 故障", () => {
+    const check = runReport("check", { requireComparison: true, updateBaseline: true });
+
+    expect(check.status).toBe(0);
+    // 基线确实被写入（说明 check 未被守卫打断，后续阶段可继续）
+    expect(runReport("final", { requireComparison: true }).status).toBe(0);
+  });
+
+  it("有可比基线 + 守卫开启 → exit 0，覆盖 1/1", () => {
+    expect(runReport("final", { updateBaseline: true }).status).toBe(0);
+    writeRaw(); // 同配置再跑一次，这次应命中基线
+
+    const result = runReport("final", { requireComparison: true });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("[perf] 判定覆盖：1/1 个场景参与相对判定");
+    expect(report()).toContain("判定覆盖：1/1 个场景参与相对判定");
+  });
+});

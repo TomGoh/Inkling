@@ -43,8 +43,10 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    # 不阻断合并（issue #216 硬要求）：Benchmark 只做相对回归的提示，不做门禁
-    continue-on-error: true
+    # PR 运行保持「不阻断合并」（issue #216 硬要求：只提示、不门禁）；
+    # tag 运行是**发版验证**，必须显式失败——否则"回归复现"与"根本没比出结论"都会被绿勾掩盖。
+    # tag 运行不会影响 build.yml 的 release job（两者是独立工作流），这里只控制本工作流的结论。
+    continue-on-error: ${{ github.ref_type != 'tag' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -92,6 +94,8 @@ jobs:
           # 相对回归判定（median / p95 / jank 对 baseline）在 CI 全量保留。
           # 需要绝对结论时勾选 absolute 输入，或本地用 PERF_HEADED=1 / PERF_UNCAPPED=1 跑。
           PERF_ABSOLUTE: ${{ github.event.inputs.absolute == 'true' && '1' || '' }}
+          # tag 运行（发版验证）必须真的和基线比出结论：覆盖不足时 report 退出 2（不构成性能验证）
+          PERF_REQUIRE_COMPARISON: ${{ github.ref_type == 'tag' && '1' || '' }}
         run: |
           if [ "${{ github.event.inputs.update_baseline }}" = "true" ]; then
             pnpm run benchmark -- --update-baseline=1
@@ -122,7 +126,23 @@ jobs:
         shell: bash
         run: |
           if [ -f .perf-output/report.md ]; then
-            cat .perf-output/report.md >> "$GITHUB_STEP_SUMMARY"
+            COVERAGE=$(grep -oE '判定覆盖：[0-9]+/[0-9]+' .perf-output/report.md | head -1 || true)
+            {
+              echo "## 性能 Benchmark（档位：${{ steps.profile.outputs.value }}）"
+              echo ""
+              if [ -n "$COVERAGE" ]; then
+                echo "**$COVERAGE**"
+              fi
+              # 覆盖面 banner：0/N 时「FAIL：0」会被误读成"没有回归"，必须点明
+              case "$COVERAGE" in
+                "判定覆盖：0/"*)
+                  echo ""
+                  echo "> ⚠️ **本次未与任何基线比较**：结论**不构成性能验证**。请先建立该档位基线（workflow_dispatch 勾选 update_baseline，取回产物后提交）。"
+                  ;;
+              esac
+              echo ""
+              cat .perf-output/report.md
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "⚠️ 未生成 .perf-output/report.md（benchmark 未跑完，属 infra 故障）" >> "$GITHUB_STEP_SUMMARY"
           fi

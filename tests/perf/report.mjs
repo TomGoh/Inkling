@@ -570,6 +570,13 @@ function main() {
     );
   }
   lines.push(`- 场景数：${results.length}　FAIL：${failed.length}　WARN：${warned.length}`);
+  // 判定覆盖面必须显式报出来：基线缺失时所有场景都是 NEW，报告照样打印「FAIL：0」——
+  // 那看起来像"没有回归"，实际是"什么都没比"。发版验证尤其不能出现这种假绿灯。
+  const comparedRuns = results.filter((r) => r.baselineState === "OK");
+  lines.push(
+    `- 判定覆盖：${comparedRuns.length}/${results.length} 个场景参与相对判定` +
+      (comparedRuns.length < results.length ? "（其余无基线或不可比，其 FAIL/WARN 计数不代表已比较）" : ""),
+  );
   // 噪声门槛：由基线历史（同一环境 + 同一 fixture 的多次运行）估计的 3σ。
   // 历史不足时判定退化为"百分比 + 绝对地板"，必须显式说明，避免读者高估分辨率。
   const historyPoints = results
@@ -681,6 +688,27 @@ function main() {
     }
     process.exit(1);
   }
+  console.log(
+    `[perf] 判定覆盖：${comparedRuns.length}/${results.length} 个场景参与相对判定`,
+  );
+
+  // PERF_REQUIRE_COMPARISON=1：要求本次必须完成比较（发版验证用）。
+  // 没比上就退出码 2（infra 故障）——绝不允许"没比"伪装成"没回归"。
+  // 注意只在 final 阶段判定：check 阶段退出非 0 会被 benchmark.mjs 当成 infra 故障中止，
+  // 那样连"建立首个基线"的 --update-baseline 运行都跑不完（它天生没有基线可比）。
+  if (
+    phase === "final" &&
+    process.env.PERF_REQUIRE_COMPARISON === "1" &&
+    comparedRuns.length < results.length
+  ) {
+    console.error(
+      `[perf] 判定覆盖不足：仅 ${comparedRuns.length}/${results.length} 个场景参与相对判定。\n` +
+        `        本次结论**不构成性能验证**：基线缺失时「FAIL：0」只说明"没比"，不说明"没回归"。\n` +
+        `        请先建立该档位的基线：workflow_dispatch(profile=<档位>, update_baseline=true) → 取回产物提交。`,
+    );
+    process.exit(2);
+  }
+
   process.exit(0);
 }
 
