@@ -29,3 +29,9 @@ playwright-report/
 test-results/
 coverage/
 .codegraph/
+
+# 性能 Benchmark 产物与本地基线
+# 提交进仓库的是 CI 基线：.perf-baseline/<profile>/<mode>/r<rounds>/（如 quick/headless/r2/）
+# 本地基线独立于 CI：.perf-baseline/local/<profile>/<mode>/r<rounds>/
+.perf-output/
+.perf-baseline/local/
