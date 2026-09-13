@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 2,
+  "env": "ci-ubuntu",
+  "profile": "full",
+  "mode": "headless",
+  "scenario": "scroll",
+  "tier": "L",
+  "kind": "plain",
+  "rounds": 3,
+  "fixture": {
+    "version": 2,
+    "hash": "52f9b70176ff",
+    "lines": 20000,
+    "source": "generated:plain"
+  },
+  "metrics": {
+    "frameMs": {
+      "median": 16.7,
+      "p95": 17.3,
+      "max": 37.2,
+      "n": 600,
+      "history": [
+        16.7
+      ],
+      "historyP95": [
+        17.3
+      ]
+    },
+    "longTaskCount": {
+      "median": 0,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        0
+      ]
+    },
+    "longTaskMs": {
+      "median": 0,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        0
+      ]
+    },
+    "longFrameCount": {
+      "median": 0,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        0
+      ]
+    },
+    "jankCount": {
+      "median": 2.67,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        2.67
+      ]
+    },
+    "jankRatePct": {
+      "median": 1.33,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        1.33
+      ]
+    },
+    "cls": {
+      "median": 0,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        0
+      ]
+    },
+    "heapDeltaMB": {
+      "median": 0,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        0
+      ]
+    }
+  },
+  "updatedAt": "2026-09-13T11:39:17.199Z"
+}
