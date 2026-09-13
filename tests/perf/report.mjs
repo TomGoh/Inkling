@@ -27,13 +27,13 @@ import {
   suppressionReason,
 } from "./judgment.js";
 
-// 三个目录都可用环境变量覆盖。RAW_DIR 原本就支持（复测轮要写到独立目录，
-// 否则同名文件会覆盖首轮采样）；OUT_DIR / RETEST_DIR 一并开放，是为了让端到端测试
-// 能在临时目录里跑完整两阶段流转，不污染真实 .perf-output。
+// 四个目录都可用环境变量覆盖。RAW_DIR 原本就支持（复测轮要写到独立目录，
+// 否则同名文件会覆盖首轮采样）；OUT_DIR / RETEST_DIR / BASELINE_DIR 一并开放，
+// 是为了让端到端测试能在临时目录里跑完整两阶段流转与基线累积，不污染真实产物。
 const OUT_DIR = resolve(process.env.PERF_OUT_DIR ?? ".perf-output");
 const RAW_DIR = resolve(process.env.PERF_RAW_DIR ?? ".perf-output/raw");
 const RETEST_DIR = resolve(process.env.PERF_RETEST_DIR ?? ".perf-output/raw-retest");
-const BASE_DIR = resolve(".perf-baseline");
+const BASE_DIR = resolve(process.env.PERF_BASELINE_DIR ?? ".perf-baseline");
 
 /**
  * 绝对阈值（不依赖 baseline，首次运行也能判；评审 P1-1）：
@@ -307,12 +307,21 @@ function appendHistory(previousSeries, value, previousValue) {
  * fixture 变了则从本次重新起头（等价于重建基线）。
  */
 function withHistory(stats, previous, source) {
-  // schemaVersion < 2 的旧基线没有历史序列，从本次重新起头（也避免把同一个点重复计入）
-  const comparable =
-    previous?.schemaVersion === 2 &&
-    previous.fixture &&
-    previous.fixture.version === source.fixture.version &&
-    previous.fixture.hash === source.fixture.hash;
+  // 历史累积的可比性判定**必须与比较侧同一套规则**（baselineComparability 五维）。
+  // 早期只查 fixture，于是「headless 日常回归建基线 → 切 uncapped 做定向验证并 update-baseline」
+  // 会把两种模式的聚合值混进同一条 history（实测 [16.8,16.8,16.8] → [16.8,16.8,16.8,8.5]），
+  // σ 被污染成 ≈4.4ms、3σ≈13ms，真实的 8.4→11ms 回归会被「变化在运行噪声内」吞掉。
+  // schemaVersion < 2 的旧基线没有历史序列，也从本次重新起头（避免把同一个点重复计入）。
+  const previousComparability = previous
+    ? baselineComparability(source, previous)
+    : { ok: false, reason: "NEW" };
+  const comparable = previous?.schemaVersion === 2 && previousComparability.ok;
+  if (previous && previous.schemaVersion === 2 && !previousComparability.ok) {
+    console.log(
+      `[perf] 基线历史重新起头（${source.id}）：${previousComparability.reason}` +
+        `——与比较侧的不可比语义对齐，历史不与不同 env/profile/mode/rounds/fixture 的样本混用`,
+    );
+  }
   const out = {};
   for (const [metric, entry] of Object.entries(stats)) {
     const prevEntry = comparable ? previous.metrics?.[metric] : undefined;
@@ -600,28 +609,26 @@ function main() {
   writeFileSync(resolve(OUT_DIR, "report.md"), lines.join("\n"), "utf8");
   console.log(lines.join("\n"));
 
-  const jitterRows = results.flatMap((r) =>
-    r.metrics
-      .filter((m) => m.verdict === "WARN" && (m.note ?? "").includes("无主指标佐证"))
-      .map((m) => `${r.id}:${m.metric}`),
-  );
-  if (jitterRows.length > 0) {
-    console.log(
-      `[perf] 派生指标超阈值但无主指标佐证（按运行抖动处理，不判 FAIL）：${jitterRows.join(", ")}`,
-    );
+  // WARN 有五种成因（复测回落 / 未复测 / 无主指标佐证 / 运行噪声内 / 低于绝对地板），
+  // 按成因分组输出。早期这里把所有 WARN 统一写成「疑似超阈值但复测回落（抖动）」，
+  // 既与表格正文不符，也与上面按成因分列的行重复。
+  const warnGroups = new Map();
+  for (const r of results) {
+    for (const m of r.metrics) {
+      if (m.verdict !== "WARN") continue;
+      const cause = m.note ?? "其他";
+      if (!warnGroups.has(cause)) warnGroups.set(cause, []);
+      warnGroups.get(cause).push(`${r.id}:${m.metric}`);
+    }
   }
-
-  const noiseRows = results.flatMap((r) =>
-    r.metrics
-      .filter((m) => (m.note ?? "").includes("变化在运行噪声内"))
-      .map((m) => `${r.id}:${m.metric}`),
-  );
-  if (noiseRows.length > 0) {
+  if (warnGroups.size > 0) {
     console.log(
-      `[perf] 变化在运行噪声内（${NOISE_SIGMA}σ 门槛，按抖动处理，不判 FAIL）：${noiseRows.join(", ")}`,
+      `\n[perf] WARN 按成因归类（${warned.length} 个场景命中，均不判 FAIL）：`,
     );
+    for (const [cause, items] of warnGroups) {
+      console.log(`  · ${cause}：${items.join(", ")}`);
+    }
   }
-
   const notCompared = results.filter((r) => r.baselineState !== "OK");
   if (notCompared.length > 0) {
     console.log(
@@ -653,9 +660,6 @@ function main() {
       );
     }
     process.exit(1);
-  }
-  if (warned.length > 0) {
-    console.log(`\n[perf] 疑似超阈值但复测回落（抖动）：${warned.map((w) => w.id).join(", ")}`);
   }
   process.exit(0);
 }
