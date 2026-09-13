@@ -17,13 +17,15 @@
     "frameMs": {
       "median": 16.7,
       "p95": 16.8,
-      "max": 17.3,
+      "max": 17.8,
       "n": 360,
       "history": [
+        16.7,
         16.7,
         16.7
       ],
       "historyP95": [
+        16.8,
         16.8,
         16.8
       ]
@@ -36,6 +38,7 @@
       "scalar": true,
       "history": [
         0,
+        0,
         0
       ]
     },
@@ -46,6 +49,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0,
         0
       ]
@@ -58,6 +62,7 @@
       "scalar": true,
       "history": [
         0,
+        0,
         0
       ]
     },
@@ -68,6 +73,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0,
         0
       ]
@@ -80,6 +86,7 @@
       "scalar": true,
       "history": [
         0,
+        0,
         0
       ]
     },
@@ -90,6 +97,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0,
         0
       ]
@@ -102,9 +110,10 @@
       "scalar": true,
       "history": [
         0,
+        0,
         0
       ]
     }
   },
-  "updatedAt": "2026-09-13T11:55:02.024Z"
+  "updatedAt": "2026-09-13T12:18:33.877Z"
 }

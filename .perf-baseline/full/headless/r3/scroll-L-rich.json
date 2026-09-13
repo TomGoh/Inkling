@@ -15,72 +15,79 @@
   },
   "metrics": {
     "frameMs": {
-      "median": 65,
-      "p95": 120.1,
-      "max": 344.2,
+      "median": 58.1,
+      "p95": 112.4,
+      "max": 304.2,
       "n": 600,
       "history": [
         61.4,
-        65
+        65,
+        58.1
       ],
       "historyP95": [
         129.5,
-        120.1
+        120.1,
+        112.4
       ]
     },
     "longTaskCount": {
-      "median": 139.67,
+      "median": 106.33,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         114,
-        139.67
+        139.67,
+        106.33
       ]
     },
     "longTaskMs": {
-      "median": 10369.33,
+      "median": 7720.67,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         9042.33,
-        10369.33
+        10369.33,
+        7720.67
       ]
     },
     "longFrameCount": {
-      "median": 148,
+      "median": 116.33,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         117,
-        148
+        148,
+        116.33
       ]
     },
     "jankCount": {
-      "median": 199,
+      "median": 195.67,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         200,
-        199
+        199,
+        195.67
       ]
     },
     "jankRatePct": {
-      "median": 99.5,
+      "median": 97.83,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         100,
-        99.5
+        99.5,
+        97.83
       ]
     },
     "cls": {
@@ -90,6 +97,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0,
         0
       ]
@@ -102,9 +110,10 @@
       "scalar": true,
       "history": [
         0,
+        0,
         0
       ]
     }
   },
-  "updatedAt": "2026-09-13T11:55:02.023Z"
+  "updatedAt": "2026-09-13T12:18:33.876Z"
 }
