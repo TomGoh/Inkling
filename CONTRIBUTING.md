@@ -189,9 +189,11 @@ CI 上 Benchmark **不阻断合并**，只上传 `.perf-output/` 产物并写入
   σ 被污染后真实回归反而被判成"运行噪声内"）。
 - **fixture（被测对象）不进路径**：换文档 = 同一路径重建历史，并在控制台打印
   `基线历史重新起头（id）：FIXTURE_CHANGED`。
-- 本地：`pnpm run benchmark -- --update-baseline`，结果落在 `.perf-baseline/local/`（已 gitignore）。
+- 本地：`pnpm run benchmark -- --update-baseline`，结果落在
+  `.perf-baseline/local/<profile>/<mode>/r<rounds>/`（`local/` 整棵子树已 gitignore）。
 - CI：Actions → **Benchmark** → Run workflow，勾选 `update_baseline`（档位选 quick），
-  跑完从 artifact 取回 `.perf-baseline/<profile>/` 并提交；不勾选时 CI 只做比较，不会写仓库。
+  跑完从 artifact 取回 `.perf-baseline/<profile>/<mode>/r<rounds>/`（即
+  `.perf-baseline/quick/headless/r2/`）并提交；不勾选时 CI 只做比较，不会写仓库。
 - 任何 fixture 生成规则变更都必须提升 `FIXTURE_VERSION`，旧基线会自动整体作废。
 - 可比性校验仍覆盖 **env / profile / mode / rounds / fixture** 五维，作用是**不变量守卫**：
   前四维已由路径保证，若仍不匹配，说明基线文件被手工搬动或路径方案变了（该拦下的异常）；

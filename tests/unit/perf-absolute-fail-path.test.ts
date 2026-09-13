@@ -11,10 +11,10 @@
 // 所以这里用子进程真实调用 report.mjs 跑完整两阶段，断言"check 阶段必须列出该场景"。
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createPerfReportWorkspace, type PerfReportWorkspace } from "./perf-report-env";
 
 const REPORT = "tests/perf/report.mjs";
 const ID = "scroll-E-absolute";
@@ -27,16 +27,22 @@ interface RunResult {
 }
 
 const roots: string[] = [];
-let workDir = "";
+let perf: PerfReportWorkspace;
 
-function newWorkDir(): void {
-  const dir = mkdtempSync(join(tmpdir(), "perf-abs-"));
-  roots.push(dir);
-  mkdirSync(join(dir, "raw"), { recursive: true });
-  mkdirSync(join(dir, "raw-retest"), { recursive: true });
-  mkdirSync(join(dir, "out"), { recursive: true });
-  workDir = dir;
-}
+beforeEach(() => {
+  // 四个目录全隔离（含 BASELINE）——隔离标准见 perf-report-env.ts
+  perf = createPerfReportWorkspace("perf-abs-");
+  roots.push(perf.root);
+});
+
+afterEach(() => {
+  // 隔离是否完整：真实 .perf-baseline 必须一字未动（漏重定向哪个目录都会在这里炸）
+  perf.assertRepoBaselineUntouched();
+});
+
+afterAll(() => {
+  for (const dir of roots) rmSync(dir, { recursive: true, force: true });
+});
 
 /** 构造一份 scroll 采样：只让 jankRatePct 超阈值（帧间隔全部落在预算内，绝对 p95 行 PASS） */
 function rawFor(jankRatePct: number, absoluteEligible: boolean): Record<string, unknown> {
@@ -71,7 +77,7 @@ function rawFor(jankRatePct: number, absoluteEligible: boolean): Record<string, 
 
 function writeRaw(dir: "raw" | "raw-retest", jankRatePct: number, eligible = true): void {
   writeFileSync(
-    join(workDir, dir, `${ID}.json`),
+    join(dir === "raw" ? perf.rawDir : perf.retestDir, `${ID}.json`),
     JSON.stringify(rawFor(jankRatePct, eligible), null, 2),
     "utf8",
   );
@@ -79,12 +85,7 @@ function writeRaw(dir: "raw" | "raw-retest", jankRatePct: number, eligible = tru
 
 /** 真实调用 report.mjs（两阶段之一），返回退出码与输出 */
 function runReport(phase: "check" | "final"): RunResult {
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    PERF_OUT_DIR: join(workDir, "out"),
-    PERF_RAW_DIR: join(workDir, "raw"),
-    PERF_RETEST_DIR: join(workDir, "raw-retest"),
-  };
+  const env = perf.env();
   // 必须清掉 PERF_ABSOLUTE，让判定资格完全由 raw 里的 absoluteEligible 决定
   delete env.PERF_ABSOLUTE;
 
@@ -101,22 +102,14 @@ function runReport(phase: "check" | "final"): RunResult {
 }
 
 function retestList(): string[] {
-  const file = join(workDir, "out", "retest.json");
+  const file = join(perf.outDir, "retest.json");
   return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as string[]) : [];
 }
 
 function reportTable(): string {
-  const file = join(workDir, "out", "report.md");
+  const file = join(perf.outDir, "report.md");
   return existsSync(file) ? readFileSync(file, "utf8") : "";
 }
-
-beforeEach(() => {
-  newWorkDir();
-});
-
-afterAll(() => {
-  for (const dir of roots) rmSync(dir, { recursive: true, force: true });
-});
 
 describe("绝对判定的失败路径", () => {
   it("绝对行超阈值必须进入复测清单（曾被佐证规则滤掉，导致 FAIL 路径不可达）", () => {

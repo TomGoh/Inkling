@@ -13,29 +13,17 @@
 // 这里用子进程真实调用 report.mjs 锁死这两层行为。
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createPerfReportWorkspace, type PerfReportWorkspace } from "./perf-report-env";
 
 const REPORT = "tests/perf/report.mjs";
 const ID = "scroll-H-test";
 const FIXTURE = { version: 2, hash: "histtest0001", lines: 1000, source: "generated:rich" };
 
 const roots: string[] = [];
-let root = "";
-let rawDir = "";
-let baselineDir = "";
-
-function newWorkspace(): void {
-  root = mkdtempSync(join(tmpdir(), "perf-hist-"));
-  roots.push(root);
-  rawDir = join(root, "raw");
-  baselineDir = join(root, "baseline");
-  for (const dir of [rawDir, baselineDir, join(root, "out"), join(root, "retest")]) {
-    mkdirSync(dir, { recursive: true });
-  }
-}
+let perf: PerfReportWorkspace;
 
 interface RawOptions {
   mode?: string;
@@ -76,25 +64,19 @@ function writeRaw({
       heapDeltaMB: 0,
     },
   };
-  writeFileSync(join(rawDir, `${ID}.json`), JSON.stringify(raw, null, 2), "utf8");
+  writeFileSync(join(perf.rawDir, `${ID}.json`), JSON.stringify(raw, null, 2), "utf8");
 }
 
 function updateBaseline(): string {
   return execFileSync(process.execPath, [REPORT, "--phase=final", "--update-baseline=1"], {
-    env: {
-      ...process.env,
-      PERF_OUT_DIR: join(root, "out"),
-      PERF_RAW_DIR: rawDir,
-      PERF_RETEST_DIR: join(root, "retest"),
-      PERF_BASELINE_DIR: baselineDir,
-    },
+    env: perf.env(),
     encoding: "utf8",
   });
 }
 
 /** 基线路径 = 测量配置的函数：[local/]<profile>/<mode>/r<rounds>/<id>.json */
 function baselineFile(mode = "headless", rounds = 2): string {
-  return join(baselineDir, "local", "quick", mode, `r${rounds}`, `${ID}.json`);
+  return join(perf.baselineDir, "local", "quick", mode, `r${rounds}`, `${ID}.json`);
 }
 
 function readBaseline(mode = "headless", rounds = 2): {
@@ -117,11 +99,17 @@ function baselineFiles(): string[] {
         ? walk(join(dir, entry.name), `${prefix}${entry.name}/`)
         : [`${prefix}${entry.name}`],
     );
-  return walk(baselineDir);
+  return walk(perf.baselineDir);
 }
 
 beforeEach(() => {
-  newWorkspace();
+  perf = createPerfReportWorkspace("perf-hist-");
+  roots.push(perf.root);
+});
+
+afterEach(() => {
+  // 隔离是否完整：真实 .perf-baseline 必须一字未动（漏重定向哪个目录都会在这里炸）
+  perf.assertRepoBaselineUntouched();
 });
 
 afterAll(() => {
