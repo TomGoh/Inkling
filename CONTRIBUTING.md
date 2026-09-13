@@ -180,14 +180,23 @@ CI 上 Benchmark **不阻断合并**，只上传 `.perf-output/` 产物并写入
 
 ### 基线维护
 
+- **基线的身份 = 测量配置**，路径即配置：
+  `.perf-baseline/[local/]<profile>/<mode>/r<rounds>/<id>.json`
+  （如 `.perf-baseline/quick/headless/r2/open-S-rich.json`、`.perf-baseline/local/quick/uncapped/r2/…`）。
+  不同 `mode`（headless / headed / uncapped）与不同轮数**各自维护基线、互不覆盖**——
+  所以在「headless 日常回归」与「uncapped 定向验证 120fps」之间来回跑 `--update-baseline`
+  也不会破坏另一边的基线（这一点曾是缺陷：两种模式的样本会被混进同一条历史，
+  σ 被污染后真实回归反而被判成"运行噪声内"）。
+- **fixture（被测对象）不进路径**：换文档 = 同一路径重建历史，并在控制台打印
+  `基线历史重新起头（id）：FIXTURE_CHANGED`。
 - 本地：`pnpm run benchmark -- --update-baseline`，结果落在 `.perf-baseline/local/`（已 gitignore）。
 - CI：Actions → **Benchmark** → Run workflow，勾选 `update_baseline`（档位选 quick），
   跑完从 artifact 取回 `.perf-baseline/<profile>/` 并提交；不勾选时 CI 只做比较，不会写仓库。
 - 任何 fixture 生成规则变更都必须提升 `FIXTURE_VERSION`，旧基线会自动整体作废。
-- 基线历史（`history` / `historyP95`）只在**同一 fixture** 下累积；换文档即重新起头。
-- 可比性校验现在覆盖 **env / profile / mode / rounds / fixture** 五维：改采样轮数、改测量模式
-  （headless ↔ headed/uncapped）都会让旧基线整体不可比——报告里会显式列出
-  `未参与相对判定：ROUNDS_MISMATCH(...)` 之类的原因，重建即可。
+- 可比性校验仍覆盖 **env / profile / mode / rounds / fixture** 五维，作用是**不变量守卫**：
+  前四维已由路径保证，若仍不匹配，说明基线文件被手工搬动或路径方案变了（该拦下的异常）；
+  真正会命中并触发重建的通常是 fixture。报告里会显式列出
+  `未参与相对判定：FIXTURE_CHANGED(...)` 之类的原因。
 
 ## 代码风格
 

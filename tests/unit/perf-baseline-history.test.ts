@@ -1,4 +1,4 @@
-// 基线历史累积策略的端到端测试（P1 回归锁）
+// 基线身份与历史累积策略的端到端测试（P1 回归锁）
 //
 // 背景：`withHistory`（决定 3σ 与滚动参考值）早期只查 fixture 就判定"可比"，
 // 于是「headless 日常回归建基线 → 切 uncapped 做定向验证并 --update-baseline」
@@ -6,11 +6,14 @@
 //   [16.8, 16.8, 16.8] → [16.8, 16.8, 16.8, 8.5]
 // σ 被污染成 ≈4.4ms、3σ≈13ms，真实的 8.4→11ms 回归会被「变化在运行噪声内」吞掉。
 //
-// 累积侧的可比性必须与比较侧（comparability.js 五维）同一套规则。
-// 这里用子进程真实调用 report.mjs，断言"不同 mode/rounds/fixture 不得合并历史"。
+// 修复分两层，缺一不可：
+// ① 累积侧的可比性复用 comparability 五维（不再各写一份）；
+// ② **基线路径纳入测量配置** `.perf-baseline/[local/]<profile>/<mode>/r<rounds>/<id>.json`
+//    ——不同 mode/rounds 各自维护基线、互不覆盖。
+// 这里用子进程真实调用 report.mjs 锁死这两层行为。
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -41,7 +44,12 @@ interface RawOptions {
   fixtureHash?: string;
 }
 
-function writeRaw({ mode = "headless", rounds = 2, frameMedian = 16.7, fixtureHash = FIXTURE.hash }: RawOptions): void {
+function writeRaw({
+  mode = "headless",
+  rounds = 2,
+  frameMedian = 16.7,
+  fixtureHash = FIXTURE.hash,
+}: RawOptions): void {
   const raw = {
     id: ID,
     scenario: "scroll",
@@ -72,37 +80,44 @@ function writeRaw({ mode = "headless", rounds = 2, frameMedian = 16.7, fixtureHa
 }
 
 function updateBaseline(): string {
-  return execFileSync(
-    process.execPath,
-    [REPORT, "--phase=final", "--update-baseline=1"],
-    {
-      env: {
-        ...process.env,
-        PERF_OUT_DIR: join(root, "out"),
-        PERF_RAW_DIR: rawDir,
-        PERF_RETEST_DIR: join(root, "retest"),
-        PERF_BASELINE_DIR: baselineDir,
-      },
-      encoding: "utf8",
+  return execFileSync(process.execPath, [REPORT, "--phase=final", "--update-baseline=1"], {
+    env: {
+      ...process.env,
+      PERF_OUT_DIR: join(root, "out"),
+      PERF_RAW_DIR: rawDir,
+      PERF_RETEST_DIR: join(root, "retest"),
+      PERF_BASELINE_DIR: baselineDir,
     },
-  );
+    encoding: "utf8",
+  });
 }
 
-function baselineFile(): string {
-  return join(baselineDir, "local", "quick", `${ID}.json`);
+/** 基线路径 = 测量配置的函数：[local/]<profile>/<mode>/r<rounds>/<id>.json */
+function baselineFile(mode = "headless", rounds = 2): string {
+  return join(baselineDir, "local", "quick", mode, `r${rounds}`, `${ID}.json`);
 }
 
-function currentBaseline(): {
+function readBaseline(mode = "headless", rounds = 2): {
   mode: string;
   rounds: number;
   schemaVersion: number;
   metrics: Record<string, { history?: number[]; historyP95?: number[] }>;
 } {
-  return JSON.parse(readFileSync(baselineFile(), "utf8"));
+  return JSON.parse(readFileSync(baselineFile(mode, rounds), "utf8"));
 }
 
-function frameHistory(): number[] {
-  return currentBaseline().metrics.frameMs?.history ?? [];
+function frameHistory(mode = "headless", rounds = 2): number[] {
+  return readBaseline(mode, rounds).metrics.frameMs?.history ?? [];
+}
+
+function baselineFiles(): string[] {
+  const walk = (dir: string, prefix = ""): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>
+      entry.isDirectory()
+        ? walk(join(dir, entry.name), `${prefix}${entry.name}/`)
+        : [`${prefix}${entry.name}`],
+    );
+  return walk(baselineDir);
 }
 
 beforeEach(() => {
@@ -113,49 +128,66 @@ afterAll(() => {
   for (const dir of roots) rmSync(dir, { recursive: true, force: true });
 });
 
-describe("基线历史累积的可比性", () => {
-  it("同 env/profile/mode/rounds/fixture：历史逐次累积", () => {
-    writeRaw({ frameMedian: 16.7 });
-    updateBaseline();
-    writeRaw({ frameMedian: 16.8 });
-    updateBaseline();
-    writeRaw({ frameMedian: 16.9 });
-    updateBaseline();
+describe("基线身份 = 测量配置（路径隔离）", () => {
+  it("同配置逐次累积", () => {
+    for (const frameMedian of [16.7, 16.8, 16.9]) {
+      writeRaw({ frameMedian });
+      updateBaseline();
+    }
 
     expect(frameHistory()).toHaveLength(3);
+    expect(baselineFiles()).toEqual([`local/quick/headless/r2/${ID}.json`]);
   });
 
-  it("P1 回归锁：测量模式切换后历史必须重新起头，不得混入不同模式的值", () => {
+  it("P1 回归锁：切 uncapped 后两套基线共存，headless 历史不被污染、切回后继续累积", () => {
     for (const frameMedian of [16.7, 16.7, 16.7]) {
       writeRaw({ mode: "headless", frameMedian });
       updateBaseline();
     }
-    expect(frameHistory()).toHaveLength(3);
+    // 首个断言必须与具体布局无关：变异（退回扁平路径）时会给出语义化失败而不是 ENOENT
+    expect(baselineFiles()).toEqual([`local/quick/headless/r2/${ID}.json`]);
 
-    // 切到 uncapped 做定向验证（同一 env/profile/id → 同一个基线文件）
+    // 定向验证：uncapped + 更严预算的那条工作流
     writeRaw({ mode: "uncapped", frameMedian: 8.4 });
     const out = updateBaseline();
 
-    expect(frameHistory()).toEqual([8.5]); // 只有本次的值，headless 的 16.8 不得混入
-    expect(currentBaseline().mode).toBe("uncapped");
-    expect(out).toContain("基线历史重新起头");
-    expect(out).toContain("MODE_MISMATCH");
+    // 定点验证：路径隔离是否真的生效（先断这一条，变异时才会给出语义化失败而不是 ENOENT）
+    expect(baselineFiles().sort()).toEqual(
+      [`local/quick/headless/r2/${ID}.json`, `local/quick/uncapped/r2/${ID}.json`].sort(),
+    );
+
+    // 关键：headless 基线**原样保留**（修复前会被写成 [16.8,16.8,16.8,8.5]）
+    expect(frameHistory("headless")).toEqual([16.8, 16.8, 16.8]);
+    expect(readBaseline("headless").mode).toBe("headless");
+    expect(frameHistory("uncapped")).toEqual([8.5]);
+    expect(readBaseline("uncapped").mode).toBe("uncapped");
+    // 路径隔离后不再需要"历史重新起头"的补救
+    expect(out).not.toContain("基线历史重新起头");
+
+    // 切回 headless 继续累积（第 4 点），而不是被 MODE_MISMATCH 拦住
+    writeRaw({ mode: "headless", frameMedian: 16.7 });
+    updateBaseline();
+    expect(frameHistory("headless")).toHaveLength(4);
   });
 
-  it("采样轮数变化后历史重新起头（样本量不同，散布不可比）", () => {
+  it("采样轮数不同也是独立基线（PERF_REPEAT 不会覆盖标准轮数的基线）", () => {
     writeRaw({ rounds: 2 });
     updateBaseline();
     writeRaw({ rounds: 2 });
     updateBaseline();
-    expect(frameHistory()).toHaveLength(2);
+    expect(frameHistory("headless", 2)).toHaveLength(2);
 
     writeRaw({ rounds: 3 });
-    const out = updateBaseline();
-    expect(frameHistory()).toHaveLength(1);
-    expect(out).toContain("ROUNDS_MISMATCH");
+    updateBaseline();
+
+    expect(baselineFiles().sort()).toEqual(
+      [`local/quick/headless/r2/${ID}.json`, `local/quick/headless/r3/${ID}.json`].sort(),
+    );
+    expect(frameHistory("headless", 2)).toHaveLength(2); // 未被覆盖
+    expect(frameHistory("headless", 3)).toHaveLength(1);
   });
 
-  it("fixture 变化后历史重新起头（测的不是同一份文档）", () => {
+  it("fixture 变化：同一路径重建，历史重新起头并给出原因", () => {
     writeRaw({});
     updateBaseline();
     writeRaw({});
@@ -164,14 +196,16 @@ describe("基线历史累积的可比性", () => {
 
     writeRaw({ fixtureHash: "anotherhash1" });
     const out = updateBaseline();
+
+    expect(baselineFiles()).toEqual([`local/quick/headless/r2/${ID}.json`]);
     expect(frameHistory()).toHaveLength(1);
+    expect(out).toContain("基线历史重新起头");
     expect(out).toContain("FIXTURE_CHANGED");
   });
 
   it("旧 schema 基线（无历史序列）不会被当成一个历史点重复计入", () => {
     writeRaw({});
     updateBaseline();
-    // 手工降级为 schemaVersion 1（模拟本 PR 之前的基线）
     const file = baselineFile();
     const legacy = JSON.parse(readFileSync(file, "utf8"));
     legacy.schemaVersion = 1;
@@ -182,6 +216,7 @@ describe("基线历史累积的可比性", () => {
     writeFileSync(file, JSON.stringify(legacy, null, 2), "utf8");
 
     updateBaseline();
+
     expect(frameHistory()).toHaveLength(1); // 从本次重新起头，而不是 [median, median]
   });
 

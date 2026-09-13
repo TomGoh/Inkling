@@ -13,7 +13,7 @@
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { baselineComparability } from "./comparability.js";
+import { baselineComparability, MODE_FALLBACK, ROUNDS_FALLBACK } from "./comparability.js";
 import {
   COMPARED_SCALARS,
   isOver,
@@ -109,13 +109,28 @@ function readRun(dir) {
 }
 
 /** baseline 路径：本地基线隔离在 local/ 下，避免与 CI 基线互相污染 */
-function baselinePath(env, profile, id) {
-  const prefix = env === "local" ? "local/" : "";
-  return resolve(BASE_DIR, `${prefix}${profile}/${id}.json`);
+/**
+ * 基线文件路径 = **测量配置** 的函数：`<BASE_DIR>/[local/]<profile>/<mode>/r<rounds>/<id>.json`
+ *
+ * 为什么把 mode / rounds 放进路径（而不是只靠 comparability 拦截）：
+ * 它们是**测量配置**，不同配置的绝对值不可比。放在路径里，headless 日常回归与
+ * uncapped 定向验证（120fps 路径）能各自维护基线、互不覆盖；否则
+ * `PERF_UNCAPPED=1 ... --update-baseline` 会覆盖掉 headless 基线文件，
+ * 之后 headless 运行全部 MODE_MISMATCH，直到重建——这正是复审发现的 P1 场景。
+ * `PERF_REPEAT` 同理：不同轮数的采样精度不同，不应互相覆盖。
+ *
+ * 剩下的 fixture 是**被测对象**，不是配置：换了文档就该作废重建（同路径、历史重起），
+ * 所以它不进路径，由 comparability 的指纹校验负责。
+ */
+function baselinePath(env, profile, id, mode, rounds) {
+  const envPrefix = env === "local" ? "local/" : "";
+  const modeSegment = mode ?? MODE_FALLBACK;
+  const roundsSegment = `r${rounds ?? ROUNDS_FALLBACK}`;
+  return resolve(BASE_DIR, `${envPrefix}${profile}/${modeSegment}/${roundsSegment}/${id}.json`);
 }
 
-function readBaseline(env, profile, id) {
-  const file = baselinePath(env, profile, id);
+function readBaseline(env, profile, id, mode, rounds) {
+  const file = baselinePath(env, profile, id, mode, rounds);
   if (!existsSync(file)) return null;
   return JSON.parse(readFileSync(file, "utf8"));
 }
@@ -311,6 +326,11 @@ function withHistory(stats, previous, source) {
   // 早期只查 fixture，于是「headless 日常回归建基线 → 切 uncapped 做定向验证并 update-baseline」
   // 会把两种模式的聚合值混进同一条 history（实测 [16.8,16.8,16.8] → [16.8,16.8,16.8,8.5]），
   // σ 被污染成 ≈4.4ms、3σ≈13ms，真实的 8.4→11ms 回归会被「变化在运行噪声内」吞掉。
+  //
+  // 现在 mode/rounds 已由**路径**隔离（见 baselinePath），两者不可能再混；
+  // 这里仍跑全套五维，是因为 mode/rounds/env/profile 属于"路径不变量"——
+  // 一旦不匹配，说明基线文件被手工搬动或路径方案变了，属于该拦下的异常，不是可忽略的差异。
+  // 实际会命中重启的通常是 **fixture**（换文档 = 被测对象变了）与旧 schemaVersion。
   // schemaVersion < 2 的旧基线没有历史序列，也从本次重新起头（避免把同一个点重复计入）。
   const previousComparability = previous
     ? baselineComparability(source, previous)
@@ -363,7 +383,7 @@ function main() {
   for (const [id, raw] of run1) {
     const env = raw.env;
     const profile = raw.profile;
-    const baseline = readBaseline(env, profile, id);
+    const baseline = readBaseline(env, profile, id, raw.mode, raw.rounds);
     const state = baselineComparability(raw, baseline);
 
     // 相对（对 baseline）+ 绝对（对帧预算硬目标）两路判定并行
@@ -450,9 +470,9 @@ function main() {
     // 更新 baseline：优先用该场景最新一轮的数据（有复测轮则用复测轮）
     if (args["update-baseline"] === "1" || args["update-baseline"] === "true") {
       const source = raw2 ?? raw;
-      const file = baselinePath(env, profile, id);
+      const file = baselinePath(env, profile, id, source.mode, source.rounds);
       ensureDir(resolve(file, ".."));
-      const previous = readBaseline(env, profile, id);
+      const previous = readBaseline(env, profile, id, source.mode, source.rounds);
       writeFileSync(
         file,
         JSON.stringify(

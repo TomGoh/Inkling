@@ -24,11 +24,17 @@ export const ROUNDS_FALLBACK = 1;
 
 /**
  * 判断当前采样与基线是否可比。
- * 四个维度任一不一致都不可比——它们的物理含义不同，混比得到的差值不是性能变化：
+ * **五个维度**任一不一致都不可比——它们的物理含义不同，混比得到的差值不是性能变化：
  * - env：本地 vs CI（dev server 与 runner 差异）
- * - profile：quick 1 轮 vs full 3 轮（样本量不同，中位数不可比）
+ * - profile：quick（1k+5k 行）vs full（追加 2 万行）——档位不同，场景集合就不同
  * - mode：headless（vsync 锁 60Hz）vs headed/uncapped（帧间隔反映显示器节拍或单帧工作耗时）
+ * - rounds：采样轮数不同 → 标量样本数与噪声水平不同
  * - fixture：内容变了，测量的对象就不是同一个
+ *
+ * 其中前四维**已由基线路径保证**（`.perf-baseline/[local/]<profile>/<mode>/r<rounds>/<id>.json`，
+ * 见 report.baselinePath）——不同配置各写各自的文件，天然不会互相比较。
+ * 这里仍逐项校验，是因为它们是"路径不变量"：一旦不匹配，说明基线文件被手工搬动或
+ * 路径方案变了，属于该拦下的异常，而不是可以放行的差异。真正会命中重建的是 fixture。
  */
 export function baselineComparability(raw, baseline) {
   if (!baseline) return { ok: false, reason: "NEW" };
