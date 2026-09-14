@@ -84,13 +84,16 @@ function writeBaseline(metrics: Record<string, unknown> = {}): void {
 /** 跑 report.mjs；requireComparison 模拟 tag 运行的 PERF_REQUIRE_COMPARISON=1 */
 function runReport(
   phase: "check" | "final",
-  { requireComparison = false, updateBaseline = false } = {},
+  { requireComparison = false, updateBaseline = false, absolute = false } = {},
 ): RunResult {
   const args = [REPORT, `--phase=${phase}`];
   if (updateBaseline) args.push("--update-baseline=1");
   // 继承来的 PERF_*（含 PERF_ABSOLUTE / PERF_REQUIRE_COMPARISON）已由 perf.env() 统一剥离，
   // 这里只需显式给出本用例想要的开关——"守卫关闭"分支因此是真的关闭
-  const env = perf.env(requireComparison ? { PERF_REQUIRE_COMPARISON: "1" } : {});
+  const env = perf.env({
+    ...(requireComparison ? { PERF_REQUIRE_COMPARISON: "1" } : {}),
+    ...(absolute ? { PERF_ABSOLUTE: "1" } : {}),
+  });
 
   try {
     const stdout = execFileSync(process.execPath, args, { env, encoding: "utf8" });
@@ -194,6 +197,21 @@ describe("判定覆盖守卫（PERF_REQUIRE_COMPARISON）", () => {
     expect(result.status).toBe(2); // 覆盖不足 → 不构成性能验证
     expect(result.stdout).toContain("[perf] 判定覆盖：0/1 个场景参与相对判定");
     expect(result.stderr).toContain("判定覆盖不足");
+    expect(report()).toContain("未参与相对判定：EMPTY_BASELINE");
+  });
+
+  it("绝对行不算相对覆盖：PERF_ABSOLUTE=1 + 空指标基线 → 仍判 EMPTY_BASELINE → exit 2", () => {
+    // 边界：`metrics` 里混含不依赖基线的绝对行（帧预算 p95 / 掉帧率）。
+    // 若用 `metrics.length > 0` 判"已比较"，绝对行会让覆盖虚报为 OK，
+    // EMPTY_BASELINE 不触发——同一族假绿灯的最后一角。
+    writeBaseline({}); // 元数据可比、无可用指标
+    writeRaw();
+
+    const result = runReport("final", { requireComparison: true, absolute: true });
+
+    expect(report()).toContain("(绝对)"); // 确认本次真的产出了绝对行
+    expect(result.status).toBe(2);
+    expect(result.stdout).toContain("[perf] 判定覆盖：0/1 个场景参与相对判定");
     expect(report()).toContain("未参与相对判定：EMPTY_BASELINE");
   });
 

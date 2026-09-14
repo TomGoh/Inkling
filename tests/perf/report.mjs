@@ -377,7 +377,10 @@ function withHistory(stats, previous, source) {
  */
 function coverageState(result) {
   if (result.baselineState !== "OK") return result.baselineState;
-  return result.metrics.length > 0 ? "OK" : "EMPTY_BASELINE";
+  // 只统计**相对**行：绝对行（帧预算 p95 / 掉帧率）不依赖基线，它的存在不能说明"比较过了"。
+  // 否则 PERF_ABSOLUTE=1 / headed / uncapped + 「元数据可比但没有可用指标」的基线时，
+  // 绝对行会让覆盖虚报为 OK、EMPTY_BASELINE 不触发——同一族假绿灯的最后一角。
+  return result.metrics.some((m) => m.absolute !== true) ? "OK" : "EMPTY_BASELINE";
 }
 
 function ensureDir(dir) {
