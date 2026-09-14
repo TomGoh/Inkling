@@ -25,9 +25,9 @@ interface RunResult {
   stderr: string;
 }
 
-function writeRaw(): void {
+function writeRaw(id = ID, frameMs = Array.from({ length: 120 }, (_, i) => 16.7 + (i % 3) * 0.1)): void {
   const raw = {
-    id: ID,
+    id,
     scenario: "scroll",
     tier: "S",
     kind: "rich",
@@ -38,7 +38,7 @@ function writeRaw(): void {
     mode: "headless",
     absoluteEligible: false,
     fixture: { version: 2, hash: "coverage0001", lines: 1000, source: "generated:rich" },
-    samples: { frameMs: Array.from({ length: 120 }, (_, i) => 16.7 + (i % 3) * 0.1) },
+    samples: { frameMs },
     scalars: {
       frameBudgetMs: 16.7,
       jankFactor: 1.5,
@@ -52,7 +52,33 @@ function writeRaw(): void {
       heapDeltaMB: 0,
     },
   };
-  writeFileSync(join(perf.rawDir, `${ID}.json`), JSON.stringify(raw, null, 2), "utf8");
+  writeFileSync(join(perf.rawDir, `${id}.json`), JSON.stringify(raw, null, 2), "utf8");
+}
+
+/** 写一份与当前采样元数据匹配的基线（可指定 metrics，默认空对象模拟"无可用指标"） */
+function writeBaseline(metrics: Record<string, unknown> = {}): void {
+  mkdirSync(join(perf.baselineDir, "local", "quick", "headless", "r2"), { recursive: true });
+  writeFileSync(
+    join(perf.baselineDir, "local", "quick", "headless", "r2", `${ID}.json`),
+    JSON.stringify(
+      {
+        schemaVersion: 2,
+        env: "local",
+        profile: "quick",
+        mode: "headless",
+        rounds: 2,
+        scenario: "scroll",
+        tier: "S",
+        kind: "rich",
+        fixture: { version: 2, hash: "coverage0001", lines: 1000, source: "generated:rich" },
+        metrics,
+        updatedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
 }
 
 /** 跑 report.mjs；requireComparison 模拟 tag 运行的 PERF_REQUIRE_COMPARISON=1 */
@@ -135,34 +161,16 @@ describe("判定覆盖守卫（PERF_REQUIRE_COMPARISON）", () => {
   it("分辨率披露：3σ 占参考值 ≥30% 时报告显式提醒——PASS 不等于「没问题」", () => {
     // 手工构造一份"高噪声"基线：同一配置的历史值散布极大（16.8 / 16.9 / 40）
     // → 3σ 远超参考值 30%，此时该指标的相对判定只剩"抓大事故"的能力
-    mkdirSync(join(perf.baselineDir, "local", "quick", "headless", "r2"), { recursive: true });
-    const baseline = {
-      schemaVersion: 2,
-      env: "local",
-      profile: "quick",
-      mode: "headless",
-      rounds: 2,
-      scenario: "scroll",
-      tier: "S",
-      kind: "rich",
-      fixture: { version: 2, hash: "coverage0001", lines: 1000, source: "generated:rich" },
-      metrics: {
-        frameMs: {
-          median: 17,
-          p95: 17.5,
-          max: 18,
-          n: 120,
-          history: [16.8, 16.9, 40],
-          historyP95: [17, 17.5, 41],
-        },
+    writeBaseline({
+      frameMs: {
+        median: 17,
+        p95: 17.5,
+        max: 18,
+        n: 120,
+        history: [16.8, 16.9, 40],
+        historyP95: [17, 17.5, 41],
       },
-      updatedAt: new Date().toISOString(),
-    };
-    writeFileSync(
-      join(perf.baselineDir, "local", "quick", "headless", "r2", `${ID}.json`),
-      JSON.stringify(baseline, null, 2),
-      "utf8",
-    );
+    });
 
     const result = runReport("final");
     const table = report();
@@ -173,5 +181,39 @@ describe("判定覆盖守卫（PERF_REQUIRE_COMPARISON）", () => {
     expect(table).toContain("分辨率提醒");
     expect(table).toMatch(/分辨率提醒：\d+ 行的 3σ ≥ 参考值的 30%/);
     expect(table).toContain(`${ID}:frameMs`);
+  });
+
+  it("元数据可比但基线里没有可用指标 → 记为 EMPTY_BASELINE，不得算作已比较", () => {
+    // 复现场景：基线文件 metrics 为空（部分生成），或指标 schema 变更导致逐个指标被跳过。
+    // 此时 baselineComparability 返回 OK、compareRun 静默跳过所有指标——表格是空的，
+    // 若只按 baselineState 计数就会得到"覆盖 1/1"，重新制造假绿灯。
+    writeBaseline({});
+
+    const result = runReport("final", { requireComparison: true });
+
+    expect(result.status).toBe(2); // 覆盖不足 → 不构成性能验证
+    expect(result.stdout).toContain("[perf] 判定覆盖：0/1 个场景参与相对判定");
+    expect(result.stderr).toContain("判定覆盖不足");
+    expect(report()).toContain("未参与相对判定：EMPTY_BASELINE");
+  });
+
+  it("覆盖不足优先于 exit 1：同时存在回归复现时，仍以 exit 2 报出「结论不完整」并列出 FAIL", () => {
+    // A 场景：可比基线 + 复测复现的回归（raw 与 raw-retest 均为同一份超阈值采样）
+    const A = "scroll-C-coverA";
+    const B = "scroll-C-coverB";
+    writeRaw(A);
+    expect(runReport("final", { updateBaseline: true }).status).toBe(0); // 先建立 A 的基线
+    const regressed = Array.from({ length: 120 }, (_, i) => 30 + (i % 3) * 0.1); // 相对 +79%
+    writeRaw(A, regressed);
+    writeFileSync(join(perf.retestDir, `${A}.json`), readFileSync(join(perf.rawDir, `${A}.json`), "utf8"));
+    // B 场景：完全没有基线 → 覆盖 1/2
+    writeRaw(B);
+
+    const result = runReport("final", { requireComparison: true });
+
+    expect(result.status).toBe(2); // 覆盖不足优先（否则 CI 只看到"回归"，看不出验证不完整）
+    expect(result.stderr).toContain("判定覆盖不足");
+    expect(result.stderr).toContain("注意：本次同时存在 FAIL");
+    expect(result.stderr).toContain(A);
   });
 });
