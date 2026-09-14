@@ -179,6 +179,11 @@ async function main() {
   }
 
   const suspects = forced.length > 0 ? forced : readRetestList();
+  if (forced.length > 0) {
+    // 钩子要把"生效清单"也写回 retest.json：工作流的「是否需要独立复测 job」判定读的是这个文件，
+    // 否则强制演练只会改本进程内的行为、job2 不会被触发（CI 上就验证不到复测 job）。
+    writeFileSync(resolve(OUT_DIR, "retest.json"), JSON.stringify(suspects, null, 2), "utf8");
+  }
   const plan = planRetestPhases({
     splitRetest: process.env.PERF_SPLIT_RETEST === "1",
     retestOnly,
