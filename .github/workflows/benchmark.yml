@@ -36,6 +36,11 @@ on:
         required: false
         default: false
         type: boolean
+      force_suspects:
+        description: "调试用：强制把指定场景当作「疑似回归」（逗号分隔，如 open-S-rich），用于确定性演练「移交 + 独立复测 job」两段路径"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -104,6 +109,8 @@ jobs:
           # 慢会话会让首轮与复测同时超阈值、穿过「连续 2 次」过滤。有嫌疑时本 job 只测+check，
           # 复测与 final 判定交给 retest job 在新 runner 上跑。
           PERF_SPLIT_RETEST: "1"
+          # 调试钩子：让「移交 + 独立复测 job」两段路径可被确定性演练（默认空=不强制）
+          PERF_FORCE_SUSPECTS: ${{ github.event.inputs.force_suspects }}
         run: |
           if [ "${{ github.event.inputs.update_baseline }}" = "true" ]; then
             pnpm run benchmark -- --update-baseline=1
@@ -234,6 +241,7 @@ jobs:
           PERF_ABSOLUTE: ${{ github.event.inputs.absolute == 'true' && '1' || '' }}
           PERF_REQUIRE_COMPARISON: ${{ github.ref_type == 'tag' && '1' || '' }}
           PERF_RETEST_ONLY: "1"
+          PERF_FORCE_SUSPECTS: ${{ github.event.inputs.force_suspects }}
         run: |
           if [ "${{ github.event.inputs.update_baseline }}" = "true" ]; then
             pnpm run benchmark -- --update-baseline=1
