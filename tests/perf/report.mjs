@@ -16,6 +16,7 @@ import { resolve, join } from "node:path";
 import { baselineComparability, MODE_FALLBACK, ROUNDS_FALLBACK } from "./comparability.js";
 import {
   COMPARED_SCALARS,
+  DRIFT_WARN_PCT,
   isOver,
   isPrimary,
   median,
@@ -631,6 +632,26 @@ function main() {
         `（这些指标在当前环境只能检出更大的变化，行上的 PASS 不等于"没问题"）：${shown.join(", ")}` +
         (coarseRows.length > shown.length ? `，等共 ${coarseRows.length} 行` : ""),
     );
+  }
+  // 整机漂移迹象：共享 runner 被拖慢时，互不相关的指标会一起变差（实测 88% 行、中位 Δ +18.7%），
+  // 而纯噪声下应接近 50%。**只披露、不改判定**——整体变慢也可能真是全链路回归，
+  // 二者在共享 runner 上无法据此区分；把证据摆出来，避免读者把"机器慢"读成"代码坏"。
+  const relativeRows = results.flatMap((r) =>
+    r.metrics.filter(
+      (m) => m.absolute !== true && typeof m.base === "number" && m.base > 0 && typeof m.cur === "number",
+    ),
+  );
+  if (relativeRows.length > 0) {
+    const worsened = relativeRows.filter((m) => m.cur > m.base).length;
+    const driftPct = (worsened / relativeRows.length) * 100;
+    if (driftPct >= DRIFT_WARN_PCT) {
+      const deltas = relativeRows.map((m) => ((m.cur - m.base) / m.base) * 100);
+      lines.push(
+        `- ⚠️ 整机漂移迹象：${worsened}/${relativeRows.length} 行（${Math.round(driftPct)}%）比基线差，` +
+          `中位变化 ${median(deltas).toFixed(1)}%——互不相关的指标同时变差通常意味着 runner 变慢而非代码回归，` +
+          `FAIL 结论请结合这一点判断（二者在共享 runner 上无法仅凭本报告区分）`,
+      );
+    }
   }
   const absoluteCount = results.filter((r) => r.absoluteEnabled).length;
   if (absoluteCount > 0) {

@@ -234,4 +234,42 @@ describe("判定覆盖守卫（PERF_REQUIRE_COMPARISON）", () => {
     expect(result.stderr).toContain("注意：本次同时存在 FAIL");
     expect(result.stderr).toContain(A);
   });
+
+  it("整机漂移披露：多数相对行同时变差时提示「疑似整机变慢」（只披露、不改判定）", () => {
+    // 复现 PR 上那次假 FAIL 的成因：共享 runner 被拖慢时互不相关的指标一起变差
+    // （实测 50/57 行、中位 Δ +18.7%，而纯噪声应接近 50%）。
+    writeBaseline({
+      frameMs: {
+        median: 8,
+        p95: 8.4,
+        max: 9,
+        n: 120,
+        history: [8, 8, 8],
+        historyP95: [8.4, 8.4, 8.4],
+      },
+    });
+    writeRaw();
+
+    const result = runReport("final");
+
+    expect(result.status).toBe(0); // 只披露：整体变慢也可能是真回归，不能据此改判
+    expect(report()).toMatch(/整机漂移迹象：\d+\/\d+ 行（100%）比基线差/);
+  });
+
+  it("安静运行不误报漂移：行值与基线一致时不出现漂移提示", () => {
+    writeBaseline({
+      frameMs: {
+        median: 16.8,
+        p95: 17.1,
+        max: 17.2,
+        n: 120,
+        history: [16.8, 16.8, 16.8],
+        historyP95: [17.1, 17.1, 17.1],
+      },
+    });
+    writeRaw();
+
+    expect(runReport("final").status).toBe(0);
+    expect(report()).not.toContain("整机漂移迹象");
+  });
 });
