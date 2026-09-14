@@ -8,7 +8,7 @@
 // 这里用子进程真实调用 report.mjs，覆盖四种组合（有/无基线 × 有/无守卫）。
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createPerfReportWorkspace, type PerfReportWorkspace } from "./perf-report-env";
@@ -130,5 +130,48 @@ describe("判定覆盖守卫（PERF_REQUIRE_COMPARISON）", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("[perf] 判定覆盖：1/1 个场景参与相对判定");
     expect(report()).toContain("判定覆盖：1/1 个场景参与相对判定");
+  });
+
+  it("分辨率披露：3σ 占参考值 ≥30% 时报告显式提醒——PASS 不等于「没问题」", () => {
+    // 手工构造一份"高噪声"基线：同一配置的历史值散布极大（16.8 / 16.9 / 40）
+    // → 3σ 远超参考值 30%，此时该指标的相对判定只剩"抓大事故"的能力
+    mkdirSync(join(perf.baselineDir, "local", "quick", "headless", "r2"), { recursive: true });
+    const baseline = {
+      schemaVersion: 2,
+      env: "local",
+      profile: "quick",
+      mode: "headless",
+      rounds: 2,
+      scenario: "scroll",
+      tier: "S",
+      kind: "rich",
+      fixture: { version: 2, hash: "coverage0001", lines: 1000, source: "generated:rich" },
+      metrics: {
+        frameMs: {
+          median: 17,
+          p95: 17.5,
+          max: 18,
+          n: 120,
+          history: [16.8, 16.9, 40],
+          historyP95: [17, 17.5, 41],
+        },
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    writeFileSync(
+      join(perf.baselineDir, "local", "quick", "headless", "r2", `${ID}.json`),
+      JSON.stringify(baseline, null, 2),
+      "utf8",
+    );
+
+    const result = runReport("final");
+    const table = report();
+
+    expect(result.status).toBe(0);
+    expect(table).toContain("3σ（占参考）");
+    expect(table).toMatch(/\| \d+(\.\d+)?（\d+%） \|/); // 3σ 列带占比
+    expect(table).toContain("分辨率提醒");
+    expect(table).toMatch(/分辨率提醒：\d+ 行的 3σ ≥ 参考值的 30%/);
+    expect(table).toContain(`${ID}:frameMs`);
   });
 });

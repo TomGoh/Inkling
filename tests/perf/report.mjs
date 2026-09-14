@@ -24,6 +24,8 @@ import {
   noiseFor,
   referenceValue,
   requiresPrimaryCorroboration,
+  RESOLUTION_WARN_PCT,
+  resolutionPct,
   suppressionReason,
 } from "./judgment.js";
 
@@ -217,6 +219,8 @@ function compareRun(raw, baseline) {
     rows.push({
       ...row,
       noise,
+      // 3σ 占参考值的比例 = 该指标在当前环境下的检出下限（见 judgment.resolutionPct）
+      resolution: resolutionPct(entry, statistic),
       historyPoints: (statistic === "p95" ? entry?.historyP95 : entry?.history)?.length ?? 0,
       // 过了相对阈值但被绝对地板/噪声门槛挡下：不是 PASS，需要显式标注原因
       suppressed: suppressionReason(row.metric, row.cur, row.base, noise),
@@ -594,6 +598,21 @@ function main() {
         `回退到「百分比 + 绝对地板」。重建基线（--update-baseline）会逐次累积历史`,
     );
   }
+  // 分辨率提醒：3σ 达到参考值 RESOLUTION_WARN_PCT% 的行，其相对判定只剩"抓大事故"的能力。
+  // 必须与 FAIL 计数并列报出来——"假 FAIL"会被人发现，"静默漏检"不会。
+  const coarseRows = results.flatMap((r) =>
+    r.metrics
+      .filter((m) => typeof m.resolution === "number" && m.resolution >= RESOLUTION_WARN_PCT)
+      .map((m) => `${r.id}:${m.metric}(${Math.round(m.resolution)}%)`),
+  );
+  if (coarseRows.length > 0) {
+    const shown = coarseRows.slice(0, 8);
+    lines.push(
+      `- 分辨率提醒：${coarseRows.length} 行的 3σ ≥ 参考值的 ${RESOLUTION_WARN_PCT}%` +
+        `（这些指标在当前环境只能检出更大的变化，行上的 PASS 不等于"没问题"）：${shown.join(", ")}` +
+        (coarseRows.length > shown.length ? `，等共 ${coarseRows.length} 行` : ""),
+    );
+  }
   const absoluteCount = results.filter((r) => r.absoluteEnabled).length;
   if (absoluteCount > 0) {
     lines.push(
@@ -610,7 +629,7 @@ function main() {
     );
   }
   lines.push("");
-  lines.push("| 场景 | 指标 | baseline | 本次 | 复测 | 变化 | 3σ | 判定 |");
+  lines.push("| 场景 | 指标 | baseline | 本次 | 复测 | 变化 | 3σ（占参考） | 判定 |");
   lines.push("|---|---|---|---|---|---|---|---|");
   for (const r of results) {
     // 不可比时必须显式出现在表里：否则读者会把"没有相对行"误读成"相对判定通过"
@@ -625,10 +644,16 @@ function main() {
         typeof m.base !== "number" || m.base === 0
           ? "—"
           : `${(((m.cur - m.base) / m.base) * 100).toFixed(1)}%`;
+      const noiseCell =
+        typeof m.noise !== "number"
+          ? "—"
+          : typeof m.resolution === "number"
+            ? `${round(m.noise)}（${Math.round(m.resolution)}%）`
+            : `${round(m.noise)}`;
       lines.push(
-        `| ${r.id} | ${m.metric} | ${m.base} | ${m.cur} | ${m.retest ?? "—"} | ${delta} | ${
-          typeof m.noise === "number" ? round(m.noise) : "—"
-        } | ${m.verdict}${m.note ? `（${m.note}）` : ""} |`,
+        `| ${r.id} | ${m.metric} | ${m.base} | ${m.cur} | ${m.retest ?? "—"} | ${delta} | ${noiseCell} | ${
+          m.verdict
+        }${m.note ? `（${m.note}）` : ""} |`,
       );
     }
   }

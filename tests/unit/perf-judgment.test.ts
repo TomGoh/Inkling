@@ -21,6 +21,8 @@ import {
   P95_EXTRA_PCT,
   referenceValue,
   requiresPrimaryCorroboration,
+  RESOLUTION_WARN_PCT,
+  resolutionPct,
   ruleFor,
   sampleSd,
   suppressionReason,
@@ -210,6 +212,30 @@ describe("统计工具", () => {
       0.81,
       1,
     );
+  });
+});
+
+describe("分辨率（3σ 占参考值）", () => {
+  it("σ 可用时给出百分比；不可用时返回 null", () => {
+    const history = [200, 280, 420];
+    expect(resolutionPct({ median: 300, history })).toBeCloseTo(
+      (3 * (sampleSd(history) as number) / (median(history) as number)) * 100,
+      1,
+    );
+    expect(resolutionPct({ median: 1, history: [1, 1, 1] })).toBeNull(); // σ=0 → 无门槛
+    expect(resolutionPct({ median: 1, history: [1, 2] })).toBeNull(); // <3 点
+    expect(resolutionPct({ median: 0, history: [0, 0, 0] })).toBeNull(); // 参考值 0
+    expect(resolutionPct(undefined)).toBeNull();
+    // p95 走 historyP95
+    expect(resolutionPct({ historyP95: [10, 20, 30] }, "p95")).toBeCloseTo(
+      (3 * (sampleSd([10, 20, 30]) as number) / 20) * 100,
+      1,
+    );
+  });
+
+  it("提醒阈值 = 30%（默认劣化阈值的两倍：连 2 倍幅度的变化都测不出时才提醒）", () => {
+    expect(RESOLUTION_WARN_PCT).toBe(30);
+    expect(RESOLUTION_WARN_PCT).toBeGreaterThanOrEqual(2 * DEFAULT_PCT);
   });
 });
 

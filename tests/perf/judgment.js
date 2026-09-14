@@ -67,6 +67,31 @@ export function noiseFor(entry, statistic = "median") {
   return noiseThreshold(entry?.[key]);
 }
 
+/**
+ * 噪声门槛的"分辨率"：3σ 占参考值的百分比。
+ *
+ * 它回答"这个指标在当前环境下最小能分辨多大的变化"——占比 50% 意味着
+ * 小于一半的变化在统计上与抖动不可分，该行即使显示 PASS 也不能读成"没问题"。
+ * 这正是"静默漏检"的来源：假 FAIL 会被人发现，掩盖真回归不会。
+ *
+ * σ 不可用（历史 <3 点或零方差）或参考值 ≤ 0 时返回 null（此时无门槛可谈）。
+ */
+export function resolutionPct(entry, statistic = "median") {
+  const noise = noiseFor(entry, statistic);
+  const reference = referenceValue(entry, statistic);
+  if (noise === null || !(reference > 0)) return null;
+  return (noise / reference) * 100;
+}
+
+/**
+ * 分辨率提醒阈值（%）：3σ 达到参考值这个比例时，报告会显式列出该指标。
+ *
+ * 取 30% 的依据：默认劣化阈值是 15%（p95 为 25%），3σ 一旦超过两倍基础阈值，
+ * 意味着"连默认阈值 2 倍幅度的变化都测不出来"，此时该指标的相对判定只剩
+ * "抓大事故"的能力，读者必须知道。低于此值则门槛仍能覆盖默认阈值，无需提醒。
+ */
+export const RESOLUTION_WARN_PCT = 30;
+
 /** 默认劣化阈值（%）；可按指标覆盖 */
 export const DEFAULT_PCT = 15;
 
