@@ -316,6 +316,18 @@ export function runScrollFrames(opts: {
 }
 
 /**
+ * 「输入未落地」时的重试上限（配合 runInputBurst 的 allApplied 守卫）。
+ *
+ * 为什么需要：`execCommand('insertText')` 偶发返回 false（实测 2 万行档在共享 runner 上
+ * 约 1/4 的运行会命中一次，见 run 34850353239），此时代码块"根本没接收输入"，
+ * 这批数据**无效**——不校验就会把"没输入"记成"极快"。
+ *
+ * 正确做法不是删掉守卫，而是**重新加载文档重测一轮**：每轮的 goto + 注入本就把文档
+ * 复位，重试代价小且不污染测量；重试到上限仍不落地才判测量故障（保持守卫语义）。
+ */
+export const INPUT_LANDING_RETRIES = 2;
+
+/**
  * 连续输入采集：每个字符一次 execCommand('insertText')（走真实 beforeinput 路径，
  * 全程在页面内，不受 CDP 往返噪声污染）。
  * 返回两类延迟 + 实际插入长度，供上层做「是否真的插进去了」的假阴性校验。

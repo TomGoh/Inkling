@@ -17,6 +17,7 @@ import { expect, test } from "@playwright/test";
 import { PERF_DOC_PATH } from "../inject";
 import { bootWithFiles, focusEditorEnd, openFileInTree } from "../helpers";
 import {
+  INPUT_LANDING_RETRIES,
   installObservers,
   readObservers,
   runInputBurst,
@@ -50,25 +51,45 @@ for (const tier of ctx.tiers) {
       const heapDeltas: number[] = [];
 
       for (let round = 0; round < ctx.warmups + ctx.rounds; round += 1) {
-        // 每轮重新 goto + 注入：文档回到初始状态，无需 undo，也不会被上一轮的插入撑大
-        await bootWithFiles(page, [{ path: PERF_DOC_PATH, content: fixture.content }]);
-        await openFileInTree(page, PERF_DOC_PATH, 120_000);
-        await page.evaluate(waitRenderStable, {
-          stableFrames: 10,
-          maxFrames: 900,
-        });
-        await focusEditorEnd(page);
+        // 一轮 = 重新 goto + 注入 + 测量。输入未全部落地时**重来一轮**：
+        // 每轮本就把文档复位，重试不污染测量；重试到上限才判测量故障（守卫语义不变）。
+        const measured = await (async () => {
+          for (let attempt = 0; ; attempt += 1) {
+            // 每轮重新 goto + 注入：文档回到初始状态，无需 undo，也不会被上一轮的插入撑大
+            await bootWithFiles(page, [{ path: PERF_DOC_PATH, content: fixture.content }]);
+            await openFileInTree(page, PERF_DOC_PATH, 120_000);
+            await page.evaluate(waitRenderStable, {
+              stableFrames: 10,
+              maxFrames: 900,
+            });
+            await focusEditorEnd(page);
 
-        await page.evaluate(installObservers);
-        const burst = await page.evaluate(runInputBurst, {
-          count: CHARS,
-          text: "x",
-        });
-        const observers = await page.evaluate(readObservers);
+            await page.evaluate(installObservers);
+            const burst = await page.evaluate(runInputBurst, {
+              count: CHARS,
+              text: "x",
+            });
+            const observers = await page.evaluate(readObservers);
 
-        // 假阴性守卫：输入必须真的落到文档里
-        expect(burst.allApplied, `${id}：execCommand 未能插入文本`).toBe(true);
-        expect(burst.inserted).toBeGreaterThanOrEqual(CHARS);
+            // 假阴性守卫：输入必须真的落到文档里
+            if (burst.allApplied && burst.inserted >= CHARS) {
+              return { burst, observers };
+            }
+            if (attempt >= INPUT_LANDING_RETRIES) {
+              expect(
+                burst.allApplied,
+                `${id}：execCommand 未能插入文本（含 ${INPUT_LANDING_RETRIES} 次重试）`,
+              ).toBe(true);
+              expect(burst.inserted).toBeGreaterThanOrEqual(CHARS);
+              return { burst, observers };
+            }
+            console.warn(
+              `[perf] ${id} 第 ${round + 1} 轮输入未全部落地（allApplied=${burst.allApplied}, ` +
+                `inserted=${burst.inserted}），重新加载后重试 ${attempt + 1}/${INPUT_LANDING_RETRIES}`,
+            );
+          }
+        })();
+        const { burst, observers } = measured;
 
         if (round >= ctx.warmups) {
           paintSamples.push(...burst.paint);
