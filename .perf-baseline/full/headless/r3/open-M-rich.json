@@ -1,12 +1,12 @@
 {
   "schemaVersion": 2,
   "env": "ci-ubuntu",
-  "profile": "quick",
+  "profile": "full",
   "mode": "headless",
-  "scenario": "save",
+  "scenario": "open",
   "tier": "M",
   "kind": "rich",
-  "rounds": 2,
+  "rounds": 3,
   "fixture": {
     "version": 2,
     "hash": "6864ff7ce0c9",
@@ -14,64 +14,44 @@
     "source": "generated:rich"
   },
   "metrics": {
-    "saveMs": {
-      "median": 100.05,
-      "p95": 105.3,
-      "max": 105.3,
-      "n": 2,
+    "ttiMs": {
+      "median": 3213.2,
+      "p95": 3296.6,
+      "max": 3296.6,
+      "n": 3,
       "history": [
-        86.9,
-        66.45,
-        57.85,
-        87.05,
-        70.5,
-        93.6,
-        99.05,
-        100.05
+        3213.2,
+        3179.5,
+        3213.2
       ],
       "historyP95": [
-        89.6,
-        67.4,
-        60.3,
-        88.1,
-        70.6,
-        93.7,
-        100.8,
-        105.3
+        3330,
+        3230.2,
+        3296.6
       ]
     },
     "longTaskCount": {
-      "median": 0,
+      "median": 6.33,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
+        5.33,
+        5.67,
+        6.33
       ]
     },
     "longTaskMs": {
-      "median": 0,
+      "median": 1463.67,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
+        1485.67,
+        1413,
+        1463.67
       ]
     },
     "cls": {
@@ -81,11 +61,6 @@
       "n": null,
       "scalar": true,
       "history": [
-        0,
-        0,
-        0,
-        0,
-        0,
         0,
         0,
         0
@@ -100,14 +75,9 @@
       "history": [
         0,
         0,
-        0,
-        0,
-        0,
-        0,
-        0,
         0
       ]
     }
   },
-  "updatedAt": "2026-09-14T14:00:52.196Z"
+  "updatedAt": "2026-09-13T12:18:33.873Z"
 }

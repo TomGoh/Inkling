@@ -67,6 +67,46 @@ export function noiseFor(entry, statistic = "median") {
   return noiseThreshold(entry?.[key]);
 }
 
+/**
+ * 噪声门槛的"分辨率"：3σ 占参考值的百分比。
+ *
+ * 它回答"这个指标在当前环境下最小能分辨多大的变化"——占比 50% 意味着
+ * 小于一半的变化在统计上与抖动不可分，该行即使显示 PASS 也不能读成"没问题"。
+ * 这正是"静默漏检"的来源：假 FAIL 会被人发现，掩盖真回归不会。
+ *
+ * σ 不可用（历史 <3 点或零方差）或参考值 ≤ 0 时返回 null（此时无门槛可谈）。
+ */
+export function resolutionPct(entry, statistic = "median") {
+  const noise = noiseFor(entry, statistic);
+  const reference = referenceValue(entry, statistic);
+  if (noise === null || !(reference > 0)) return null;
+  return (noise / reference) * 100;
+}
+
+/**
+ * 分辨率提醒阈值（%）：3σ 达到参考值这个比例时，报告会显式列出该指标。
+ *
+ * 取 30% 的依据：默认劣化阈值是 15%（p95 为 25%），3σ 一旦超过两倍基础阈值，
+ * 意味着"连默认阈值 2 倍幅度的变化都测不出来"，此时该指标的相对判定只剩
+ * "抓大事故"的能力，读者必须知道。低于此值则门槛仍能覆盖默认阈值，无需提醒。
+ */
+export const RESOLUTION_WARN_PCT = 30;
+
+/**
+ * 整机漂移提醒阈值（%）：比基线差的相对行占比达到这个比例时，报告会提示
+ * 「本次疑似整机变慢」。
+ *
+ * 取 70% 的依据：纯噪声下"变差"的行占比应在 50% 附近（参考值取历史中位数，
+ * 上下对称）；实测一次共享 runner 被拖慢的运行是 **88%**（50/57 行、中位 Δ +18.7%，
+ * 16 个场景里互不相关的指标一起变差），而同分支安静时段运行接近 50%。
+ * 70% 落在两者之间，留有足够余量。
+ *
+ * **只做披露、不改判定**：整体变慢也可能是真实回归（例如全链路变慢），
+ * 在共享 runner 上二者无法凭此区分——真正的区分需要环境无关的标定负载，
+ * 属于后续工作。这里只把证据摆在 FAIL 旁边，避免读者误判成因。
+ */
+export const DRIFT_WARN_PCT = 70;
+
 /** 默认劣化阈值（%）；可按指标覆盖 */
 export const DEFAULT_PCT = 15;
 

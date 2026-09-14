@@ -85,9 +85,9 @@ function writeRaw(dir: "raw" | "raw-retest", jankRatePct: number, eligible = tru
 
 /** 真实调用 report.mjs（两阶段之一），返回退出码与输出 */
 function runReport(phase: "check" | "final"): RunResult {
+  // 判定资格完全由 raw 里的 absoluteEligible 决定；继承来的 PERF_*（含 PERF_ABSOLUTE）
+  // 已由 perf.env() 统一剥离，避免开发者 shell 的 export 改变被测行为
   const env = perf.env();
-  // 必须清掉 PERF_ABSOLUTE，让判定资格完全由 raw 里的 absoluteEligible 决定
-  delete env.PERF_ABSOLUTE;
 
   try {
     const stdout = execFileSync(process.execPath, [REPORT, `--phase=${phase}`], {

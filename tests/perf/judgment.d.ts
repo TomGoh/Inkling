@@ -54,6 +54,18 @@ export function isOver(
 ): boolean;
 export function isOverIgnoringNoise(metric: string, current: number, base: number): boolean;
 /**
+ * 噪声门槛的分辨率：3σ 占参考值的百分比（"最小能分辨多大的变化"）。
+ * σ 不可用或参考值 ≤0 时返回 null
+ */
+export function resolutionPct(
+  entry: MetricEntry | undefined | null,
+  statistic?: "median" | "p95",
+): number | null;
+/** 3σ 达到参考值这个百分比时，报告会显式列出该指标（默认 30） */
+export const RESOLUTION_WARN_PCT: number;
+/** 比基线差的相对行占比达到此比例时，报告提示「疑似整机变慢」（默认 70，仅披露不改判定） */
+export const DRIFT_WARN_PCT: number;
+/**
  * 过了相对阈值但被抑制的原因；没有则 null。
  * "floor" = 低于该指标的绝对地板；"noise" = 在运行噪声内（< 3σ）
  */

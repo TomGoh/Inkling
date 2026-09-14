@@ -145,6 +145,8 @@ PERF_DOC_FILE=md_editor_stress_test.md pnpm run benchmark
   若默认启用，无 baseline 的首次运行就会因掉帧率贴线而打印「回归确认」并以 exit 1 结束，
   与真实回归无法区分。`PERF_ABSOLUTE=1` 可强制开启（调试/复现用），`=0` 可强制关闭。
   绝对判定所依赖的模式会随采样一起落盘，因此事后单独复算不会改变结论。
+- 每次运行都会在报告与控制台打印 **判定覆盖：N/M 个场景参与相对判定**——它与 FAIL 计数同等重要：
+  没参与判定的场景既不算 PASS 也不算 FAIL（基线缺失或不可比），只看「FAIL：0」会误读成"没有回归"。
 - **判定分层**：只有主指标（`ttiMs` / `frameMs` / `switchMs` / `searchMs` / `saveMs` / `inputSyncMs` /
   `inputPaintMs`，含其 `.p95`）可以**单独**判 FAIL；派生指标（`longTaskMs` / `longTaskCount` /
   `jankRatePct` / `cls` / `heapDeltaMB` 等，以及未登记的新指标）需要**同一场景内有主指标同样超阈值**才判 FAIL，
@@ -158,7 +160,21 @@ PERF_DOC_FILE=md_editor_stress_test.md pnpm run benchmark
   实测同一份代码的 5 次 CI 运行：`inputSyncMs` 3σ≈1.25ms（占基线 66%）、
   `ttiMs` 3σ≈241ms（27%）、`longTaskMs` 3σ≈161ms（53%），
   而 vsync 量化的 `frameMs.p95` 只有 3σ≈0.39ms——**能分辨多大差异是环境属性**，
-  靠人给固定百分比必然出错。各行 3σ 会打印在报告表格里，读者可直接看到本次的分辨率。
+  靠人给固定百分比必然出错。各行的 3σ 会打印在报告表格里，且**同时给出占参考值的百分比**。
+- **分辨率提醒（3σ 占参考值 ≥ 30%）**：表格的 `3σ（占参考）` 列形如 `145.25（52%）`，
+  它就是这个指标在当前环境的**检出下限**——52% 意味着小于一半的变化在统计上与抖动不可分。
+  汇总会单独列出所有 ≥30% 的行，并提示「行上的 PASS 不等于"没问题"」。
+  **假 FAIL 会被人发现，静默漏检不会**，所以宁可把"测不出来"说清楚，也不给一个看起来正常的 PASS。
+  实测分布（**统计时点 2026-09-14，quick 基线 8 点**）：36 个主指标行（median + p95）里
+  **16 行 ≥30%、12 行 ≥50%**，最差 `tab-switch-M-rich` 的 `switchMs.p95` 达 **129%**；
+  把派生标量也算进来则 57 行里 33 行 ≥30%（最差 `scroll-M-rich` 的 `longFrameCount` 717%——
+  该量级极小，另有绝对地板与「需主指标佐证」双重约束）。
+  重算方法：对每行 `3×sampleSd(history)/median(history)`（即 `judgment.resolutionPct`），
+  基线文件里读 `history` / `historyP95` 即可复现。
+- **σ 高不等于样本不够**：补播种**不能**改善这些比例——根因是 **runner 之间存在结构性双峰**
+  （例：`input-M-rich` 的 `inputSyncMs` history `[9.2, 5.9, 5.4, 10.1, 6.9, 10.15, 11.1, 12.7]`
+  明显分成两簇，对应两类机器/两种负载状态）。σ 收敛的是"这台 runner 群落的真实散布"，
+  所以正确做法是**如实披露检出下限**，而不是继续加样本或放宽阈值。
   过了相对阈值但被地板或噪声挡下的行不是 PASS，而是 WARN 并标注原因
   （变化低于该指标的绝对地板 / 变化在运行噪声内（3σ=…））。
   历史不足 3 次运行时门槛不启用，报告头部会显式说明并回退到「百分比 + 绝对地板」。
@@ -172,9 +188,16 @@ PERF_DOC_FILE=md_editor_stress_test.md pnpm run benchmark
 
 | 码 | 含义 | 处理 |
 |---|---|---|
-| 0 | 跑完且无确认回归（含仅 WARN、首次运行无基线） | 正常 |
+| 0 | 跑完且无确认回归（含仅 WARN） | 正常 |
 | 1 | 回归复现（连续 2 次超阈值） | 看 `.perf-output/report.md` 定位 |
-| 2 | 没测到（server 起不来、场景缺失等 infra 故障） | 先修测量链路，别当成"没回归" |
+| 2 | 没测到 —— ①infra 故障（server 起不来、场景缺失等）；②**判定覆盖不足**（`PERF_REQUIRE_COMPARISON=1` 下部分场景无基线 / 不可比 / **基线里没有可用指标**，tag 运行会红着报出来） | 先修测量链路或补齐该档位基线，别当成"没回归" |
+
+> 覆盖不足时 **exit 2 优先于 exit 1**：若同时存在回归复现，stderr 会先列出覆盖不足再点名 FAIL 场景——
+> 结论不完整比单个结论更根本，否则 CI 只看到"回归"，看不出这次验证本身没跑全。
+
+> 首次运行无基线时退出码仍是 `0`（NEW 场景不参与相对判定，也不构成"没测到"）；
+> 只有显式要求比较的 tag 运行（`PERF_REQUIRE_COMPARISON=1`）才把覆盖不足升级为 `exit 2`。
+> 任何情况下都先看报告里的 `判定覆盖：N/M`：M 个场景里只有 N 个真正参与了判定。
 
 CI 上 Benchmark **不阻断合并**，只上传 `.perf-output/` 产物并写入 Job Summary。
 
@@ -191,14 +214,57 @@ CI 上 Benchmark **不阻断合并**，只上传 `.perf-output/` 产物并写入
   `基线历史重新起头（id）：FIXTURE_CHANGED`。
 - 本地：`pnpm run benchmark -- --update-baseline`，结果落在
   `.perf-baseline/local/<profile>/<mode>/r<rounds>/`（`local/` 整棵子树已 gitignore）。
-- CI：Actions → **Benchmark** → Run workflow，勾选 `update_baseline`（档位选 quick），
-  跑完从 artifact 取回 `.perf-baseline/<profile>/<mode>/r<rounds>/`（即
-  `.perf-baseline/quick/headless/r2/`）并提交；不勾选时 CI 只做比较，不会写仓库。
+- CI：Actions → **Benchmark** → Run workflow，勾选 `update_baseline`，跑完从 artifact 取回
+  `.perf-baseline/<profile>/<mode>/r<rounds>/` 并提交；不勾选时 CI 只做比较，不会写仓库。
+  仓库里维护**两套** CI 基线（因为触发场景用不同档位）：
+  - `.perf-baseline/quick/headless/r2/` —— PR 运行与 main push 用（16 个场景）
+  - `.perf-baseline/full/headless/r3/` —— **tag 运行（发版验证）用**（24 个场景，含 2 万行档）
+
+  重建/补充某一套：`workflow_dispatch(profile=<quick|full>, update_baseline=true)` → 取回产物提交。
+  ⚠️ **必须串行**：下一轮要在**提交了上一轮产物之后**触发，历史才会逐次累积
+  （并行跑只会各写各的单点）。
+- **播种深度与节奏**：目标是把每套基线补到上限 `HISTORY_MAX = 8` 点——
+  σ 由历史估计，点数越多估计越稳（相对误差 ≈ 1/√(2(n-1))：3 点约 50%、8 点约 27%）。
+  **tag 运行不追加历史**（发版只做比较，不写仓库），所以 σ 变准完全依赖手动播种：
+  建议**每次发版后补 1 次播种**，凑满 8 点后新点会自动顶掉最旧的点，保持窗口新鲜。
+  低于 3 点时门槛不启用，报告头部会显式说明。
+- **测量偶发**：`input` / `save` 场景有一条"输入必须真的落地"的守卫（`execCommand` 偶发返回
+  false，不校验会把"编辑器没接收输入"记成"极快"）。命中时会在日志里出现
+  `[perf] … 输入未全部落地…重新加载后重试`，**这是正常的重试、不是失败**；
+  重试到上限（`INPUT_LANDING_RETRIES`）仍不落地才按测量故障处理（退出码 2）。
 - 任何 fixture 生成规则变更都必须提升 `FIXTURE_VERSION`，旧基线会自动整体作废。
 - 可比性校验仍覆盖 **env / profile / mode / rounds / fixture** 五维，作用是**不变量守卫**：
   前四维已由路径保证，若仍不匹配，说明基线文件被手工搬动或路径方案变了（该拦下的异常）；
   真正会命中并触发重建的通常是 fixture。报告里会显式列出
   `未参与相对判定：FIXTURE_CHANGED(...)` 之类的原因。
+
+### 发版验证（tag 运行）
+
+`push: tags: ["v*"]` 会自动触发 Benchmark（档位 **full**，比 PR 的 quick 多一个 2 万行档），
+也就是每次发包都会自动跑一次"本次版本 vs 基线"的比较。
+
+**关键：报告必须有「判定覆盖：N/M」这一行，N 必须等于 M。**
+基线缺失时所有场景都是 NEW，报告照样会打印「FAIL：0」——那看起来像"没有回归"，
+实际是"什么都没比"。因此 tag 运行注入 `PERF_REQUIRE_COMPARISON=1`：
+覆盖不足时 report 直接 `exit 2`（infra 故障）并在 stderr 写明
+「本次结论**不构成性能验证**」；本工作流对 tag 关闭 `continue-on-error`，所以会红着报出来。
+（PR 运行仍是"只提示、不阻断合并"，不做门禁——issue #216 的既定要求。）
+
+- 为什么必须显式失败：`FAIL：0` 与"没比"在绿色勾选下无法区分，而发版验证恰恰是最不能含糊的一次。
+- 发版 job 在 `build.yml`（独立工作流），所以 Benchmark 变红**不会**拦住发版产物；
+  它是"发版性能信号"，不是发版门禁。若将来要硬门禁，需要把 benchmark 作为 job 并入 `build.yml`
+  并加进 `release.needs`。
+- 代价与前提：tag 用 full 档，因此必须维护 `.perf-baseline/full/headless/r3/`；
+  该基线重建一次约 12-15 分钟（quick 约 3 分钟）。若长期不维护它会退化成"覆盖不足"并显式报错，
+  不会静默放过。
+
+**发版负责人核对清单**（推 tag 后必做，核对完才算发版完成）：
+
+1. `gh run list --workflow=benchmark.yml --limit 3` 找到本次 tag 的运行（`event=push`、`ref=vX.Y.Z`）。
+2. 看 **`判定覆盖：N/M`** —— **N 必须等于 M**；不等就是"没比出结论"，先建基线再重跑。
+3. 看 **`FAIL` 计数** —— 大于 0 说明相对回归复现，需在汇报中写明并判断是否值得拦截；
+   `WARN` 读成因，被噪声（3σ）或绝对地板挡下的**不是**回归。
+4. 汇报发版结果时**必须一并给出性能结论**，不得只报"发版成功"。
 
 ## 代码风格
 

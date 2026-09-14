@@ -14,6 +14,7 @@ import { bootWithFiles, focusEditorEnd, openFileInTree } from "../helpers";
 import {
   armDirtyWatch,
   armTiming,
+  INPUT_LANDING_RETRIES,
   installObservers,
   readDirtyGone,
   readObservers,
@@ -48,20 +49,36 @@ for (const tier of ctx.tiers) {
       const heapDeltas: number[] = [];
 
       for (let round = 0; round < ctx.warmups + ctx.rounds; round += 1) {
-        await bootWithFiles(page, [{ path: PERF_DOC_PATH, content: fixture.content }]);
-        await openFileInTree(page, PERF_DOC_PATH, 120_000);
-        await page.evaluate(waitRenderStable, {
-          stableFrames: 10,
-          maxFrames: 900,
-        });
-        await focusEditorEnd(page);
+        // 本轮的准备 + 制造脏状态：插入未落地时重新加载重来（同 input 场景的守卫语义）
+        await (async () => {
+          for (let attempt = 0; ; attempt += 1) {
+            await bootWithFiles(page, [{ path: PERF_DOC_PATH, content: fixture.content }]);
+            await openFileInTree(page, PERF_DOC_PATH, 120_000);
+            await page.evaluate(waitRenderStable, {
+              stableFrames: 10,
+              maxFrames: 900,
+            });
+            await focusEditorEnd(page);
 
-        // 制造脏状态：插入一个字符
-        const burst = await page.evaluate(runInputBurst, {
-          count: 1,
-          text: "x",
-        });
-        expect(burst.allApplied, `${id}：未能插入字符，无法制造脏状态`).toBe(true);
+            // 制造脏状态：插入一个字符
+            const attemptBurst = await page.evaluate(runInputBurst, {
+              count: 1,
+              text: "x",
+            });
+            if (attemptBurst.allApplied && attemptBurst.inserted >= 1) return attemptBurst;
+            if (attempt >= INPUT_LANDING_RETRIES) {
+              expect(
+                attemptBurst.allApplied,
+                `${id}：未能插入字符，无法制造脏状态（含 ${INPUT_LANDING_RETRIES} 次重试）`,
+              ).toBe(true);
+              return attemptBurst;
+            }
+            console.warn(
+              `[perf] ${id} 第 ${round + 1} 轮脏字符未落地（allApplied=${attemptBurst.allApplied}, ` +
+                `inserted=${attemptBurst.inserted}），重新加载后重试 ${attempt + 1}/${INPUT_LANDING_RETRIES}`,
+            );
+          }
+        })();
 
         const dirty = page.locator(".tab-active .tab-dirty");
         await expect(

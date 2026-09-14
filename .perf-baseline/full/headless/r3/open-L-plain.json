@@ -1,77 +1,57 @@
 {
   "schemaVersion": 2,
   "env": "ci-ubuntu",
-  "profile": "quick",
+  "profile": "full",
   "mode": "headless",
   "scenario": "open",
-  "tier": "S",
+  "tier": "L",
   "kind": "plain",
-  "rounds": 2,
+  "rounds": 3,
   "fixture": {
     "version": 2,
-    "hash": "c80d1f6c26ea",
-    "lines": 1000,
+    "hash": "52f9b70176ff",
+    "lines": 20000,
     "source": "generated:plain"
   },
   "metrics": {
     "ttiMs": {
-      "median": 479.15,
-      "p95": 479.9,
-      "max": 479.9,
-      "n": 2,
+      "median": 2463.2,
+      "p95": 2496.4,
+      "max": 2496.4,
+      "n": 3,
       "history": [
-        479.9,
-        437.95,
-        413.75,
-        471.6,
-        446.8,
-        479.25,
-        470.6,
-        479.15
+        2429.8,
+        2430.2,
+        2463.2
       ],
       "historyP95": [
-        496.7,
-        445.5,
-        414,
-        480.1,
-        447.5,
-        480,
-        479,
-        479.9
+        2446.6,
+        2463.6,
+        2496.4
       ]
     },
     "longTaskCount": {
-      "median": 1,
+      "median": 2,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1,
-        1
+        2,
+        2,
+        2
       ]
     },
     "longTaskMs": {
-      "median": 157.5,
+      "median": 2116.67,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        163.5,
-        124.5,
-        101.5,
-        160.5,
-        131,
-        157.5,
-        152.5,
-        157.5
+        2089.33,
+        2106.67,
+        2116.67
       ]
     },
     "cls": {
@@ -81,11 +61,6 @@
       "n": null,
       "scalar": true,
       "history": [
-        0,
-        0,
-        0,
-        0,
-        0,
         0,
         0,
         0
@@ -100,14 +75,9 @@
       "history": [
         0,
         0,
-        0,
-        0,
-        0,
-        0,
-        0,
         0
       ]
     }
   },
-  "updatedAt": "2026-09-14T14:00:52.196Z"
+  "updatedAt": "2026-09-13T12:18:33.871Z"
 }

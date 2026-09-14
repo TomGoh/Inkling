@@ -1,12 +1,12 @@
 {
   "schemaVersion": 2,
   "env": "ci-ubuntu",
-  "profile": "quick",
+  "profile": "full",
   "mode": "headless",
-  "scenario": "save",
+  "scenario": "input",
   "tier": "M",
   "kind": "rich",
-  "rounds": 2,
+  "rounds": 3,
   "fixture": {
     "version": 2,
     "hash": "6864ff7ce0c9",
@@ -14,64 +14,60 @@
     "source": "generated:rich"
   },
   "metrics": {
-    "saveMs": {
-      "median": 100.05,
-      "p95": 105.3,
-      "max": 105.3,
-      "n": 2,
+    "inputPaintMs": {
+      "median": 39.5,
+      "p95": 47.4,
+      "max": 73.8,
+      "n": 180,
       "history": [
-        86.9,
-        66.45,
-        57.85,
-        87.05,
-        70.5,
-        93.6,
-        99.05,
-        100.05
+        39.9,
+        41.4,
+        39.5
       ],
       "historyP95": [
-        89.6,
-        67.4,
-        60.3,
-        88.1,
-        70.6,
-        93.7,
-        100.8,
-        105.3
+        49.5,
+        49.2,
+        47.4
+      ]
+    },
+    "inputSyncMs": {
+      "median": 9.8,
+      "p95": 11.8,
+      "max": 19.3,
+      "n": 180,
+      "history": [
+        9.7,
+        10.3,
+        9.8
+      ],
+      "historyP95": [
+        12.7,
+        11.6,
+        11.8
       ]
     },
     "longTaskCount": {
-      "median": 0,
+      "median": 1.33,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
+        1.67,
+        1.67,
+        1.33
       ]
     },
     "longTaskMs": {
-      "median": 0,
+      "median": 78.33,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
+        89,
+        103,
+        78.33
       ]
     },
     "cls": {
@@ -81,11 +77,6 @@
       "n": null,
       "scalar": true,
       "history": [
-        0,
-        0,
-        0,
-        0,
-        0,
         0,
         0,
         0
@@ -100,14 +91,9 @@
       "history": [
         0,
         0,
-        0,
-        0,
-        0,
-        0,
-        0,
         0
       ]
     }
   },
-  "updatedAt": "2026-09-14T14:00:52.196Z"
+  "updatedAt": "2026-09-13T12:18:33.870Z"
 }

@@ -70,8 +70,17 @@ export function createPerfReportWorkspace(prefix = "perf-report-"): PerfReportWo
     outDir,
     baselineDir,
     env(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+      // 先剥掉父进程继承的**所有** `PERF_*`：开发者在 shell 里 export 过的
+      // PERF_ABSOLUTE / PERF_REQUIRE_COMPARISON / PERF_PROFILE / PERF_SCENARIO …
+      // 会静默改变被测行为，让用例假通过或假失败（实测：shell 里 export
+      // PERF_REQUIRE_COMPARISON=1 后，「守卫关闭 → exit 0」用例变成 `expected 2 to be +0`）。
+      // 需要哪一项就在 extra 里**显式**给出——包括显式给出空值以外的一切场景。
+      const inherited: NodeJS.ProcessEnv = {};
+      for (const [key, value] of Object.entries(process.env)) {
+        if (!key.startsWith("PERF_")) inherited[key] = value;
+      }
       return {
-        ...process.env,
+        ...inherited,
         PERF_OUT_DIR: outDir,
         PERF_RAW_DIR: rawDir,
         PERF_RETEST_DIR: retestDir,

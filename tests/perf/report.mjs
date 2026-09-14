@@ -16,6 +16,7 @@ import { resolve, join } from "node:path";
 import { baselineComparability, MODE_FALLBACK, ROUNDS_FALLBACK } from "./comparability.js";
 import {
   COMPARED_SCALARS,
+  DRIFT_WARN_PCT,
   isOver,
   isPrimary,
   median,
@@ -24,6 +25,8 @@ import {
   noiseFor,
   referenceValue,
   requiresPrimaryCorroboration,
+  RESOLUTION_WARN_PCT,
+  resolutionPct,
   suppressionReason,
 } from "./judgment.js";
 
@@ -217,6 +220,8 @@ function compareRun(raw, baseline) {
     rows.push({
       ...row,
       noise,
+      // 3σ 占参考值的比例 = 该指标在当前环境下的检出下限（见 judgment.resolutionPct）
+      resolution: resolutionPct(entry, statistic),
       historyPoints: (statistic === "p95" ? entry?.historyP95 : entry?.history)?.length ?? 0,
       // 过了相对阈值但被绝对地板/噪声门槛挡下：不是 PASS，需要显式标注原因
       suppressed: suppressionReason(row.metric, row.cur, row.base, noise),
@@ -360,6 +365,23 @@ function withHistory(stats, previous, source) {
     };
   }
   return out;
+}
+
+/**
+ * 场景的"判定覆盖状态"：真正参与相对判定 = 基线可比 **且真的产出了比较行**。
+ *
+ * 只查 `baselineState === "OK"` 会漏掉「元数据可比但没有可用指标」的基线：
+ * 基线文件 `metrics: {}`（部分生成）、或指标 schema 变更导致逐个指标都被跳过时，
+ * `baselineComparability` 照样返回 OK，而 `compareRun` 静默跳过所有指标——表格是空的，
+ * 该场景却会被算成"已比较"，于是 tag 运行以 exit 0 收尾，重新制造本守卫要消灭的假绿灯。
+ * 所以把这种基线单独标成 `EMPTY_BASELINE`，与 NEW / MISMATCH 同样计入"未覆盖"。
+ */
+function coverageState(result) {
+  if (result.baselineState !== "OK") return result.baselineState;
+  // 只统计**相对**行：绝对行（帧预算 p95 / 掉帧率）不依赖基线，它的存在不能说明"比较过了"。
+  // 否则 PERF_ABSOLUTE=1 / headed / uncapped + 「元数据可比但没有可用指标」的基线时，
+  // 绝对行会让覆盖虚报为 OK、EMPTY_BASELINE 不触发——同一族假绿灯的最后一角。
+  return result.metrics.some((m) => m.absolute !== true) ? "OK" : "EMPTY_BASELINE";
 }
 
 function ensureDir(dir) {
@@ -570,6 +592,15 @@ function main() {
     );
   }
   lines.push(`- 场景数：${results.length}　FAIL：${failed.length}　WARN：${warned.length}`);
+  // 判定覆盖面必须显式报出来：基线缺失时所有场景都是 NEW，报告照样打印「FAIL：0」——
+  // 那看起来像"没有回归"，实际是"什么都没比"。发版验证尤其不能出现这种假绿灯。
+  const comparedRuns = results.filter((r) => coverageState(r) === "OK");
+  lines.push(
+    `- 判定覆盖：${comparedRuns.length}/${results.length} 个场景参与相对判定` +
+      (comparedRuns.length < results.length
+        ? "（其余无基线、不可比或基线里没有可用指标，其 FAIL/WARN 计数不代表已比较）"
+        : ""),
+  );
   // 噪声门槛：由基线历史（同一环境 + 同一 fixture 的多次运行）估计的 3σ。
   // 历史不足时判定退化为"百分比 + 绝对地板"，必须显式说明，避免读者高估分辨率。
   const historyPoints = results
@@ -587,6 +618,41 @@ function main() {
         `回退到「百分比 + 绝对地板」。重建基线（--update-baseline）会逐次累积历史`,
     );
   }
+  // 分辨率提醒：3σ 达到参考值 RESOLUTION_WARN_PCT% 的行，其相对判定只剩"抓大事故"的能力。
+  // 必须与 FAIL 计数并列报出来——"假 FAIL"会被人发现，"静默漏检"不会。
+  const coarseRows = results.flatMap((r) =>
+    r.metrics
+      .filter((m) => typeof m.resolution === "number" && m.resolution >= RESOLUTION_WARN_PCT)
+      .map((m) => `${r.id}:${m.metric}(${Math.round(m.resolution)}%)`),
+  );
+  if (coarseRows.length > 0) {
+    const shown = coarseRows.slice(0, 8);
+    lines.push(
+      `- 分辨率提醒：${coarseRows.length} 行的 3σ ≥ 参考值的 ${RESOLUTION_WARN_PCT}%` +
+        `（这些指标在当前环境只能检出更大的变化，行上的 PASS 不等于"没问题"）：${shown.join(", ")}` +
+        (coarseRows.length > shown.length ? `，等共 ${coarseRows.length} 行` : ""),
+    );
+  }
+  // 整机漂移迹象：共享 runner 被拖慢时，互不相关的指标会一起变差（实测 88% 行、中位 Δ +18.7%），
+  // 而纯噪声下应接近 50%。**只披露、不改判定**——整体变慢也可能真是全链路回归，
+  // 二者在共享 runner 上无法据此区分；把证据摆出来，避免读者把"机器慢"读成"代码坏"。
+  const relativeRows = results.flatMap((r) =>
+    r.metrics.filter(
+      (m) => m.absolute !== true && typeof m.base === "number" && m.base > 0 && typeof m.cur === "number",
+    ),
+  );
+  if (relativeRows.length > 0) {
+    const worsened = relativeRows.filter((m) => m.cur > m.base).length;
+    const driftPct = (worsened / relativeRows.length) * 100;
+    if (driftPct >= DRIFT_WARN_PCT) {
+      const deltas = relativeRows.map((m) => ((m.cur - m.base) / m.base) * 100);
+      lines.push(
+        `- ⚠️ 整机漂移迹象：${worsened}/${relativeRows.length} 行（${Math.round(driftPct)}%）比基线差，` +
+          `中位变化 ${median(deltas).toFixed(1)}%——互不相关的指标同时变差通常意味着 runner 变慢而非代码回归，` +
+          `FAIL 结论请结合这一点判断（二者在共享 runner 上无法仅凭本报告区分）`,
+      );
+    }
+  }
   const absoluteCount = results.filter((r) => r.absoluteEnabled).length;
   if (absoluteCount > 0) {
     lines.push(
@@ -603,13 +669,15 @@ function main() {
     );
   }
   lines.push("");
-  lines.push("| 场景 | 指标 | baseline | 本次 | 复测 | 变化 | 3σ | 判定 |");
+  lines.push("| 场景 | 指标 | baseline | 本次 | 复测 | 变化 | 3σ（占参考） | 判定 |");
   lines.push("|---|---|---|---|---|---|---|---|");
   for (const r of results) {
-    // 不可比时必须显式出现在表里：否则读者会把"没有相对行"误读成"相对判定通过"
-    if (r.baselineState !== "OK") {
+    // 不可比（或基线里没有可用指标）时必须显式出现在表里：
+    // 否则读者会把"没有相对行"误读成"相对判定通过"
+    const cov = coverageState(r);
+    if (cov !== "OK") {
       lines.push(
-        `| ${r.id} | 基线 | — | — | — | — | 未参与相对判定：${r.baselineState} |`,
+        `| ${r.id} | 基线 | — | — | — | — | 未参与相对判定：${cov} |`,
       );
     }
     if (r.metrics.length === 0) continue;
@@ -618,10 +686,16 @@ function main() {
         typeof m.base !== "number" || m.base === 0
           ? "—"
           : `${(((m.cur - m.base) / m.base) * 100).toFixed(1)}%`;
+      const noiseCell =
+        typeof m.noise !== "number"
+          ? "—"
+          : typeof m.resolution === "number"
+            ? `${round(m.noise)}（${Math.round(m.resolution)}%）`
+            : `${round(m.noise)}`;
       lines.push(
-        `| ${r.id} | ${m.metric} | ${m.base} | ${m.cur} | ${m.retest ?? "—"} | ${delta} | ${
-          typeof m.noise === "number" ? round(m.noise) : "—"
-        } | ${m.verdict}${m.note ? `（${m.note}）` : ""} |`,
+        `| ${r.id} | ${m.metric} | ${m.base} | ${m.cur} | ${m.retest ?? "—"} | ${delta} | ${noiseCell} | ${
+          m.verdict
+        }${m.note ? `（${m.note}）` : ""} |`,
       );
     }
   }
@@ -649,12 +723,42 @@ function main() {
       console.log(`  · ${cause}：${items.join(", ")}`);
     }
   }
-  const notCompared = results.filter((r) => r.baselineState !== "OK");
+  const notCompared = results.filter((r) => coverageState(r) !== "OK");
   if (notCompared.length > 0) {
     console.log(
       `[perf] 未做相对比较的 ${notCompared.length} 个场景：` +
         notCompared.map((r) => `${r.id}(${r.baselineState})`).join(", "),
     );
+  }
+
+  // 先无条件打印覆盖行：无论后面走哪条退出路径，读者都能在控制台看到本次究竟比了几个场景
+  console.log(
+    `[perf] 判定覆盖：${comparedRuns.length}/${results.length} 个场景参与相对判定`,
+  );
+
+  const coverageIncomplete = comparedRuns.length < results.length;
+  // PERF_REQUIRE_COMPARISON=1：要求本次必须完成比较（发版验证用）。
+  // 没比上就退出码 2（infra 故障）——绝不允许"没比"伪装成"没回归"。
+  //
+  // 为什么必须放在 FAIL 判定**之前**：tag 运行若同时"有回归复现"且"覆盖不足"，
+  // 先 exit 1 会让覆盖问题永远报不出来——CI 只看到"回归"，看不出这次验证本身不完整。
+  // 覆盖不足时退出码 2 优先（结论不完整比单个结论更根本），但两条信息都打出来。
+  //
+  // 只在 final 阶段判定：check 阶段退出非 0 会被 benchmark.mjs 当成 infra 故障中止，
+  // 那样连"建立首个基线"的 --update-baseline 运行都跑不完（它天生没有基线可比）。
+  if (phase === "final" && process.env.PERF_REQUIRE_COMPARISON === "1" && coverageIncomplete) {
+    if (failed.length > 0) {
+      console.error(
+        `[perf] 注意：本次同时存在 FAIL（${failed.map((f) => f.id).join(", ")}）——` +
+          `报告表格里有逐行判定细节，但覆盖不足使整份结论不完整。`,
+      );
+    }
+    console.error(
+      `[perf] 判定覆盖不足：仅 ${comparedRuns.length}/${results.length} 个场景参与相对判定。\n` +
+        `        本次结论**不构成性能验证**：基线缺失时「FAIL：0」只说明"没比"，不说明"没回归"。\n` +
+        `        请先建立该档位的基线：workflow_dispatch(profile=<档位>, update_baseline=true) → 取回产物提交。`,
+    );
+    process.exit(2);
   }
 
   if (failed.length > 0) {
@@ -681,6 +785,7 @@ function main() {
     }
     process.exit(1);
   }
+
   process.exit(0);
 }
 

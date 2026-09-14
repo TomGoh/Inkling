@@ -1,43 +1,33 @@
 {
   "schemaVersion": 2,
   "env": "ci-ubuntu",
-  "profile": "quick",
+  "profile": "full",
   "mode": "headless",
   "scenario": "scroll",
-  "tier": "M",
+  "tier": "L",
   "kind": "plain",
-  "rounds": 2,
+  "rounds": 3,
   "fixture": {
     "version": 2,
-    "hash": "e6f4ba5042dc",
-    "lines": 5000,
+    "hash": "52f9b70176ff",
+    "lines": 20000,
     "source": "generated:plain"
   },
   "metrics": {
     "frameMs": {
       "median": 16.7,
-      "p95": 17.1,
-      "max": 19.1,
-      "n": 240,
+      "p95": 17.4,
+      "max": 39.2,
+      "n": 600,
       "history": [
-        16.7,
-        16.7,
-        16.7,
-        16.7,
-        16.7,
         16.7,
         16.7,
         16.7
       ],
       "historyP95": [
+        17.3,
         16.9,
-        16.9,
-        16.8,
-        17,
-        16.9,
-        17.1,
-        16.9,
-        17.1
+        17.4
       ]
     },
     "longTaskCount": {
@@ -47,11 +37,6 @@
       "n": null,
       "scalar": true,
       "history": [
-        0,
-        0,
-        0,
-        0,
-        0,
         0,
         0,
         0
@@ -66,11 +51,6 @@
       "history": [
         0,
         0,
-        0,
-        0,
-        0,
-        0,
-        0,
         0
       ]
     },
@@ -83,46 +63,31 @@
       "history": [
         0,
         0,
-        0,
-        0,
-        0,
-        0,
-        0,
         0
       ]
     },
     "jankCount": {
-      "median": 0,
+      "median": 3.33,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
+        2.67,
+        3,
+        3.33
       ]
     },
     "jankRatePct": {
-      "median": 0,
+      "median": 1.67,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0,
-        0
+        1.33,
+        1.5,
+        1.67
       ]
     },
     "cls": {
@@ -132,11 +97,6 @@
       "n": null,
       "scalar": true,
       "history": [
-        0,
-        0,
-        0,
-        0,
-        0,
         0,
         0,
         0
@@ -151,14 +111,9 @@
       "history": [
         0,
         0,
-        0,
-        0,
-        0,
-        0,
-        0,
         0
       ]
     }
   },
-  "updatedAt": "2026-09-14T14:00:52.197Z"
+  "updatedAt": "2026-09-13T12:18:33.875Z"
 }
