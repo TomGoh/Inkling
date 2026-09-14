@@ -62,10 +62,9 @@ function runReport(
 ): RunResult {
   const args = [REPORT, `--phase=${phase}`];
   if (updateBaseline) args.push("--update-baseline=1");
-  const env = perf.env(
-    requireComparison ? { PERF_REQUIRE_COMPARISON: "1" } : {},
-  );
-  delete env.PERF_ABSOLUTE;
+  // 继承来的 PERF_*（含 PERF_ABSOLUTE / PERF_REQUIRE_COMPARISON）已由 perf.env() 统一剥离，
+  // 这里只需显式给出本用例想要的开关——"守卫关闭"分支因此是真的关闭
+  const env = perf.env(requireComparison ? { PERF_REQUIRE_COMPARISON: "1" } : {});
 
   try {
     const stdout = execFileSync(process.execPath, args, { env, encoding: "utf8" });

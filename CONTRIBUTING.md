@@ -174,9 +174,13 @@ PERF_DOC_FILE=md_editor_stress_test.md pnpm run benchmark
 
 | 码 | 含义 | 处理 |
 |---|---|---|
-| 0 | 跑完且无确认回归（含仅 WARN、首次运行无基线） | 正常 |
+| 0 | 跑完且无确认回归（含仅 WARN） | 正常 |
 | 1 | 回归复现（连续 2 次超阈值） | 看 `.perf-output/report.md` 定位 |
-| 2 | 没测到（server 起不来、场景缺失等 infra 故障） | 先修测量链路，别当成"没回归" |
+| 2 | 没测到 —— ①infra 故障（server 起不来、场景缺失等）；②**判定覆盖不足**（`PERF_REQUIRE_COMPARISON=1` 下部分场景无基线/不可比，tag 运行会红着报出来） | 先修测量链路或补齐该档位基线，别当成"没回归" |
+
+> 首次运行无基线时退出码仍是 `0`（NEW 场景不参与相对判定，也不构成"没测到"）；
+> 只有显式要求比较的 tag 运行（`PERF_REQUIRE_COMPARISON=1`）才把覆盖不足升级为 `exit 2`。
+> 任何情况下都先看报告里的 `判定覆盖：N/M`：M 个场景里只有 N 个真正参与了判定。
 
 CI 上 Benchmark **不阻断合并**，只上传 `.perf-output/` 产物并写入 Job Summary。
 
