@@ -405,6 +405,8 @@ function sessionProbeOf(raw, baseline) {
     deltaPct: ((cur - base) / base) * 100,
     noise: noiseFor(entry),
     historyPoints: entry?.history?.length ?? 0,
+    // 历史序列：门槛判"是否超出历史范围"要用（3σ 对"机器档位双峰"这种分布不适用）
+    history: Array.isArray(entry?.history) ? entry.history : [],
   };
 }
 
@@ -680,26 +682,29 @@ function main() {
     }
   }
   // 会话标定（#236）：把「机器慢」从「代码回归」里分开。
-  // 标定负载与编辑器代码无关 → 它变慢就是环境变慢；它正常而多数应用行变差，恶变更可能出自代码。
-  // 门槛：有 3σ 历史就用它；没有（基线还没播种到标定指标）退化为 30% 粗判，口径与分辨率提醒一致。
+  // 注意门槛的选型：标定值的分布就是**机器档位的分布**（实测两档 ≈31ms / ≈50ms，同一次运行内
+  // 16 个场景彼此只差 ~2ms），σ 自然很大 → 用 3σ 会几乎永不触发。所以改判「是否超出历史范围」：
+  // 落在范围内 = 与历史档位一致（不看机器好坏，只看是否"见过"）；超出 10% 才算环境异常。
   const probes = results
     .filter((r) => r.sessionProbe)
     .map((r) => ({ id: r.id, ...r.sessionProbe }));
   if (probes.length > 0) {
-    const sessionGatePct = 30;
-    const anomalous = probes.filter((p) =>
-      typeof p.noise === "number" && p.noise > 0
-        ? p.deltaPct > (p.noise / p.base) * 100
-        : p.deltaPct > sessionGatePct,
-    );
-    const medianDelta = median(probes.map((p) => p.deltaPct));
-    const sessionBad = anomalous.length * 2 >= probes.length;
+    const probeCur = median(probes.map((p) => p.cur));
+    const probeRef = median(probes.map((p) => p.base));
+    const hist = probes.flatMap((p) => p.history ?? []);
+    const lo = Math.round(Math.min(...hist) * 100) / 100;
+    const hi = Math.round(Math.max(...hist) * 100) / 100;
+    const deltaPct = ((probeCur - probeRef) / probeRef) * 100;
+    const outOfRange = probeCur > hi * 1.1;
     lines.push(
-      `- 会话标定（与代码无关的固定工作量，#236）：${probes.length} 个场景的中位变化 ${medianDelta.toFixed(1)}%，` +
-        (sessionBad
-          ? `**⚠️ 判为「会话环境异常」**（${anomalous.length}/${probes.length} 个场景超门槛）——` +
-            `应用指标的恶化**很可能来自 runner 变慢**而非代码回归，请换 runner 重跑确认`
-          : `在基线散布内 → **环境正常**（应用指标的恶化难以归因于机器，更像是代码侧变化）`),
+      `- 会话标定（与代码无关的固定工作量，#236）：本次 ${probeCur}ms vs 基线参考 ${probeRef}ms` +
+        `（${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(1)}%），基线历史范围 ${lo}–${hi}ms（${probes.length} 个场景）→ ` +
+        (outOfRange
+          ? `**⚠️ 判为「会话环境异常」**（超出历史范围 10% 以上）：应用指标的恶化**很可能来自 runner 变慢**` +
+            `而非代码回归，请换 runner 重跑确认`
+          : `环境在历史范围内（**档位归因**：应用指标若同时变差，很可能只是这台机器比基线参考` +
+            `${deltaPct >= 0 ? "慢" : "快"} ${Math.abs(deltaPct).toFixed(1)}%，须结合档位判断；` +
+            `只有超出历史范围才判为环境异常）`),
     );
   }
   const absoluteCount = results.filter((r) => r.absoluteEnabled).length;

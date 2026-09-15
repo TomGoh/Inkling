@@ -289,14 +289,15 @@ describe("会话标定归因（#236）", () => {
 
   it("标定负载明显变慢 → 判「会话环境异常」（应用指标的恶化很可能来自 runner）", () => {
     writeBaseline(probeBaseline);
-    writeRaw(ID, undefined, { probeMs: 140 }); // +40%，远超 3σ（≈3%）
+    writeRaw(ID, undefined, { probeMs: 140 }); // 140 > 历史上限 101 的 110% → 超出历史范围
 
     const result = runReport("final");
 
     expect(result.status).toBe(0); // 只归因、不改判定（#236 明确的范围）
     expect(report()).toContain("会话标定");
     expect(report()).toContain("判为「会话环境异常」");
-    expect(report()).toMatch(/中位变化 40\.0%/);
+    expect(report()).toContain("本次 140ms vs 基线参考 100ms（+40.0%）");
+    expect(report()).toContain("基线历史范围 99–101ms");
   });
 
   it("标定负载正常 → 判「环境正常」，恶变不归因于机器", () => {
@@ -304,7 +305,7 @@ describe("会话标定归因（#236）", () => {
     writeRaw(ID, undefined, { probeMs: 100 });
 
     expect(runReport("final").status).toBe(0);
-    expect(report()).toContain("环境正常");
+    expect(report()).toContain("环境在历史范围内"); // 门槛=是否超出历史范围（3σ 对双峰不适用）
     expect(report()).not.toContain("会话环境异常");
   });
 
