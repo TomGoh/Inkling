@@ -384,6 +384,27 @@ function coverageState(result) {
   return result.metrics.some((m) => m.absolute !== true) ? "OK" : "EMPTY_BASELINE";
 }
 
+/**
+ * 会话标定对比（issue #236）：当前轮的标定值与基线参考值。
+ *
+ * 标定指标（probeMs / probeLayoutMs / probeCpuMs）刻意**不进 COMPARED_SCALARS 白名单**——
+ * 「机器变慢」不是代码回归，它们不参与 FAIL/WARN 判定；这里只把两侧取出来供**环境归因**披露。
+ * 任一缺失（基线还没播种到标定指标 / 老产物回放）时返回 null，不猜测。
+ */
+function sessionProbeOf(raw, baseline) {
+  const cur = raw?.scalars?.probeMs;
+  const entry = baseline?.metrics?.probeMs;
+  const base = entry ? referenceValue(entry) : undefined;
+  if (typeof cur !== "number" || typeof base !== "number" || base <= 0) return null;
+  return {
+    cur,
+    base,
+    deltaPct: ((cur - base) / base) * 100,
+    noise: noiseFor(entry),
+    historyPoints: entry?.history?.length ?? 0,
+  };
+}
+
 function ensureDir(dir) {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
@@ -530,6 +551,8 @@ function main() {
       baselineState: state.reason,
       metrics: verdicts,
       overMetrics,
+      // 会话标定（#236）：不参与判定，只供「环境归因」披露使用
+      sessionProbe: sessionProbeOf(raw, baseline),
     });
   }
 
@@ -652,6 +675,29 @@ function main() {
           `FAIL 结论请结合这一点判断（二者在共享 runner 上无法仅凭本报告区分）`,
       );
     }
+  }
+  // 会话标定（#236）：把「机器慢」从「代码回归」里分开。
+  // 标定负载与编辑器代码无关 → 它变慢就是环境变慢；它正常而多数应用行变差，恶变更可能出自代码。
+  // 门槛：有 3σ 历史就用它；没有（基线还没播种到标定指标）退化为 30% 粗判，口径与分辨率提醒一致。
+  const probes = results
+    .filter((r) => r.sessionProbe)
+    .map((r) => ({ id: r.id, ...r.sessionProbe }));
+  if (probes.length > 0) {
+    const sessionGatePct = 30;
+    const anomalous = probes.filter((p) =>
+      typeof p.noise === "number" && p.noise > 0
+        ? p.deltaPct > (p.noise / p.base) * 100
+        : p.deltaPct > sessionGatePct,
+    );
+    const medianDelta = median(probes.map((p) => p.deltaPct));
+    const sessionBad = anomalous.length * 2 >= probes.length;
+    lines.push(
+      `- 会话标定（与代码无关的固定工作量，#236）：${probes.length} 个场景的中位变化 ${medianDelta.toFixed(1)}%，` +
+        (sessionBad
+          ? `**⚠️ 判为「会话环境异常」**（${anomalous.length}/${probes.length} 个场景超门槛）——` +
+            `应用指标的恶化**很可能来自 runner 变慢**而非代码回归，请换 runner 重跑确认`
+          : `在基线散布内 → **环境正常**（应用指标的恶化难以归因于机器，更像是代码侧变化）`),
+    );
   }
   const absoluteCount = results.filter((r) => r.absoluteEnabled).length;
   if (absoluteCount > 0) {
