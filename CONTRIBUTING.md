@@ -233,7 +233,8 @@ CI 上 Benchmark **不阻断合并**，只上传 `.perf-output/` 产物并写入
   ⚠️ **产物名要对**：该次运行若检出疑似回归，基线更新发生在 **retest job**（见「判定」小节的拆 job 编排），
   要取的是 **`perf-benchmark-<profile>-retest`**——job1 的 `perf-benchmark-<profile>` 里仍是**旧基线**，
   取错等于本次播种**静默丢失**（下一轮从旧基线继续累积，不报任何错）。
-  两个 job 的 Job Summary 都会写明这一条。
+  **检出疑似回归时**，job1 的移交提示与 retest job 的 Job Summary **都会**写明这一条
+  （播种场景下操作者看到的正是 retest job 的 Summary，所以提示必须就在那里）。
   ⚠️ **必须串行**：下一轮要在**提交了上一轮产物之后**触发，历史才会逐次累积
   （并行跑只会各写各的单点）。
 - **播种深度与节奏**：目标是把每套基线补到上限 `HISTORY_MAX = 8` 点——

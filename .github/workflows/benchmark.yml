@@ -276,6 +276,13 @@ jobs:
               echo "## 性能 Benchmark · 独立复测（新 runner，issue #234）"
               echo ""
               cat .perf-output/report.md
+              echo ""
+              # 播种场景下，基线更新（--update-baseline）发生在**本 job** 的 final 阶段，
+              # 而操作者此刻看到的正是这个 Summary——必须就地下发取回目标，
+              # 否则会去取 job1 的 perf-benchmark-<profile>（旧基线）→ 本次播种静默丢失。
+              echo "> 📦 **取回产物（若本次是播种 \`update_baseline=true\`）**：基线已在**本 job** 更新，"
+              echo "> 请取 **\`perf-benchmark-${{ needs.benchmark.outputs.profile }}-retest\`**；"
+              echo "> job1 的 \`perf-benchmark-${{ needs.benchmark.outputs.profile }}\` 里是**旧基线**（取错＝本次播种静默丢失）。"
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "⚠️ 未生成 .perf-output/report.md（复测 job 未跑完，属 infra 故障）" >> "$GITHUB_STEP_SUMMARY"
