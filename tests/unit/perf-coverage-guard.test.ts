@@ -315,4 +315,21 @@ describe("会话标定归因（#236）", () => {
     expect(runReport("final").status).toBe(0);
     expect(report()).not.toContain("会话标定");
   });
+
+  it("标定值必须写进基线，但不能作为判定行出现（进基线 ≠ 参与判定）", () => {
+    // 实测踩过：标定指标被排除在 COMPARED_SCALARS 之外后，buildStats 写基线时也用同一白名单，
+    // 于是播种产物里根本没有 probeMs——基线没历史、归因行永远不出现。
+    // 两个集合必须分开：持久化取并集，判定只用白名单。
+    writeRaw(ID, undefined, { probeMs: 36, probeLayoutMs: 9, probeCpuMs: 27 });
+
+    expect(runReport("final", { updateBaseline: true }).status).toBe(0);
+
+    const baseline = JSON.parse(
+      readFileSync(join(perf.baselineDir, "local", "quick", "headless", "r2", `${ID}.json`), "utf8"),
+    ) as { metrics: Record<string, { median?: number; history?: number[] }> };
+    expect(baseline.metrics.probeMs?.median).toBe(36); // 持久化了
+    expect(baseline.metrics.probeMs?.history).toEqual([36]); // 首次播种起头
+    expect(baseline.metrics.probeLayoutMs?.median).toBe(9);
+    expect(report()).not.toMatch(/\| probeMs \|/); // 但不出现在判定表格里
+  });
 });

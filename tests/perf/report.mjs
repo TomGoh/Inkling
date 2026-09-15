@@ -26,6 +26,7 @@ import {
   referenceValue,
   requiresPrimaryCorroboration,
   RESOLUTION_WARN_PCT,
+  SESSION_PROBE_METRICS,
   resolutionPct,
   suppressionReason,
 } from "./judgment.js";
@@ -295,7 +296,9 @@ function buildStats(raw) {
   for (const [metric, samples] of Object.entries(raw.samples ?? {})) {
     metrics[metric] = statsFor(samples);
   }
-  for (const metric of COMPARED_SCALARS) {
+  // 判定白名单 + 会话标定指标：标定值必须**持久化**（否则基线没有参考值与 3σ 门槛，
+  // 「环境归因」永远判不出来），但它不参与判定——见 judgment.SESSION_PROBE_METRICS 的说明。
+  for (const metric of [...COMPARED_SCALARS, ...SESSION_PROBE_METRICS]) {
     if (metric in (raw.scalars ?? {})) {
       const v = raw.scalars[metric];
       metrics[metric] = { median: v, p95: null, max: null, n: null, scalar: true };
