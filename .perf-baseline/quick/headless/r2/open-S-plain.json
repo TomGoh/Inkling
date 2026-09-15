@@ -15,29 +15,29 @@
   },
   "metrics": {
     "ttiMs": {
-      "median": 479.15,
-      "p95": 479.9,
-      "max": 479.9,
+      "median": 397.95,
+      "p95": 398,
+      "max": 398,
       "n": 2,
       "history": [
-        479.9,
         437.95,
         413.75,
         471.6,
         446.8,
         479.25,
         470.6,
-        479.15
+        479.15,
+        397.95
       ],
       "historyP95": [
-        496.7,
         445.5,
         414,
         480.1,
         447.5,
         480,
         479,
-        479.9
+        479.9,
+        398
       ]
     },
     "longTaskCount": {
@@ -58,20 +58,20 @@
       ]
     },
     "longTaskMs": {
-      "median": 157.5,
+      "median": 92.5,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        163.5,
         124.5,
         101.5,
         160.5,
         131,
         157.5,
         152.5,
-        157.5
+        157.5,
+        92.5
       ]
     },
     "cls": {
@@ -107,7 +107,37 @@
         0,
         0
       ]
+    },
+    "probeMs": {
+      "median": 31,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        31
+      ]
+    },
+    "probeLayoutMs": {
+      "median": 7.1,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        7.1
+      ]
+    },
+    "probeCpuMs": {
+      "median": 23.9,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        23.9
+      ]
     }
   },
-  "updatedAt": "2026-09-14T14:00:52.196Z"
+  "updatedAt": "2026-09-15T16:35:28.752Z"
 }
