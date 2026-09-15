@@ -15,29 +15,29 @@
   },
   "metrics": {
     "ttiMs": {
-      "median": 847.1,
-      "p95": 847.1,
-      "max": 847.1,
+      "median": 747.45,
+      "p95": 747.5,
+      "max": 747.5,
       "n": 2,
       "history": [
-        713.45,
         896.05,
         804.65,
         904.4,
         912.4,
         913.15,
         672.85,
-        847.1
+        847.1,
+        747.45
       ],
       "historyP95": [
-        730.5,
         896.7,
         813.1,
         912.2,
         912.7,
         929.8,
         681.3,
-        847.1
+        847.1,
+        747.5
       ]
     },
     "longTaskCount": {
@@ -47,31 +47,31 @@
       "n": null,
       "scalar": true,
       "history": [
-        1.5,
         2,
         1.5,
         2.5,
         2,
         2.5,
+        1.5,
         1.5,
         1.5
       ]
     },
     "longTaskMs": {
-      "median": 274.5,
+      "median": 225,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        202.5,
         332,
         250,
         336.5,
         331.5,
         343.5,
         181,
-        274.5
+        274.5,
+        225
       ]
     },
     "cls": {
@@ -109,38 +109,41 @@
       ]
     },
     "probeMs": {
-      "median": 48.3,
+      "median": 37.35,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         30.95,
-        48.3
+        48.3,
+        37.35
       ]
     },
     "probeLayoutMs": {
-      "median": 12.05,
+      "median": 9.45,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         7.2,
-        12.05
+        12.05,
+        9.45
       ]
     },
     "probeCpuMs": {
-      "median": 36.25,
+      "median": 27.9,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         23.75,
-        36.25
+        36.25,
+        27.9
       ]
     }
   },
-  "updatedAt": "2026-09-15T16:44:09.795Z"
+  "updatedAt": "2026-09-15T16:50:01.610Z"
 }

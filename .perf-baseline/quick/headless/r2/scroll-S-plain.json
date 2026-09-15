@@ -17,7 +17,7 @@
     "frameMs": {
       "median": 16.7,
       "p95": 16.8,
-      "max": 17.1,
+      "max": 17,
       "n": 240,
       "history": [
         16.7,
@@ -31,8 +31,8 @@
       ],
       "historyP95": [
         16.8,
-        16.8,
         16.9,
+        16.8,
         16.8,
         16.8,
         16.8,
@@ -160,38 +160,41 @@
       ]
     },
     "probeMs": {
-      "median": 48.7,
+      "median": 37.9,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         31.3,
-        48.7
+        48.7,
+        37.9
       ]
     },
     "probeLayoutMs": {
-      "median": 12.3,
+      "median": 9.5,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         7.35,
-        12.3
+        12.3,
+        9.5
       ]
     },
     "probeCpuMs": {
-      "median": 36.4,
+      "median": 28.4,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         23.95,
-        36.4
+        36.4,
+        28.4
       ]
     }
   },
-  "updatedAt": "2026-09-15T16:44:09.798Z"
+  "updatedAt": "2026-09-15T16:50:01.613Z"
 }

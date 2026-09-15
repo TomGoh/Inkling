@@ -16,8 +16,8 @@
   "metrics": {
     "frameMs": {
       "median": 16.7,
-      "p95": 16.8,
-      "max": 18.9,
+      "p95": 17.1,
+      "max": 18.6,
       "n": 240,
       "history": [
         16.7,
@@ -30,14 +30,14 @@
         16.7
       ],
       "historyP95": [
-        16.8,
         17,
         16.9,
         17.1,
         16.9,
         17.1,
         17.1,
-        16.8
+        16.8,
+        17.1
       ]
     },
     "longTaskCount": {
@@ -160,38 +160,41 @@
       ]
     },
     "probeMs": {
-      "median": 47.75,
+      "median": 37.35,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         31.5,
-        47.75
+        47.75,
+        37.35
       ]
     },
     "probeLayoutMs": {
-      "median": 11.65,
+      "median": 9.3,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         7.35,
-        11.65
+        11.65,
+        9.3
       ]
     },
     "probeCpuMs": {
-      "median": 36.1,
+      "median": 28.05,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         24.15,
-        36.1
+        36.1,
+        28.05
       ]
     }
   },
-  "updatedAt": "2026-09-15T16:44:09.797Z"
+  "updatedAt": "2026-09-15T16:50:01.612Z"
 }
