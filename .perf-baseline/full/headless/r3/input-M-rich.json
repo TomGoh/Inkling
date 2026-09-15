@@ -15,47 +15,51 @@
   },
   "metrics": {
     "inputPaintMs": {
-      "median": 37.8,
-      "p95": 48.4,
-      "max": 63,
+      "median": 37,
+      "p95": 43.7,
+      "max": 51,
       "n": 180,
       "history": [
         39.9,
         41.4,
         39.5,
         39.2,
-        37.8
+        37.8,
+        37
       ],
       "historyP95": [
         49.5,
         49.2,
         47.4,
         47.7,
-        48.4
+        48.4,
+        43.7
       ]
     },
     "inputSyncMs": {
-      "median": 9.3,
-      "p95": 11.3,
-      "max": 15.9,
+      "median": 9,
+      "p95": 10.2,
+      "max": 12.4,
       "n": 180,
       "history": [
         9.7,
         10.3,
         9.8,
         9.4,
-        9.3
+        9.3,
+        9
       ],
       "historyP95": [
         12.7,
         11.6,
         11.8,
         11.4,
-        11.3
+        11.3,
+        10.2
       ]
     },
     "longTaskCount": {
-      "median": 1.67,
+      "median": 0.33,
       "p95": null,
       "max": null,
       "n": null,
@@ -65,11 +69,12 @@
         1.67,
         1.33,
         1.67,
-        1.67
+        1.67,
+        0.33
       ]
     },
     "longTaskMs": {
-      "median": 89.67,
+      "median": 19,
       "p95": null,
       "max": null,
       "n": null,
@@ -79,7 +84,8 @@
         103,
         78.33,
         98.67,
-        89.67
+        89.67,
+        19
       ]
     },
     "cls": {
@@ -89,6 +95,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0,
         0,
         0,
@@ -107,9 +114,40 @@
         0,
         0,
         0,
+        0,
         0
+      ]
+    },
+    "probeMs": {
+      "median": 51.2,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        51.2
+      ]
+    },
+    "probeLayoutMs": {
+      "median": 12.8,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        12.8
+      ]
+    },
+    "probeCpuMs": {
+      "median": 38.4,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        38.4
       ]
     }
   },
-  "updatedAt": "2026-09-15T14:10:30.675Z"
+  "updatedAt": "2026-09-15T17:05:57.000Z"
 }

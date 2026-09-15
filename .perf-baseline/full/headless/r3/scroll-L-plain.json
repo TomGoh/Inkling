@@ -17,9 +17,10 @@
     "frameMs": {
       "median": 16.7,
       "p95": 18.3,
-      "max": 43.7,
+      "max": 52.3,
       "n": 600,
       "history": [
+        16.7,
         16.7,
         16.7,
         16.7,
@@ -31,11 +32,12 @@
         16.9,
         17.4,
         18.9,
+        18.3,
         18.3
       ]
     },
     "longTaskCount": {
-      "median": 0,
+      "median": 0.33,
       "p95": null,
       "max": null,
       "n": null,
@@ -45,11 +47,12 @@
         0,
         0,
         0,
-        0
+        0,
+        0.33
       ]
     },
     "longTaskMs": {
-      "median": 0,
+      "median": 17.67,
       "p95": null,
       "max": null,
       "n": null,
@@ -59,11 +62,12 @@
         0,
         0,
         0,
-        0
+        0,
+        17.67
       ]
     },
     "longFrameCount": {
-      "median": 0,
+      "median": 0.33,
       "p95": null,
       "max": null,
       "n": null,
@@ -73,7 +77,8 @@
         0,
         0,
         0,
-        0
+        0,
+        0.33
       ]
     },
     "jankCount": {
@@ -87,6 +92,7 @@
         3,
         3.33,
         3.33,
+        3,
         3
       ]
     },
@@ -101,6 +107,7 @@
         1.5,
         1.67,
         1.67,
+        1.5,
         1.5
       ]
     },
@@ -111,6 +118,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0,
         0,
         0,
@@ -129,9 +137,40 @@
         0,
         0,
         0,
+        0,
         0
+      ]
+    },
+    "probeMs": {
+      "median": 51.5,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        51.5
+      ]
+    },
+    "probeLayoutMs": {
+      "median": 12.3,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        12.3
+      ]
+    },
+    "probeCpuMs": {
+      "median": 39.2,
+      "p95": null,
+      "max": null,
+      "n": null,
+      "scalar": true,
+      "history": [
+        39.2
       ]
     }
   },
-  "updatedAt": "2026-09-15T14:10:30.679Z"
+  "updatedAt": "2026-09-15T17:05:57.005Z"
 }
