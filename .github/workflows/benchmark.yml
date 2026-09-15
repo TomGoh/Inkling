@@ -124,7 +124,9 @@ jobs:
         if: ${{ !cancelled() }}
         shell: bash
         run: |
-          N=$(node -e "try{console.log(JSON.parse(require('fs').readFileSync('.perf-output/retest.json','utf8')).length)}catch{console.log(0)}")
+          # 必须显式判数组：非数组 JSON 时 `.length` 是 undefined，`[ "undefined" -gt 0 ]` 会让
+          # 整个步骤报错 → suspects 输出为空 → 复测被静默跳过，而 PR 运行还有 continue-on-error 掩盖成绿。
+          N=$(node -e "const p='.perf-output/retest.json';let l=null;try{l=JSON.parse(require('fs').readFileSync(p,'utf8'))}catch{};console.log(Array.isArray(l)?l.length:0)")
           echo "疑似场景数=$N"
           if [ "$N" -gt 0 ]; then
             echo "suspects=true" >> "$GITHUB_OUTPUT"
@@ -183,6 +185,10 @@ jobs:
               echo "**疑似场景**："
               echo ""
               node -e "const l=JSON.parse(require('fs').readFileSync('.perf-output/retest.json','utf8'));console.log(l.map(x=>'- \`'+x+'\`').join('\n'))"
+              echo ""
+              echo "> ⚠️ 若本次是**播种**（\`update_baseline=true\`）：基线更新发生在 retest job，"
+              echo "> 请取回 \`perf-benchmark-${{ steps.profile.outputs.value }}-retest\` 产物提交——"
+              echo "> 本 job 的 \`perf-benchmark-${{ steps.profile.outputs.value }}\` 里仍是旧基线（取错＝本次播种静默丢失）。"
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "⚠️ 未生成 .perf-output/report.md（benchmark 未跑完，属 infra 故障）" >> "$GITHUB_STEP_SUMMARY"
