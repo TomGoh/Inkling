@@ -702,9 +702,10 @@ function main() {
         (outOfRange
           ? `**⚠️ 判为「会话环境异常」**（超出历史范围 10% 以上）：应用指标的恶化**很可能来自 runner 变慢**` +
             `而非代码回归，请换 runner 重跑确认`
-          : `环境在历史范围内（**档位归因**：应用指标若同时变差，很可能只是这台机器比基线参考` +
-            `${deltaPct >= 0 ? "慢" : "快"} ${Math.abs(deltaPct).toFixed(1)}%，须结合档位判断；` +
-            `只有超出历史范围才判为环境异常）`),
+          : `环境在历史范围内（**档位归因**：本次比基线参考${deltaPct >= 0 ? "慢" : "快"} ` +
+            `${Math.abs(deltaPct).toFixed(1)}%）——标定负载覆盖 **CPU 与布局/绘制**两条路径，` +
+            `不含 IO/网络；应用指标若同时变差，机器档位不足以解释它（须看代码或 IO 侧）；` +
+            `只有超出历史范围才判为环境异常`),
     );
   }
   const absoluteCount = results.filter((r) => r.absoluteEnabled).length;
