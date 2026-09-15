@@ -6,6 +6,8 @@
 //   phase 3  清单非空 → 只跑清单里的场景，raw 落盘 .perf-output/raw-retest/
 //   phase 4  report --phase=final → 合并两轮判定，输出对比表与退出码
 //
+// 阶段 3/4 可拆到**独立 job**（新 runner）执行，见 PERF_SPLIT_RETEST / PERF_RETEST_ONLY 说明（issue #234）。
+//
 // 为什么"复测"必须由本脚本编排而不是 report.mjs 自己触发：
 // report 运行时 Playwright 已经退出、浏览器已关闭，report 没有任何复测能力。
 //
@@ -23,6 +25,7 @@ import {
   parseArgs,
   unknownArgKeys,
 } from "./cli-env.js";
+import { planRetestPhases } from "./retest-plan.js";
 
 const OUT_DIR = resolve(".perf-output");
 const CONFIG = "tests/perf/playwright.perf.config.ts";
@@ -119,40 +122,89 @@ async function main() {
   // 全部参数统一走 buildRunEnv：任何"解析了却忘了往下传"的参数都会在这里暴露
   const baseEnv = buildRunEnv({ profile, port, repeat, scenario });
 
+  // ---- 阶段编排（issue #234）----
+  // 默认（单 job）：测 → check → 复测（同 runner）→ final
+  // `PERF_SPLIT_RETEST=1`：只做「测 + check」；有嫌疑就把清单交给独立 job 并在本 job 退出 0
+  //   （工作流随后在新 runner 上跑 `PERF_RETEST_ONLY=1`）；无嫌疑则就地出 final 报告，不额外起 job。
+  // `PERF_RETEST_ONLY=1`：跳过测量与 check，直接「复测 + final」（raw 与 retest.json 来自上游产物）。
+  // `PERF_FORCE_SUSPECTS=<id,id>`：测试钩子，覆盖复测清单，用于确定性地演练移交路径。
+  //
+  // 为什么要拆 job：首轮与复测在同一台 runner 上顺序执行时，**整台 runner 变慢**（共享宿主机争用）
+  // 会让两轮同时超阈值、穿过「连续 2 次」过滤——实测一次慢会话里 88% 的相对行同时变差、
+  // 中位 Δ +18.7%，而同一份代码在安静时段测得完全正常。换 runner 后两轮才统计独立。
+  // 具体该跑哪些阶段由 retestPlanPhases 纯函数决定（有单测锁语义）。
+  const retestOnly = process.env.PERF_RETEST_ONLY === "1";
+
   // 两个 raw 目录每轮都清空：
   // - raw-retest：残留样本会让"连续 2 次"判定读到上一轮的数据
   // - raw：否则本次没跑到的场景（被 --scenario 过滤掉、或已从 profiles 移除）
   //   会拿上一轮的旧采样参与比较，报表里出现一堆 0.0% 的假 PASS
+  // 但复测 job 的 raw 是上游 job 的产物，清掉就没得比了 → 只在测量轮清
   rmSync(resolve(OUT_DIR, "raw-retest"), { recursive: true, force: true });
-  rmSync(resolve(OUT_DIR, "raw"), { recursive: true, force: true });
-
-  const pwArgs = [PW_CLI, "test", "-c", CONFIG];
-
-  const code1 = await runCommand(pwArgs, baseEnv);
-  if (code1 !== 0) {
-    console.error(
-      `[perf] 测量阶段失败（playwright exit=${code1}）。未产出完整采样，按 infra 故障处理。`,
-    );
-    process.exit(2);
-  }
-
-  const checkCode = await runCommand(["tests/perf/report.mjs", "--phase=check"]);
-  if (checkCode !== 0) {
-    console.error(`[perf] check 阶段异常（exit=${checkCode}）`);
-    process.exit(2);
-  }
 
   // 复测清单始终生效，包括显式 --scenario 过滤的运行。
   // 早先这里写的是「显式过滤时不复测」，理由是被过滤的子集不是"疑似回归清单"——
   // 但 check 阶段本来就只评估了被过滤的子集，跳过复测只会让过滤运行永远拿不到
   // raw2 → 落成 WARN「未复测」→ exit 0，即"跑单个场景时永远看不到 FAIL"。
   // 复测阶段的 PERF_SCENARIO 由下面的调用覆盖为清单内容，用户过滤不会串到复测里。
-  const retest = readRetestList();
-  if (retest.length > 0) {
-    console.log(`[perf] 复测 ${retest.length} 个场景：${retest.join(", ")}`);
+  const forced = (process.env.PERF_FORCE_SUSPECTS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (forced.length > 0) {
+    console.log(`[perf] 测试钩子 PERF_FORCE_SUSPECTS 生效：${forced.join(", ")}`);
+  }
+
+  const pwArgs = [PW_CLI, "test", "-c", CONFIG];
+
+  if (!retestOnly) {
+    rmSync(resolve(OUT_DIR, "raw"), { recursive: true, force: true });
+    // 陈旧报告也要清：本地连跑两次时，上一次的 report.md 会被误当成本次结论
+    // （移交模式下本 job 不产出 report.md，残留会把"已移交待复测"读成"已有判定"）
+    rmSync(resolve(OUT_DIR, "report.md"), { force: true });
+
+    const code1 = await runCommand(pwArgs, baseEnv);
+    if (code1 !== 0) {
+      console.error(
+        `[perf] 测量阶段失败（playwright exit=${code1}）。未产出完整采样，按 infra 故障处理。`,
+      );
+      process.exit(2);
+    }
+
+    const checkCode = await runCommand(["tests/perf/report.mjs", "--phase=check"]);
+    if (checkCode !== 0) {
+      console.error(`[perf] check 阶段异常（exit=${checkCode}）`);
+      process.exit(2);
+    }
+  }
+
+  const suspects = forced.length > 0 ? forced : readRetestList();
+  if (forced.length > 0) {
+    // 钩子要把"生效清单"也写回 retest.json：工作流的「是否需要独立复测 job」判定读的是这个文件，
+    // 否则强制演练只会改本进程内的行为、job2 不会被触发（CI 上就验证不到复测 job）。
+    writeFileSync(resolve(OUT_DIR, "retest.json"), JSON.stringify(suspects, null, 2), "utf8");
+  }
+  const plan = planRetestPhases({
+    splitRetest: process.env.PERF_SPLIT_RETEST === "1",
+    retestOnly,
+    suspects,
+  });
+
+  if (plan.handoff) {
+    console.log(
+      `[perf] 疑似 ${suspects.length} 个场景（${suspects.join(", ")}）——移交独立 job 在新 runner 上复测`,
+    );
+    console.log(
+      "[perf] 同 runner 顺序复测无法过滤「慢会话」（issue #234），故本 job 不做 final 判定",
+    );
+    process.exit(0);
+  }
+
+  if (suspects.length > 0) {
+    console.log(`[perf] 复测 ${suspects.length} 个场景：${suspects.join(", ")}`);
     const retestCode = await runCommand(pwArgs, {
       ...baseEnv,
-      PERF_SCENARIO: retest.join(","),
+      PERF_SCENARIO: suspects.join(","),
       PERF_RAW_DIR: ".perf-output/raw-retest",
     });
     if (retestCode !== 0) {
@@ -160,6 +212,8 @@ async function main() {
       console.error(`[perf] 复测阶段失败（exit=${retestCode}），无法完成"连续 2 次"判定`);
       process.exit(2);
     }
+  } else if (retestOnly) {
+    console.log("[perf] 复测清单为空：仅做 final 判定（无复测轮，相关行会落成 WARN「未复测」）");
   }
 
   const finalArgs = ["tests/perf/report.mjs", "--phase=final"];

@@ -36,6 +36,11 @@ on:
         required: false
         default: false
         type: boolean
+      force_suspects:
+        description: "调试用：强制把指定场景当作「疑似回归」（逗号分隔，如 open-S-rich），用于确定性演练「移交 + 独立复测 job」两段路径"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -47,6 +52,10 @@ jobs:
     # tag 运行是**发版验证**，必须显式失败——否则"回归复现"与"根本没比出结论"都会被绿勾掩盖。
     # tag 运行不会影响 build.yml 的 release job（两者是独立工作流），这里只控制本工作流的结论。
     continue-on-error: ${{ github.ref_type != 'tag' }}
+    outputs:
+      # 有疑似回归时把复测交给下面独立的 retest job（新 runner），见 jobs.retest 的说明
+      suspects: ${{ steps.verdict.outputs.suspects }}
+      profile: ${{ steps.profile.outputs.value }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -96,11 +105,33 @@ jobs:
           PERF_ABSOLUTE: ${{ github.event.inputs.absolute == 'true' && '1' || '' }}
           # tag 运行（发版验证）必须真的和基线比出结论：覆盖不足时 report 退出 2（不构成性能验证）
           PERF_REQUIRE_COMPARISON: ${{ github.ref_type == 'tag' && '1' || '' }}
+          # 拆出独立复测 job（issue #234）：同 runner 顺序复测无法过滤"整台 runner 变慢"的会话，
+          # 慢会话会让首轮与复测同时超阈值、穿过「连续 2 次」过滤。有嫌疑时本 job 只测+check，
+          # 复测与 final 判定交给 retest job 在新 runner 上跑。
+          PERF_SPLIT_RETEST: "1"
+          # 调试钩子：让「移交 + 独立复测 job」两段路径可被确定性演练（默认空=不强制）
+          PERF_FORCE_SUSPECTS: ${{ github.event.inputs.force_suspects }}
         run: |
           if [ "${{ github.event.inputs.update_baseline }}" = "true" ]; then
             pnpm run benchmark -- --update-baseline=1
           else
             pnpm run benchmark
+          fi
+
+      # 判定是否需要独立复测 job：retest.json 有内容即为"有嫌疑"
+      - name: 判定是否需要独立复测
+        id: verdict
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          # 必须显式判数组：非数组 JSON 时 `.length` 是 undefined，`[ "undefined" -gt 0 ]` 会让
+          # 整个步骤报错 → suspects 输出为空 → 复测被静默跳过，而 PR 运行还有 continue-on-error 掩盖成绿。
+          N=$(node -e "const p='.perf-output/retest.json';let l=null;try{l=JSON.parse(require('fs').readFileSync(p,'utf8'))}catch{};console.log(Array.isArray(l)?l.length:0)")
+          echo "疑似场景数=$N"
+          if [ "$N" -gt 0 ]; then
+            echo "suspects=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "suspects=false" >> "$GITHUB_OUTPUT"
           fi
 
       # 退出码 1 = 回归复现，2 = infra 故障；两者都不阻断合并，但要留下产物供排查
@@ -143,6 +174,116 @@ jobs:
               echo ""
               cat .perf-output/report.md
             } >> "$GITHUB_STEP_SUMMARY"
+          elif [ -f .perf-output/retest.json ]; then
+            # 移交模式（issue #234）：本 job 只做测量 + check，final 判定在 retest job 里出
+            {
+              echo "## 性能 Benchmark（档位：${{ steps.profile.outputs.value }}）"
+              echo ""
+              echo "⏳ 检出疑似回归，复测与 final 判定已移交独立的 **retest job**（新 runner）——"
+              echo "同 runner 顺序复测无法过滤「整台 runner 变慢」的会话（#234）。"
+              echo ""
+              echo "**疑似场景**："
+              echo ""
+              node -e "const l=JSON.parse(require('fs').readFileSync('.perf-output/retest.json','utf8'));console.log(l.map(x=>'- \`'+x+'\`').join('\n'))"
+              echo ""
+              echo "> ⚠️ 若本次是**播种**（\`update_baseline=true\`）：基线更新发生在 retest job，"
+              echo "> 请取回 \`perf-benchmark-${{ steps.profile.outputs.value }}-retest\` 产物提交——"
+              echo "> 本 job 的 \`perf-benchmark-${{ steps.profile.outputs.value }}\` 里仍是旧基线（取错＝本次播种静默丢失）。"
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "⚠️ 未生成 .perf-output/report.md（benchmark 未跑完，属 infra 故障）" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # 独立复测 job（issue #234）：在**新的 runner** 上重测疑似场景并做 final 判定。
+  #
+  # 为什么必须换 runner：首轮与复测在同一台 VM 上顺序执行时，「整台 runner 变慢」
+  # （共享宿主机争用 / VM 放置差异）会让两轮同时超阈值，穿过「连续 2 次」判定——
+  # 实测一次慢会话里 88% 的相对行同时变差、中位 Δ +18.7%，而同一份代码在安静时段完全正常。
+  # 换 runner 后两轮才统计独立：慢会话通常不会在两台不同 VM 上重现 → 正确落成 WARN「复测回落」。
+  #
+  # 只在有疑似回归时运行：无嫌疑的常规运行仍只有 1 个 job（不额外付启动与安装成本）。
+  retest:
+    needs: benchmark
+    if: needs.benchmark.outputs.suspects == 'true'
+    runs-on: ubuntu-latest
+    # 与 benchmark job 同规则：PR 运行不阻断合并；tag 运行必须显式失败（否则红信号被绿勾掩盖）
+    continue-on-error: ${{ github.ref_type != 'tag' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # 上游 job 的产物：首轮采样 + 复测清单 + 基线（判定要用）
+      - name: 下载首轮产物
+        uses: actions/download-artifact@v7
+        with:
+          name: perf-benchmark-${{ needs.benchmark.outputs.profile }}
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium
+
+      - name: Install Playwright system deps
+        shell: bash
+        # sudo 会重置 PATH 导致找不到 pnpm，用 sudo env 透传（与 benchmark job 一致）
+        run: sudo env "PATH=$PATH" pnpm exec playwright install-deps chromium
+
+      - name: 复测 + final 判定（本 job 的 runner 与首轮不同）
+        env:
+          PERF_PROFILE: ${{ needs.benchmark.outputs.profile }}
+          CI: "true"
+          PERF_ABSOLUTE: ${{ github.event.inputs.absolute == 'true' && '1' || '' }}
+          PERF_REQUIRE_COMPARISON: ${{ github.ref_type == 'tag' && '1' || '' }}
+          PERF_RETEST_ONLY: "1"
+          PERF_FORCE_SUSPECTS: ${{ github.event.inputs.force_suspects }}
+        run: |
+          if [ "${{ github.event.inputs.update_baseline }}" = "true" ]; then
+            pnpm run benchmark -- --update-baseline=1
+          else
+            pnpm run benchmark
+          fi
+
+      - name: Upload benchmark artifact（含复测轮与 final 报告）
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-benchmark-${{ needs.benchmark.outputs.profile }}-retest
+          path: |
+            .perf-output/
+            .perf-baseline/
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: 写入 Job Summary
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          if [ -f .perf-output/report.md ]; then
+            {
+              echo "## 性能 Benchmark · 独立复测（新 runner，issue #234）"
+              echo ""
+              cat .perf-output/report.md
+              echo ""
+              # 播种场景下，基线更新（--update-baseline）发生在**本 job** 的 final 阶段，
+              # 而操作者此刻看到的正是这个 Summary——必须就地下发取回目标，
+              # 否则会去取 job1 的 perf-benchmark-<profile>（旧基线）→ 本次播种静默丢失。
+              echo "> 📦 **取回产物（若本次是播种 \`update_baseline=true\`）**：基线已在**本 job** 更新，"
+              echo "> 请取 **\`perf-benchmark-${{ needs.benchmark.outputs.profile }}-retest\`**；"
+              echo "> job1 的 \`perf-benchmark-${{ needs.benchmark.outputs.profile }}\` 里是**旧基线**（取错＝本次播种静默丢失）。"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "⚠️ 未生成 .perf-output/report.md（复测 job 未跑完，属 infra 故障）" >> "$GITHUB_STEP_SUMMARY"
           fi
