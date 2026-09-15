@@ -15,9 +15,9 @@
   },
   "metrics": {
     "inputPaintMs": {
-      "median": 17.2,
-      "p95": 17.7,
-      "max": 34.5,
+      "median": 17.1,
+      "p95": 17.4,
+      "max": 18.9,
       "n": 180,
       "history": [
         17.2,
@@ -25,7 +25,8 @@
         17.3,
         17.15,
         17.3,
-        17.2
+        17.2,
+        17.1
       ],
       "historyP95": [
         17.5,
@@ -33,13 +34,14 @@
         17.6,
         17.4,
         17.6,
-        17.7
+        17.7,
+        17.4
       ]
     },
     "inputSyncMs": {
-      "median": 2.1,
-      "p95": 3.3,
-      "max": 8,
+      "median": 1.5,
+      "p95": 1.9,
+      "max": 5,
       "n": 180,
       "history": [
         1.9,
@@ -47,7 +49,8 @@
         2.4,
         1.9,
         2.5,
-        2.1
+        2.1,
+        1.5
       ],
       "historyP95": [
         2.7,
@@ -55,7 +58,8 @@
         2.7,
         2.6,
         2.8,
-        3.3
+        3.3,
+        1.9
       ]
     },
     "longTaskCount": {
@@ -65,6 +69,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0,
         0,
         0,
@@ -85,6 +90,7 @@
         0,
         0,
         0,
+        0,
         0
       ]
     },
@@ -95,6 +101,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0,
         0,
         0,
@@ -115,39 +122,43 @@
         0,
         0,
         0,
+        0,
         0
       ]
     },
     "probeMs": {
-      "median": 50.4,
+      "median": 38.7,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        50.4
+        50.4,
+        38.7
       ]
     },
     "probeLayoutMs": {
-      "median": 11.6,
+      "median": 9.1,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        11.6
+        11.6,
+        9.1
       ]
     },
     "probeCpuMs": {
-      "median": 38.8,
+      "median": 29.6,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        38.8
+        38.8,
+        29.6
       ]
     }
   },
-  "updatedAt": "2026-09-15T17:05:57.002Z"
+  "updatedAt": "2026-09-15T17:24:18.535Z"
 }

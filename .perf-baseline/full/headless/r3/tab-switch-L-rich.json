@@ -15,9 +15,9 @@
   },
   "metrics": {
     "switchMs": {
-      "median": 2598.5,
-      "p95": 4996.1,
-      "max": 4996.1,
+      "median": 2212,
+      "p95": 4129.5,
+      "max": 4129.5,
       "n": 6,
       "history": [
         2776.7,
@@ -25,7 +25,8 @@
         2736.05,
         2771.95,
         2867.4,
-        2598.5
+        2598.5,
+        2212
       ],
       "historyP95": [
         5279.6,
@@ -33,11 +34,12 @@
         5197.3,
         5279.4,
         5629.2,
-        4996.1
+        4996.1,
+        4129.5
       ]
     },
     "longTaskCount": {
-      "median": 11.33,
+      "median": 9,
       "p95": null,
       "max": null,
       "n": null,
@@ -48,11 +50,12 @@
         11,
         10.67,
         10.33,
-        11.33
+        11.33,
+        9
       ]
     },
     "longTaskMs": {
-      "median": 9707.33,
+      "median": 8144.67,
       "p95": null,
       "max": null,
       "n": null,
@@ -63,7 +66,8 @@
         10319.67,
         10248,
         10540,
-        9707.33
+        9707.33,
+        8144.67
       ]
     },
     "cls": {
@@ -73,6 +77,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0,
         0,
         0,
@@ -93,39 +98,43 @@
         0,
         0,
         0,
+        0,
         0
       ]
     },
     "probeMs": {
-      "median": 51.6,
+      "median": 44.4,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        51.6
+        51.6,
+        44.4
       ]
     },
     "probeLayoutMs": {
-      "median": 13.1,
+      "median": 13.2,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        13.1
+        13.1,
+        13.2
       ]
     },
     "probeCpuMs": {
-      "median": 38.5,
+      "median": 31.2,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
-        38.5
+        38.5,
+        31.2
       ]
     }
   },
-  "updatedAt": "2026-09-15T17:05:57.009Z"
+  "updatedAt": "2026-09-15T17:24:18.539Z"
 }
