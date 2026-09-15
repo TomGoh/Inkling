@@ -16,8 +16,8 @@
   "metrics": {
     "frameMs": {
       "median": 16.7,
-      "p95": 21.1,
-      "max": 45.7,
+      "p95": 23.2,
+      "max": 91.4,
       "n": 360,
       "history": [
         16.6,
@@ -26,6 +26,7 @@
         16.7,
         16.65,
         16.6,
+        16.7,
         16.7
       ],
       "historyP95": [
@@ -35,11 +36,12 @@
         24.5,
         25.1,
         22.9,
-        21.1
+        21.1,
+        23.2
       ]
     },
     "longTaskCount": {
-      "median": 0,
+      "median": 0.33,
       "p95": null,
       "max": null,
       "n": null,
@@ -51,11 +53,12 @@
         1,
         1,
         0.67,
-        0
+        0,
+        0.33
       ]
     },
     "longTaskMs": {
-      "median": 0,
+      "median": 21.33,
       "p95": null,
       "max": null,
       "n": null,
@@ -67,11 +70,12 @@
         59.67,
         50.33,
         34.33,
-        0
+        0,
+        21.33
       ]
     },
     "longFrameCount": {
-      "median": 0,
+      "median": 1.67,
       "p95": null,
       "max": null,
       "n": null,
@@ -83,11 +87,12 @@
         2.33,
         2,
         0,
-        0
+        0,
+        1.67
       ]
     },
     "jankCount": {
-      "median": 1.67,
+      "median": 4.33,
       "p95": null,
       "max": null,
       "n": null,
@@ -99,11 +104,12 @@
         5.33,
         6,
         4,
-        1.67
+        1.67,
+        4.33
       ]
     },
     "jankRatePct": {
-      "median": 1.4,
+      "median": 3.6,
       "p95": null,
       "max": null,
       "n": null,
@@ -115,7 +121,8 @@
         4.43,
         5,
         3.3,
-        1.4
+        1.4,
+        3.6
       ]
     },
     "cls": {
@@ -125,6 +132,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0,
         0,
         0,
@@ -147,42 +155,46 @@
         0,
         0,
         0,
+        0,
         0
       ]
     },
     "probeMs": {
-      "median": 41.4,
+      "median": 47.8,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         51.9,
-        41.4
+        41.4,
+        47.8
       ]
     },
     "probeLayoutMs": {
-      "median": 11.2,
+      "median": 11.8,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         13.3,
-        11.2
+        11.2,
+        11.8
       ]
     },
     "probeCpuMs": {
-      "median": 30.2,
+      "median": 36,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         38.6,
-        30.2
+        30.2,
+        36
       ]
     }
   },
-  "updatedAt": "2026-09-15T17:24:18.538Z"
+  "updatedAt": "2026-09-15T17:41:17.220Z"
 }

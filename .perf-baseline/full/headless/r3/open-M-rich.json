@@ -15,9 +15,9 @@
   },
   "metrics": {
     "ttiMs": {
-      "median": 2662.5,
-      "p95": 2697,
-      "max": 2697,
+      "median": 2996.6,
+      "p95": 3230.1,
+      "max": 3230.1,
       "n": 3,
       "history": [
         3213.2,
@@ -26,7 +26,8 @@
         3155.2,
         3296.8,
         3162.8,
-        2662.5
+        2662.5,
+        2996.6
       ],
       "historyP95": [
         3330,
@@ -35,11 +36,12 @@
         3346.9,
         3313,
         3212.7,
-        2697
+        2697,
+        3230.1
       ]
     },
     "longTaskCount": {
-      "median": 4.67,
+      "median": 6,
       "p95": null,
       "max": null,
       "n": null,
@@ -51,11 +53,12 @@
         5.33,
         7.33,
         6.33,
-        4.67
+        4.67,
+        6
       ]
     },
     "longTaskMs": {
-      "median": 1088.67,
+      "median": 1355.33,
       "p95": null,
       "max": null,
       "n": null,
@@ -67,7 +70,8 @@
         1407.67,
         1488,
         1387.33,
-        1088.67
+        1088.67,
+        1355.33
       ]
     },
     "cls": {
@@ -77,6 +81,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0,
         0,
         0,
@@ -99,42 +104,46 @@
         0,
         0,
         0,
+        0,
         0
       ]
     },
     "probeMs": {
-      "median": 39.5,
+      "median": 47.7,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         50.1,
-        39.5
+        39.5,
+        47.7
       ]
     },
     "probeLayoutMs": {
-      "median": 10.1,
+      "median": 11.8,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         11.8,
-        10.1
+        10.1,
+        11.8
       ]
     },
     "probeCpuMs": {
-      "median": 29.4,
+      "median": 35.9,
       "p95": null,
       "max": null,
       "n": null,
       "scalar": true,
       "history": [
         38.3,
-        29.4
+        29.4,
+        35.9
       ]
     }
   },
-  "updatedAt": "2026-09-15T17:24:18.536Z"
+  "updatedAt": "2026-09-15T17:41:17.215Z"
 }
