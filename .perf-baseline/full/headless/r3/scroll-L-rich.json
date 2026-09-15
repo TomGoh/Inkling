@@ -15,23 +15,25 @@
   },
   "metrics": {
     "frameMs": {
-      "median": 58.1,
-      "p95": 112.4,
-      "max": 304.2,
+      "median": 61.35,
+      "p95": 120.4,
+      "max": 287.8,
       "n": 600,
       "history": [
         61.4,
         65,
-        58.1
+        58.1,
+        61.35
       ],
       "historyP95": [
         129.5,
         120.1,
-        112.4
+        112.4,
+        120.4
       ]
     },
     "longTaskCount": {
-      "median": 106.33,
+      "median": 135,
       "p95": null,
       "max": null,
       "n": null,
@@ -39,11 +41,12 @@
       "history": [
         114,
         139.67,
-        106.33
+        106.33,
+        135
       ]
     },
     "longTaskMs": {
-      "median": 7720.67,
+      "median": 9735,
       "p95": null,
       "max": null,
       "n": null,
@@ -51,11 +54,12 @@
       "history": [
         9042.33,
         10369.33,
-        7720.67
+        7720.67,
+        9735
       ]
     },
     "longFrameCount": {
-      "median": 116.33,
+      "median": 140.33,
       "p95": null,
       "max": null,
       "n": null,
@@ -63,11 +67,12 @@
       "history": [
         117,
         148,
-        116.33
+        116.33,
+        140.33
       ]
     },
     "jankCount": {
-      "median": 195.67,
+      "median": 196.33,
       "p95": null,
       "max": null,
       "n": null,
@@ -75,11 +80,12 @@
       "history": [
         200,
         199,
-        195.67
+        195.67,
+        196.33
       ]
     },
     "jankRatePct": {
-      "median": 97.83,
+      "median": 98.17,
       "p95": null,
       "max": null,
       "n": null,
@@ -87,7 +93,8 @@
       "history": [
         100,
         99.5,
-        97.83
+        97.83,
+        98.17
       ]
     },
     "cls": {
@@ -97,6 +104,7 @@
       "n": null,
       "scalar": true,
       "history": [
+        0,
         0,
         0,
         0
@@ -111,9 +119,10 @@
       "history": [
         0,
         0,
+        0,
         0
       ]
     }
   },
-  "updatedAt": "2026-09-13T12:18:33.876Z"
+  "updatedAt": "2026-09-14T17:02:19.890Z"
 }
