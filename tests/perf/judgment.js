@@ -97,11 +97,6 @@ export function resolutionPct(entry, statistic = "median") {
  */
 export const SESSION_PROBE_METRICS = ["probeMs", "probeLayoutMs", "probeCpuMs"];
 
-/** 是否为会话标定指标（进基线但不参与判定） */
-export function isSessionProbe(metric) {
-  return SESSION_PROBE_METRICS.includes(metric);
-}
-
 /**
  * 分辨率提醒阈值（%）：3σ 达到参考值这个比例时，报告会显式列出该指标。
  *

@@ -330,10 +330,13 @@ export const PROBE_LOOP_ITERS = 20_000_000;
 
 /**
  * 在页面内执行标定负载（经 page.evaluate 序列化，故不引用模块作用域变量）。
- * 两条路径分别覆盖：① 布局/绘制（DOM 合成 + 强制布局）② 纯 CPU（固定步数计算）。
+ * 两条路径分别覆盖：① **DOM 构建 / 样式 / 布局**（固定数量节点 + 强制 layout）② 纯 CPU（固定步数计算）。
+ * 注意：① 是**离屏 + visibility:hidden** 的子树，只走 style recalc 与 layout，**不产生 paint/光栅化**——
+ * 所以措辞里不写「覆盖绘制」（评审 #P2-2 指出过：声称覆盖绘制而实际不绘制，等于虚报覆盖）。
  *
  * ⚠️ 工作量在函数体内写成字面量（序列化只带函数体，拿不到 PROBE_NODES / PROBE_LOOP_ITERS），
- * 单测 `perf-session-probe` 断言两者一致——改了一个忘了另一个会当场失败。
+ * 单测 `perf-session-probe` 用 `runSessionProbe.toString()` 断言函数体里的字面量与常量一致——
+ * 只改一处、忘改另一处会当场失败（此前只断言常量本身，守卫是虚的，评审 #P1-1 指出）。
  * 量级选择：实测本机约 8ms 布局 + 30ms CPU——太短会让标定值自身抖动（±1ms 即 10%+），
  * 分辨率不足以判"机器变慢 20%"；总量 ~40ms 相对场景耗时（秒级）可忽略。
  */
@@ -345,7 +348,7 @@ export function runSessionProbe(): Promise<{
   const nodes = 1500;
   const iters = 20_000_000;
   return (async () => {
-    // ① 布局/绘制路径：固定数量节点 + 固定样式，离屏（contain:strict）避免影响被测页面
+    // ① DOM 构建/样式/布局路径：固定数量节点 + 固定样式；离屏（contain:strict + visibility:hidden）
     const host = document.createElement("div");
     host.style.cssText =
       "position:absolute;left:-99999px;top:0;width:800px;contain:strict;visibility:hidden";

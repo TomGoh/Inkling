@@ -5,7 +5,7 @@
 // 参与"环境异常"判定——伪造 0 会让一次没测到的运行看起来像"机器变快了"。
 
 import { describe, expect, it } from "vitest";
-import { createSessionProbe, PROBE_LOOP_ITERS, PROBE_NODES } from "../perf/metrics.js";
+import { createSessionProbe, PROBE_LOOP_ITERS, PROBE_NODES, runSessionProbe } from "../perf/metrics.js";
 
 /** 假页面：每次 evaluate 依次返回给定的标定结果 */
 function fakePage(results: Array<{ layoutMs: number; cpuMs: number }>) {
@@ -44,5 +44,22 @@ describe("会话标定采集器（#236）", () => {
   it("标定工作量是写死的常量（可变的话标定值本身就不可比）", () => {
     expect(PROBE_NODES).toBe(1500);
     expect(PROBE_LOOP_ITERS).toBe(20_000_000);
+  });
+
+  it("页内函数体里的字面量与常量同步：只改一处会当场失败（评审 P1-1）", () => {
+    // 页内函数经 page.evaluate 序列化执行，**拿不到模块常量**，所以工作量在函数体里又写了一遍。
+    // 之前只断言了常量本身，改函数体一处、忘改常量时全套门禁照样全绿——那是虚的守卫。
+    // 这里直接读函数源码，把两处字面量与常量钉在一起。
+    //
+    // 用数值比对而不是字符串比对：转译会把 `20_000_000` 压成 `2e7`（实测踩到），
+    // 字符串断言会被这种等价形式误判为"不一致"。
+    const src = runSessionProbe.toString();
+    const num = (name: string): number => {
+      const m = new RegExp(`const ${name} = ([0-9_.eE+-]+);`).exec(src);
+      expect(m, `页内函数体缺少 const ${name} = <字面量>;`).not.toBeNull();
+      return Number(m![1]);
+    };
+    expect(num("nodes")).toBe(PROBE_NODES);
+    expect(num("iters")).toBe(PROBE_LOOP_ITERS);
   });
 });

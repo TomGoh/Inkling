@@ -60,6 +60,45 @@ function writeRaw(
   writeFileSync(join(perf.rawDir, `${id}.json`), JSON.stringify(raw, null, 2), "utf8");
 }
 
+/** 写一份复测轮 raw（raw-retest 目录）：结构与首轮一致，供"两轮对账"类用例使用 */
+function writeRetest(
+  id = ID,
+  frameMs = Array.from({ length: 120 }, (_, i) => 16.7 + (i % 3) * 0.1),
+  extraScalars: Record<string, number> = {},
+): void {
+  const raw = {
+    id,
+    scenario: "scroll",
+    tier: "S",
+    kind: "rich",
+    env: "local",
+    profile: "quick",
+    rounds: 2,
+    warmups: 1,
+    mode: "headless",
+    absoluteEligible: false,
+    fixture: { version: 2, hash: "coverage0001", lines: 1000, source: "generated:rich" },
+    samples: { frameMs },
+    scalars: {
+      frameBudgetMs: 16.7,
+      jankFactor: 1.5,
+      step: 240,
+      jankCount: 0,
+      jankRatePct: 0,
+      longFrameCount: 0,
+      longTaskCount: 0,
+      longTaskMs: 0,
+      cls: 0,
+      heapDeltaMB: 0,
+      ...extraScalars,
+    },
+  };
+  writeFileSync(join(perf.retestDir, `${id}.json`), JSON.stringify(raw, null, 2), "utf8");
+}
+
+/** 明文超阈值的采样（对基线 16.8ms 约 +79%），用来造"复现的回归" */
+const REGRESSED_FRAME_MS = Array.from({ length: 120 }, (_, i) => 30 + (i % 3) * 0.1);
+
 /** 写一份与当前采样元数据匹配的基线（可指定 metrics，默认空对象模拟"无可用指标"） */
 function writeBaseline(metrics: Record<string, unknown> = {}): void {
   mkdirSync(join(perf.baselineDir, "local", "quick", "headless", "r2"), { recursive: true });
@@ -286,8 +325,20 @@ describe("会话标定归因（#236）", () => {
   const probeBaseline = {
     probeMs: { median: 100, p95: 105, max: 110, n: 3, history: [99, 100, 101] },
   };
+  /** 基线里同时给出 frameMs（判定要用）与 probeMs（归因要用） */
+  const frameAndProbeBaseline = {
+    frameMs: {
+      median: 16.8,
+      p95: 17.1,
+      max: 17.2,
+      n: 120,
+      history: [16.8, 16.8, 16.8],
+      historyP95: [17.1, 17.1, 17.1],
+    },
+    ...probeBaseline,
+  };
 
-  it("标定负载明显变慢 → 判「会话环境异常」（应用指标的恶化很可能来自 runner）", () => {
+  it("首轮标定超范围且没有复测数据 → 判「首轮环境异常」", () => {
     writeBaseline(probeBaseline);
     writeRaw(ID, undefined, { probeMs: 140 }); // 140 > 历史上限 101 的 110% → 超出历史范围
 
@@ -295,9 +346,34 @@ describe("会话标定归因（#236）", () => {
 
     expect(result.status).toBe(0); // 只归因、不改判定（#236 明确的范围）
     expect(report()).toContain("会话标定");
-    expect(report()).toContain("判为「会话环境异常」");
-    expect(report()).toContain("本次 140ms vs 基线参考 100ms（+40.0%）");
-    expect(report()).toContain("基线历史范围 99–101ms");
+    expect(report()).toContain("首轮环境异常");
+    expect(report()).toContain("基线参考 100ms，历史范围 99–101ms，首轮 140ms");
+  });
+
+  it("两轮对账①：复测那台机器慢 → 提示 FAIL 可能被复测环境放大（评审 P2-1 后果 b）", () => {
+    // 只看首轮会写「环境正常」，恰好丢弃了唯一能识破这次假 FAIL 的证据（复测侧 probe）。
+    writeBaseline(frameAndProbeBaseline);
+    writeRaw(ID, REGRESSED_FRAME_MS, { probeMs: 100 }); // 首轮：机器正常，指标超阈值
+    writeRetest(ID, REGRESSED_FRAME_MS, { probeMs: 140 }); // 复测：换到一台慢机器，仍超阈值
+
+    runReport("final");
+
+    expect(report()).toContain("复测环境异常");
+    expect(report()).toContain("FAIL 未必成立");
+    expect(report()).not.toContain("回归在「两台 runner 上复现」");
+  });
+
+  it("两轮对账②：首轮慢但复测（另一台 runner）仍复现 → 判「回归在两台 runner 上复现」（评审 P2-1 后果 a）", () => {
+    // 旧实现只说首轮 → 会写「请换 runner 重跑确认」，而换 runner 恰恰已经做过了。
+    writeBaseline(frameAndProbeBaseline);
+    writeRaw(ID, REGRESSED_FRAME_MS, { probeMs: 140 }); // 首轮：机器慢 + 指标超阈值
+    writeRetest(ID, REGRESSED_FRAME_MS, { probeMs: 100 }); // 复测：机器正常，仍超阈值 → 复现
+
+    const result = runReport("final");
+
+    expect(result.status).toBe(1); // FAIL 复现
+    expect(report()).toContain("回归在「两台 runner 上复现」");
+    expect(report()).not.toContain("请换 runner 重跑确认");
   });
 
   it("标定负载正常 → 判「环境正常」，恶变不归因于机器", () => {

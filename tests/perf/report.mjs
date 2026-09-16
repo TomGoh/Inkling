@@ -388,23 +388,29 @@ function coverageState(result) {
 }
 
 /**
- * 会话标定对比（issue #236）：当前轮的标定值与基线参考值。
+ * 会话标定对比（issue #236）：**首轮与复测两轮**的标定值 + 基线参考值/历史范围。
  *
  * 标定指标（probeMs / probeLayoutMs / probeCpuMs）刻意**不进 COMPARED_SCALARS 白名单**——
  * 「机器变慢」不是代码回归，它们不参与 FAIL/WARN 判定；这里只把两侧取出来供**环境归因**披露。
- * 任一缺失（基线还没播种到标定指标 / 老产物回放）时返回 null，不猜测。
+ *
+ * 为什么两轮都要取：final 阶段的首轮与复测跑在**不同的 runner** 上（#234 拆 job）。
+ * 只看首轮会得出与事实上相反的结论——例如首轮慢（超范围）触发复测、复测在另一台机器上
+ * 仍超阈值确诊 FAIL 时，若只看首轮就会写「请换 runner 重跑确认」，而这一步其实已经做过了。
+ * 反过来，复测那台机器慢会把复测值整体抬高造成假 FAIL，此时唯一能识破的证据恰是复测侧 probe。
+ *
+ * 任一缺失（基线还没播种到标定指标 / 老产物回放 / 没有复测轮）时返回 null 或对应字段缺省，不猜测。
  */
-function sessionProbeOf(raw, baseline) {
-  const cur = raw?.scalars?.probeMs;
+function sessionProbeOf(raw, raw2, baseline) {
   const entry = baseline?.metrics?.probeMs;
   const base = entry ? referenceValue(entry) : undefined;
-  if (typeof cur !== "number" || typeof base !== "number" || base <= 0) return null;
+  if (typeof base !== "number" || base <= 0) return null;
+  const first = typeof raw?.scalars?.probeMs === "number" ? raw.scalars.probeMs : undefined;
+  const retest = typeof raw2?.scalars?.probeMs === "number" ? raw2.scalars.probeMs : undefined;
+  if (first === undefined && retest === undefined) return null;
   return {
-    cur,
     base,
-    deltaPct: ((cur - base) / base) * 100,
-    noise: noiseFor(entry),
-    historyPoints: entry?.history?.length ?? 0,
+    first,
+    retest,
     // 历史序列：门槛判"是否超出历史范围"要用（3σ 对"机器档位双峰"这种分布不适用）
     history: Array.isArray(entry?.history) ? entry.history : [],
   };
@@ -556,8 +562,8 @@ function main() {
       baselineState: state.reason,
       metrics: verdicts,
       overMetrics,
-      // 会话标定（#236）：不参与判定，只供「环境归因」披露使用
-      sessionProbe: sessionProbeOf(raw, baseline),
+      // 会话标定（#236）：不参与判定，只供「环境归因」披露使用（首轮 + 复测两轮对账）
+      sessionProbe: sessionProbeOf(raw, raw2, baseline),
     });
   }
 
@@ -681,31 +687,57 @@ function main() {
       );
     }
   }
-  // 会话标定（#236）：把「机器慢」从「代码回归」里分开。
-  // 注意门槛的选型：标定值的分布就是**机器档位的分布**（实测两档 ≈31ms / ≈50ms，同一次运行内
-  // 16 个场景彼此只差 ~2ms），σ 自然很大 → 用 3σ 会几乎永不触发。所以改判「是否超出历史范围」：
-  // 落在范围内 = 与历史档位一致（不看机器好坏，只看是否"见过"）；超出 10% 才算环境异常。
+  // 会话标定（#236）：把「机器慢」从「代码回归」里分开，**首轮与复测两轮对账**。
+  // 门槛选型：标定值的分布就是**机器档位的分布**（实测两档 ≈31ms / ≈50ms，同一次运行内
+  // 16 个场景彼此只差 ~2ms），σ 自然很大 → 用 3σ 会几乎永不触发。所以判「是否超出历史范围」：
+  // 落在范围内 = 与历史档位一致（只看是否"见过"）；超出上限 10% 才算环境异常。
+  // 两轮对账的必要性见 sessionProbeOf 的注释：只看首轮会把"已在另一台机器复现的 FAIL"
+  // 说成"请换 runner 重跑"，也会漏掉"复测机器慢导致的假 FAIL"。
   const probes = results
     .filter((r) => r.sessionProbe)
     .map((r) => ({ id: r.id, ...r.sessionProbe }));
-  if (probes.length > 0) {
-    const probeCur = median(probes.map((p) => p.cur));
-    const probeRef = median(probes.map((p) => p.base));
-    const hist = probes.flatMap((p) => p.history ?? []);
-    const lo = Math.round(Math.min(...hist) * 100) / 100;
-    const hi = Math.round(Math.max(...hist) * 100) / 100;
-    const deltaPct = ((probeCur - probeRef) / probeRef) * 100;
-    const outOfRange = probeCur > hi * 1.1;
+  const probeHist = probes.flatMap((p) => p.history ?? []);
+  if (probes.length > 0 && probeHist.length > 0) {
+    const lo = Math.round(Math.min(...probeHist) * 100) / 100;
+    const hi = Math.round(Math.max(...probeHist) * 100) / 100;
+    const pick = (key) => probes.map((p) => p[key]).filter((n) => typeof n === "number");
+    const firstMed = pick("first").length > 0 ? median(pick("first")) : undefined;
+    const retestMed = pick("retest").length > 0 ? median(pick("retest")) : undefined;
+    const baseRef = median(probes.map((p) => p.base));
+    const fmt = (v) => (typeof v === "number" ? `${v}ms` : "—");
+    const beyond = (v) => typeof v === "number" && v > hi * 1.1;
+    const firstBad = beyond(firstMed);
+    const retestBad = beyond(retestMed);
+    const confirmed = failed.length > 0;
+
+    let verdict;
+    if (retestBad) {
+      // 复测那台机器慢 → 复测值被整体抬高，可能把抖动顶成 FAIL
+      verdict =
+        `**⚠️ 复测环境异常**（复测 ${fmt(retestMed)} 超出历史范围）——` +
+        `复测值可能被机器档位放大，FAIL 未必成立，请换 runner 复测确认`;
+    } else if (firstBad && confirmed) {
+      // 首轮慢 + FAIL 已确认：**只有真的拿到复测侧标定**才能声称"两台 runner 上复现"
+      // （复测轮没跑 / 老产物没有 probe 时不得替它下结论）
+      verdict =
+        typeof retestMed === "number"
+          ? `**回归在「两台 runner 上复现」**（首轮 ${fmt(firstMed)} 超历史范围，复测 ${fmt(retestMed)} 已回到范围内）` +
+            `——该 FAIL 不能归因于机器档位`
+          : `首轮环境异常（${fmt(firstMed)} 超历史范围）且 FAIL 已确认，但**复测轮没有标定数据**` +
+            `——无法判断复测环境，建议换 runner 重跑确认`;
+    } else if (firstBad && !confirmed) {
+      verdict = `首轮环境异常（${fmt(firstMed)} 超历史范围），复测已回落 → 支持「首轮机器慢」的解释`;
+    } else {
+      const deltaPct = typeof firstMed === "number" ? ((firstMed - baseRef) / baseRef) * 100 : 0;
+      verdict =
+        `环境在历史范围内（**档位归因**：首轮比基线参考${deltaPct >= 0 ? "慢" : "快"} ` +
+        `${Math.abs(deltaPct).toFixed(1)}%）——标定负载覆盖 **CPU 与 DOM 构建/样式/布局**，不含 IO/网络；` +
+        `应用指标若同时变差，机器档位不足以解释它（须看代码或 IO 侧）；只有超出历史范围才判为环境异常`;
+    }
     lines.push(
-      `- 会话标定（与代码无关的固定工作量，#236）：本次 ${probeCur}ms vs 基线参考 ${probeRef}ms` +
-        `（${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(1)}%），基线历史范围 ${lo}–${hi}ms（${probes.length} 个场景）→ ` +
-        (outOfRange
-          ? `**⚠️ 判为「会话环境异常」**（超出历史范围 10% 以上）：应用指标的恶化**很可能来自 runner 变慢**` +
-            `而非代码回归，请换 runner 重跑确认`
-          : `环境在历史范围内（**档位归因**：本次比基线参考${deltaPct >= 0 ? "慢" : "快"} ` +
-            `${Math.abs(deltaPct).toFixed(1)}%）——标定负载覆盖 **CPU 与布局/绘制**两条路径，` +
-            `不含 IO/网络；应用指标若同时变差，机器档位不足以解释它（须看代码或 IO 侧）；` +
-            `只有超出历史范围才判为环境异常`),
+      `- 会话标定（与代码无关的固定工作量，#236）：基线参考 ${baseRef}ms，历史范围 ${lo}–${hi}ms，` +
+        `首轮 ${fmt(firstMed)}${typeof retestMed === "number" ? ` / 复测 ${fmt(retestMed)}` : ""}` +
+        `（${probes.length} 个场景）→ ${verdict}`,
     );
   }
   const absoluteCount = results.filter((r) => r.absoluteEnabled).length;
