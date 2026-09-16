@@ -338,7 +338,7 @@ describe("会话标定归因（#236）", () => {
     ...probeBaseline,
   };
 
-  it("首轮标定超范围且没有复测数据 → 判「首轮环境异常」", () => {
+  it("首轮标定超范围且没有复测数据 → 判「首轮环境异常」并说明未触发复测（评审 R1）", () => {
     writeBaseline(probeBaseline);
     writeRaw(ID, undefined, { probeMs: 140 }); // 140 > 历史上限 101 的 110% → 超出历史范围
 
@@ -348,6 +348,19 @@ describe("会话标定归因（#236）", () => {
     expect(report()).toContain("会话标定");
     expect(report()).toContain("首轮环境异常");
     expect(report()).toContain("基线参考 100ms，历史范围 99–101ms，首轮 140ms");
+    // 后半句必须锁住：没有复测轮时**不许**说"复测已回落"（评审 R1 实测抓到过这个无中生有）
+    expect(report()).toContain("本次没有复测轮");
+    expect(report()).not.toContain("复测已回落");
+  });
+
+  it("首轮超范围 + 复测正常 + 未复现 → 才写「复测已回落」（评审 R1 的另一半）", () => {
+    writeBaseline(frameAndProbeBaseline);
+    writeRaw(ID, undefined, { probeMs: 140 }); // 首轮：机器慢，应用指标未超阈值
+    writeRetest(ID, undefined, { probeMs: 100 }); // 复测：机器正常
+
+    expect(runReport("final").status).toBe(0);
+    expect(report()).toContain("复测已回落");
+    expect(report()).not.toContain("本次没有复测轮");
   });
 
   it("两轮对账①：复测那台机器慢 → 提示 FAIL 可能被复测环境放大（评审 P2-1 后果 b）", () => {

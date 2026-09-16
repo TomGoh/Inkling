@@ -726,7 +726,14 @@ function main() {
           : `首轮环境异常（${fmt(firstMed)} 超历史范围）且 FAIL 已确认，但**复测轮没有标定数据**` +
             `——无法判断复测环境，建议换 runner 重跑确认`;
     } else if (firstBad && !confirmed) {
-      verdict = `首轮环境异常（${fmt(firstMed)} 超历史范围），复测已回落 → 支持「首轮机器慢」的解释`;
+      // 同样必须区分"有没有复测轮"：无嫌疑的运行**不会**触发复测（#234 的编排），
+      // 这时说"复测已回落"是无中生有的归因（评审 R1 实测抓到）。
+      verdict =
+        typeof retestMed === "number"
+          ? `首轮环境异常（${fmt(firstMed)} 超历史范围），复测已回落（${fmt(retestMed)}）` +
+            `→ 支持「首轮机器慢」的解释`
+          : `首轮环境异常（${fmt(firstMed)} 超历史范围），但**本次没有复测轮**（应用指标未超阈值、未触发复测）` +
+            `——环境异常不影响本次结论`;
     } else {
       const deltaPct = typeof firstMed === "number" ? ((firstMed - baseRef) / baseRef) * 100 : 0;
       verdict =
