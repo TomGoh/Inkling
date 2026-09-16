@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { PRIMARY_METRICS } from "../perf/judgment.js";
 import { createPerfReportWorkspace, type PerfReportWorkspace } from "./perf-report-env";
 
 const REPORT = "tests/perf/report.mjs";
@@ -315,6 +316,15 @@ describe("判定覆盖守卫（PERF_REQUIRE_COMPARISON）", () => {
 
     expect(runReport("final").status).toBe(0);
     expect(report()).not.toContain("整机漂移迹象");
+  });
+
+  it("「判定分层」行的主指标名单与 PRIMARY_METRICS 一致（issue #238：曾写死成不存在的 inputMs）", () => {
+    writeRaw();
+
+    expect(runReport("final").status).toBe(0);
+    // 断言的是**派生结果**：名单必须逐字等于 judgment 的白名单，防止文案再漂移
+    expect(report()).toContain(`判定分层：主指标（${PRIMARY_METRICS.join(" / ")}）可单独判 FAIL`);
+    expect(report()).not.toContain("inputMs）"); // 那个不存在的名字不许再出现
   });
 });
 

@@ -23,6 +23,7 @@ import {
   NOISE_MIN_POINTS,
   NOISE_SIGMA,
   noiseFor,
+  PRIMARY_METRICS,
   referenceValue,
   requiresPrimaryCorroboration,
   RESOLUTION_WARN_PCT,
@@ -753,8 +754,11 @@ function main() {
       `- 绝对阈值参与判定：${absoluteCount}/${results.length} 个场景（帧间隔 p95 ≤ ${P95_BUDGET_FACTOR}× 帧预算、掉帧率 ≤ ${JANK_RATE_LIMIT_PCT}%）`,
     );
   }
+  // 名单**从 PRIMARY_METRICS 派生**，不硬编码：之前写死的名单里有一个不存在的 inputMs
+  // （把 inputSyncMs / inputPaintMs 两个主指标写成了一个并不存在的名字），
+  // 而读者会据此理解"哪些指标能单独判 FAIL"。派生 + 单测断言，名单再漂移会当场失败。
   lines.push(
-    `- 判定分层：主指标（ttiMs / frameMs / switchMs / searchMs / saveMs / inputMs）可单独判 FAIL；` +
+    `- 判定分层：主指标（${PRIMARY_METRICS.join(" / ")}）可单独判 FAIL；` +
       `派生指标（longTaskMs / longTaskCount / jankRate 等）需同场景有主指标佐证，否则只提示 WARN`,
   );
   if (absoluteCount < results.length) {
