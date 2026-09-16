@@ -25,7 +25,11 @@ interface RunResult {
   stderr: string;
 }
 
-function writeRaw(id = ID, frameMs = Array.from({ length: 120 }, (_, i) => 16.7 + (i % 3) * 0.1)): void {
+function writeRaw(
+  id = ID,
+  frameMs = Array.from({ length: 120 }, (_, i) => 16.7 + (i % 3) * 0.1),
+  extraScalars: Record<string, number> = {},
+): void {
   const raw = {
     id,
     scenario: "scroll",
@@ -50,10 +54,50 @@ function writeRaw(id = ID, frameMs = Array.from({ length: 120 }, (_, i) => 16.7 
       longTaskMs: 0,
       cls: 0,
       heapDeltaMB: 0,
+      ...extraScalars,
     },
   };
   writeFileSync(join(perf.rawDir, `${id}.json`), JSON.stringify(raw, null, 2), "utf8");
 }
+
+/** 写一份复测轮 raw（raw-retest 目录）：结构与首轮一致，供"两轮对账"类用例使用 */
+function writeRetest(
+  id = ID,
+  frameMs = Array.from({ length: 120 }, (_, i) => 16.7 + (i % 3) * 0.1),
+  extraScalars: Record<string, number> = {},
+): void {
+  const raw = {
+    id,
+    scenario: "scroll",
+    tier: "S",
+    kind: "rich",
+    env: "local",
+    profile: "quick",
+    rounds: 2,
+    warmups: 1,
+    mode: "headless",
+    absoluteEligible: false,
+    fixture: { version: 2, hash: "coverage0001", lines: 1000, source: "generated:rich" },
+    samples: { frameMs },
+    scalars: {
+      frameBudgetMs: 16.7,
+      jankFactor: 1.5,
+      step: 240,
+      jankCount: 0,
+      jankRatePct: 0,
+      longFrameCount: 0,
+      longTaskCount: 0,
+      longTaskMs: 0,
+      cls: 0,
+      heapDeltaMB: 0,
+      ...extraScalars,
+    },
+  };
+  writeFileSync(join(perf.retestDir, `${id}.json`), JSON.stringify(raw, null, 2), "utf8");
+}
+
+/** 明文超阈值的采样（对基线 16.8ms 约 +79%），用来造"复现的回归" */
+const REGRESSED_FRAME_MS = Array.from({ length: 120 }, (_, i) => 30 + (i % 3) * 0.1);
 
 /** 写一份与当前采样元数据匹配的基线（可指定 metrics，默认空对象模拟"无可用指标"） */
 function writeBaseline(metrics: Record<string, unknown> = {}): void {
@@ -271,5 +315,111 @@ describe("判定覆盖守卫（PERF_REQUIRE_COMPARISON）", () => {
 
     expect(runReport("final").status).toBe(0);
     expect(report()).not.toContain("整机漂移迹象");
+  });
+});
+
+// 会话标定归因（issue #236）：标定负载与编辑器代码无关，它变慢说明**机器**变慢。
+// 断言的是归因结论（环境异常 / 环境正常）——这是 #236 的验收点，也是"连续 2 次"过滤
+// 在共享 runner 上区分不开的那件事。
+describe("会话标定归因（#236）", () => {
+  const probeBaseline = {
+    probeMs: { median: 100, p95: 105, max: 110, n: 3, history: [99, 100, 101] },
+  };
+  /** 基线里同时给出 frameMs（判定要用）与 probeMs（归因要用） */
+  const frameAndProbeBaseline = {
+    frameMs: {
+      median: 16.8,
+      p95: 17.1,
+      max: 17.2,
+      n: 120,
+      history: [16.8, 16.8, 16.8],
+      historyP95: [17.1, 17.1, 17.1],
+    },
+    ...probeBaseline,
+  };
+
+  it("首轮标定超范围且没有复测数据 → 判「首轮环境异常」并说明未触发复测（评审 R1）", () => {
+    writeBaseline(probeBaseline);
+    writeRaw(ID, undefined, { probeMs: 140 }); // 140 > 历史上限 101 的 110% → 超出历史范围
+
+    const result = runReport("final");
+
+    expect(result.status).toBe(0); // 只归因、不改判定（#236 明确的范围）
+    expect(report()).toContain("会话标定");
+    expect(report()).toContain("首轮环境异常");
+    expect(report()).toContain("基线参考 100ms，历史范围 99–101ms，首轮 140ms");
+    // 后半句必须锁住：没有复测轮时**不许**说"复测已回落"（评审 R1 实测抓到过这个无中生有）
+    expect(report()).toContain("本次没有复测轮");
+    expect(report()).not.toContain("复测已回落");
+  });
+
+  it("首轮超范围 + 复测正常 + 未复现 → 才写「复测已回落」（评审 R1 的另一半）", () => {
+    writeBaseline(frameAndProbeBaseline);
+    writeRaw(ID, undefined, { probeMs: 140 }); // 首轮：机器慢，应用指标未超阈值
+    writeRetest(ID, undefined, { probeMs: 100 }); // 复测：机器正常
+
+    expect(runReport("final").status).toBe(0);
+    expect(report()).toContain("复测已回落");
+    expect(report()).not.toContain("本次没有复测轮");
+  });
+
+  it("两轮对账①：复测那台机器慢 → 提示 FAIL 可能被复测环境放大（评审 P2-1 后果 b）", () => {
+    // 只看首轮会写「环境正常」，恰好丢弃了唯一能识破这次假 FAIL 的证据（复测侧 probe）。
+    writeBaseline(frameAndProbeBaseline);
+    writeRaw(ID, REGRESSED_FRAME_MS, { probeMs: 100 }); // 首轮：机器正常，指标超阈值
+    writeRetest(ID, REGRESSED_FRAME_MS, { probeMs: 140 }); // 复测：换到一台慢机器，仍超阈值
+
+    runReport("final");
+
+    expect(report()).toContain("复测环境异常");
+    expect(report()).toContain("FAIL 未必成立");
+    expect(report()).not.toContain("回归在「两台 runner 上复现」");
+  });
+
+  it("两轮对账②：首轮慢但复测（另一台 runner）仍复现 → 判「回归在两台 runner 上复现」（评审 P2-1 后果 a）", () => {
+    // 旧实现只说首轮 → 会写「请换 runner 重跑确认」，而换 runner 恰恰已经做过了。
+    writeBaseline(frameAndProbeBaseline);
+    writeRaw(ID, REGRESSED_FRAME_MS, { probeMs: 140 }); // 首轮：机器慢 + 指标超阈值
+    writeRetest(ID, REGRESSED_FRAME_MS, { probeMs: 100 }); // 复测：机器正常，仍超阈值 → 复现
+
+    const result = runReport("final");
+
+    expect(result.status).toBe(1); // FAIL 复现
+    expect(report()).toContain("回归在「两台 runner 上复现」");
+    expect(report()).not.toContain("请换 runner 重跑确认");
+  });
+
+  it("标定负载正常 → 判「环境正常」，恶变不归因于机器", () => {
+    writeBaseline(probeBaseline);
+    writeRaw(ID, undefined, { probeMs: 100 });
+
+    expect(runReport("final").status).toBe(0);
+    expect(report()).toContain("环境在历史范围内"); // 门槛=是否超出历史范围（3σ 对双峰不适用）
+    expect(report()).not.toContain("会话环境异常");
+  });
+
+  it("基线还没播种标定指标时整行不出现（缺失就不判，不伪造 0）", () => {
+    writeBaseline({}); // 老基线：没有 probeMs
+    writeRaw(ID, undefined, { probeMs: 140 });
+
+    expect(runReport("final").status).toBe(0);
+    expect(report()).not.toContain("会话标定");
+  });
+
+  it("标定值必须写进基线，但不能作为判定行出现（进基线 ≠ 参与判定）", () => {
+    // 实测踩过：标定指标被排除在 COMPARED_SCALARS 之外后，buildStats 写基线时也用同一白名单，
+    // 于是播种产物里根本没有 probeMs——基线没历史、归因行永远不出现。
+    // 两个集合必须分开：持久化取并集，判定只用白名单。
+    writeRaw(ID, undefined, { probeMs: 36, probeLayoutMs: 9, probeCpuMs: 27 });
+
+    expect(runReport("final", { updateBaseline: true }).status).toBe(0);
+
+    const baseline = JSON.parse(
+      readFileSync(join(perf.baselineDir, "local", "quick", "headless", "r2", `${ID}.json`), "utf8"),
+    ) as { metrics: Record<string, { median?: number; history?: number[] }> };
+    expect(baseline.metrics.probeMs?.median).toBe(36); // 持久化了
+    expect(baseline.metrics.probeMs?.history).toEqual([36]); // 首次播种起头
+    expect(baseline.metrics.probeLayoutMs?.median).toBe(9);
+    expect(report()).not.toMatch(/\| probeMs \|/); // 但不出现在判定表格里
   });
 });
