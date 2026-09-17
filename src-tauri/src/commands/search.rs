@@ -1,10 +1,12 @@
 // 全局搜索命令
 // 遍历工作区目录下所有 .md/.markdown 文件，按行匹配关键词或正则，
 // 返回命中结果（文件路径 + 行号 + 列号 + 预览文本）与截断标记。
-// 跳过隐藏目录（. 开头）、依赖目录（node_modules 等）、目录符号链接/联接（防死循环）和超大文件（> 5MB）。
+// 忽略规则（隐藏项 / 默认黑名单 / .gitignore）与目录符号链接处理统一由
+// ignore_rules 模块提供（#227），此处不再维护第二份目录黑名单。
 // 性能要点（#163）：目录符号链接一律不跟随，递归路径天然是树，无需逐目录 canonicalize；
 // 文件扫描按 CPU 数分片并行；搜索代次（generation）推进时旧任务在周期间检查点提前退出。
 
+use super::ignore_rules;
 use regex::Regex;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -34,8 +36,8 @@ pub struct SearchResult {
 
 /// 超过此大小（字节）的文件跳过
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024;
-/// 递归搜索的最大目录深度，防异常深树导致栈溢出
-const MAX_SEARCH_DEPTH: usize = 64;
+/// 递归搜索的最大目录深度（与文件索引共用 ignore_rules 的同一上限）
+const MAX_SEARCH_DEPTH: usize = ignore_rules::MAX_SCAN_DIR_DEPTH;
 /// 单次搜索最多返回的命中条数，超出截断并置 truncated
 const MAX_TOTAL_HITS: usize = 5000;
 /// preview 中命中点前后各保留的字符数（#176：避免克隆整行）
@@ -59,80 +61,23 @@ fn is_stale(generation: u64) -> bool {
     SEARCH_GENERATION.load(Ordering::Relaxed) > generation
 }
 
-// 搜索忽略目录：与前端 src/lib/searchIgnore.ts 保持同步
-const IGNORED_SEARCH_DIRS: &[&str] = &[
-    "node_modules",
-    "target",
-    "dist",
-    "build",
-    "out",
-    "coverage",
-    ".next",
-    ".nuxt",
-    ".cache",
-    ".codegraph",
-    ".obsidian",
-    ".git",
-    ".svn",
-    ".hg",
-];
-
-/// 递归收集目录下所有 .md/.markdown 文件路径（带深度限制和依赖过滤）
+/// 递归收集目录下所有 .md/.markdown 文件路径
 ///
-/// 目录符号链接/联接（含 Windows junction）一律跳过，递归路径不会成环，
-/// 因此不需要逐目录 canonicalize + visited 集合（#163）。
-fn collect_md_files(
-    dir: &Path,
-    out: &mut Vec<String>,
-    current_depth: usize,
-    generation: u64,
-) -> Result<(), String> {
-    if current_depth > MAX_SEARCH_DEPTH {
-        return Ok(());
-    }
-
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return Ok(()),
-    };
-    for entry in entries.flatten() {
-        if is_stale(generation) {
-            return Err(cancelled_error());
-        }
-        let path = entry.path();
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-        if name_str.starts_with('.') {
-            continue;
-        }
-
-        let file_type = match entry.file_type() {
-            Ok(ft) => ft,
-            Err(_) => continue,
-        };
-
-        if file_type.is_symlink() {
-            if let Ok(meta) = std::fs::metadata(&path) {
-                if meta.is_dir() {
-                    continue; // 跳过目录符号链接以防递归死循环
-                }
-            }
-        }
-
-        if path.is_dir() {
-            if IGNORED_SEARCH_DIRS.iter().any(|&d| d.eq_ignore_ascii_case(&name_str)) {
-                continue;
-            }
-            collect_md_files(&path, out, current_depth + 1, generation)?;
-        } else if path.is_file() {
-            let lower = name_str.to_lowercase();
-            if lower.ends_with(".md") || lower.ends_with(".markdown") {
-                if let Some(p) = path.to_str() {
-                    out.push(p.to_string());
-                }
-            }
-        }
-    }
+/// 已统一到 `ignore_rules::walk_markdown_files`（#227）：忽略规则、符号链接处理、
+/// 深度上限与默认黑名单只有一份实现，由搜索 / 文件索引 / 文件树共用。
+/// 搜索保留自己既有的取消文案，故在此做一次错误映射。
+fn collect_md_files(dir: &Path, out: &mut Vec<String>, generation: u64) -> Result<(), String> {
+    let (files, _) = ignore_rules::walk_markdown_files(
+        dir,
+        MAX_SEARCH_DEPTH,
+        usize::MAX,
+        &|| is_stale(generation),
+    )
+    .map_err(|error| match error {
+        ignore_rules::WalkError::Cancelled => cancelled_error(),
+        other => other.message(),
+    })?;
+    out.extend(files);
     Ok(())
 }
 
@@ -286,8 +231,8 @@ fn search_in_workspace_sync(
 
     let mut files: Vec<String> = Vec::new();
     if root_path.is_dir() {
-        collect_md_files(root_path, &mut files, 0, generation)?;
-        files.sort();
+        // walk_markdown_files 已按路径字节序升序返回，分片合并顺序因此确定（#163）
+        collect_md_files(root_path, &mut files, generation)?;
     } else if root_path.is_file() {
         if let Some(p) = root_path.to_str() {
             files.push(p.to_string());

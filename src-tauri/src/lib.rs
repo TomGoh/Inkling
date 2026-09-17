@@ -2,9 +2,9 @@
 mod commands;
 
 use commands::{
-    allow_asset_dir, create_dir, create_file, delete_path, file_mtime, list_dir, pandoc_check,
-    pandoc_export_docx, read_text_file, rename_path, search_in_workspace, write_binary_file,
-    write_text_file,
+    allow_asset_dir, create_dir, create_file, delete_path, file_mtime, list_dir,
+    list_workspace_files, pandoc_check, pandoc_export_docx, read_text_file, rename_path,
+    search_in_workspace, write_binary_file, write_text_file,
 };
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
@@ -123,6 +123,7 @@ pub fn run() {
             create_file,
             create_dir,
             search_in_workspace,
+            list_workspace_files,
             allow_asset_dir,
             take_pending_file
         ])

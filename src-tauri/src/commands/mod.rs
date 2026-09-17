@@ -4,6 +4,11 @@
 pub mod pandoc;
 pub use pandoc::{pandoc_check, pandoc_export_docx};
 
+pub mod ignore_rules;
+
+pub mod file_index;
+pub use file_index::list_workspace_files;
+
 pub mod search;
 pub use search::search_in_workspace;
 
@@ -52,8 +57,6 @@ fn replace_file_with_retry(temp_path: &Path, path: &Path) -> std::io::Result<()>
     }
     Err(last_err.unwrap_or_else(|| std::io::Error::other("替换目标文件失败")))
 }
-
-const IGNORED_DIR_NAMES: &[&str] = &["node_modules", "target", "dist", "build", "out"];
 
 /// 文件树节点
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,18 +177,15 @@ fn list_dir_shallow(path: &Path) -> Result<FileNode, String> {
     Ok(node)
 }
 
+/// 目录是否应被忽略（统一到 ignore_rules，与全局搜索 / 文件索引共用一份清单）
 fn is_ignored_dir(name: &str) -> bool {
-    IGNORED_DIR_NAMES
-        .iter()
-        .any(|ignored| name.eq_ignore_ascii_case(ignored))
+    ignore_rules::is_ignored_dir(name)
 }
 
 fn is_markdown_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
-        })
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(ignore_rules::is_markdown_name)
 }
 
 #[cfg(test)]

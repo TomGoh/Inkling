@@ -25,6 +25,7 @@
     "allow-create-dir",
     "allow-asset-dir",
     "allow-search-in-workspace",
+    "allow-list-workspace-files",
     "allow-pandoc-check",
     "allow-pandoc-export-docx",
     "allow-take-pending-file"

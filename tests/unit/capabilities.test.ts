@@ -46,7 +46,7 @@ describe("capabilities/default.json ACL 权限配置（v1.2.10 防回归）", ()
     expect(permissions).toContain("core:window:allow-close");
   });
 
-  it("包含全部 14 个自定义 app command 权限及对应 command 定义", () => {
+  it("包含全部 15 个自定义 app command 权限及对应 command 定义", () => {
     const expected = new Map([
       ["allow-list-dir", "list_dir"],
       ["allow-read-text-file", "read_text_file"],
@@ -59,6 +59,7 @@ describe("capabilities/default.json ACL 权限配置（v1.2.10 防回归）", ()
       ["allow-create-dir", "create_dir"],
       ["allow-asset-dir", "allow_asset_dir"],
       ["allow-search-in-workspace", "search_in_workspace"],
+      ["allow-list-workspace-files", "list_workspace_files"],
       ["allow-pandoc-check", "pandoc_check"],
       ["allow-pandoc-export-docx", "pandoc_export_docx"],
       ["allow-take-pending-file", "take_pending_file"],

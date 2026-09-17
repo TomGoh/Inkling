@@ -25,6 +25,8 @@ serde_json = "1"
 tauri-plugin-dialog = "2.7.2"
 regex = "1"
 base64 = "0.22"
+# 工作区文件索引与 .gitignore 解析（与 ripgrep 同源实现，#227）
+ignore = "0.4"
 
 # 单实例插件：仅桌面端，移动端不引入
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
