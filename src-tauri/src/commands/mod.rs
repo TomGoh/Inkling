@@ -177,6 +177,27 @@ fn list_dir_shallow(path: &Path) -> Result<FileNode, String> {
     Ok(node)
 }
 
+/// 测试用串行锁：凡「写」全局代次（`SEARCH_GENERATION` / `INDEX_GENERATION`）的用例
+/// 都必须持有它。
+///
+/// `cargo test` 默认多线程并行（CI 即裸 `cargo test`），而这些用例的模式是
+/// 「store 一个代次 → 调用被测函数 → 断言结果」，写与断言之间存在窗口：
+/// 另一个测试在此期间 store 更大的值，就会把本该成功的调用判为过期而 panic。
+/// 这是随机的、跨模块的失败，必须在写侧串行化，光靠读侧 `TEST_GENERATION = u64::MAX`
+/// 的免疫设计堵不住写侧。
+///
+/// 取锁时容忍中毒：某个用例 panic 后其余用例仍应正常执行，而不是级联失败。
+#[cfg(test)]
+pub(crate) static GENERATION_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// 取得全局代次写锁（测试专用）
+#[cfg(test)]
+pub(crate) fn lock_generations() -> std::sync::MutexGuard<'static, ()> {
+    GENERATION_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,7 +281,9 @@ mod tests {
     #[test]
     fn filters_hidden_build_and_non_markdown_entries() {
         let temp = TestDir::new("filtering");
-        for name in [".git", "node_modules", "target", "dist", "build", "out"] {
+        // 直接遍历统一清单，锁定「文件树与遍历器 / 索引共用同一份忽略来源」（#227）：
+        // 清单里任何一个目录出现在文件树中，本用例都会失败。
+        for name in ignore_rules::DEFAULT_IGNORED_DIRS {
             fs::create_dir(temp.path.join(name)).unwrap();
         }
         fs::create_dir(temp.path.join("notes")).unwrap();

@@ -13,15 +13,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// 50_000 条绝对路径约 6MB 量级，属可接受上限；再大说明工作区不适合整体索引。
 pub const MAX_INDEX_FILES: usize = 50_000;
 
-/// 索引代次：每次新索引登记自己的代次，在途旧任务发现代次推进后提前退出
+/// 索引代次计数器
+///
+/// **代次由 Rust 侧分配**（`next_generation`），命令不接受前端传来的计数。原因是前端
+/// 每个 webview 都是全新 JS 上下文、各自从 0 开始计数（现有搜索侧就是这种写法）：
+/// 多窗口下后打开窗口传来的小代次会被 `fetch_max` 挡在全局之外，于是它的**每一次**请求
+/// 都被判为过期——是「后开窗口被永久饿死」，不是「后发起者胜出」。由服务端分配则对任意
+/// 并发请求严格单调，跨窗口自然成立「最新请求胜出」，且前端无需维护任何计数器。
 ///
 /// 刻意**不复用** `SEARCH_GENERATION`：两者共用一个计数器会让「打开 Quick Open」
-/// 把在途的全局搜索取消掉（搜索结果突然报「已被更新的搜索取消」），属可观察的行为耦合。
-/// 复用是「机制」（代次推进 + 检查点提前退出），不是变量。
-///
-/// 注意：这是**进程级单例**，而 capabilities 允许 `inkling-*` 派生窗口同时存在。
-/// 多窗口并发发起索引时，后发起者会取消先发起者的在途任务（搜索侧历史行为一致）。
-/// 当前按「后发起者胜出」处理，UI 侧不要把「索引被取消」当成异常状态。
+/// 把在途的全局搜索取消掉，属可观察的行为耦合；复用是「机制」（代次 + 检查点提前退出），
+/// 不是变量。（搜索侧仍是前端计数器的写法，其多窗口缺陷另行跟踪，不在本 PR 范围内。）
 pub static INDEX_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// 工作区文件索引结果
@@ -32,8 +34,24 @@ pub struct WorkspaceFileList {
     /// 路径为**平台原生分隔符**（Windows 为 `\`），与 `list_dir` 及搜索结果的
     /// `path` 字段保持一致；调用方展示或做相对路径匹配前需自行归一化。
     pub files: Vec<String>,
-    /// 文件数达到上限被截断时为 true（与搜索结果的 truncated 语义一致）
+    /// 文件数达到上限被截断时为 true（与搜索结果的 truncated 语义相同）
     pub truncated: bool,
+}
+
+/// 登记一次新请求的代次，返回该请求自己的代次
+///
+/// 由计数器 `fetch_add` 分配，故对任意并发请求严格单调递增。
+/// 抽成独立函数是为了能用**本地计数器**单测「严格单调」这一核心性质，而不必触碰全局状态
+/// （写全局的测试在多线程下会互相踩，见 `commands::GENERATION_TEST_LOCK`）。
+fn next_generation(counter: &AtomicU64) -> u64 {
+    counter.fetch_add(1, Ordering::Relaxed) + 1
+}
+
+/// 该代次是否已被更新的请求推进
+///
+/// 判定只读传入的计数器，因此同样可用本地计数器单测，无需写全局。
+fn is_stale_with(counter: &AtomicU64, generation: u64) -> bool {
+    counter.load(Ordering::Relaxed) > generation
 }
 
 /// 索引被更新的索引取消
@@ -41,57 +59,35 @@ fn cancelled_error() -> String {
     "索引已被更新的请求取消".to_string()
 }
 
-/// 当前代次是否已被更新的索引推进
-fn is_stale(generation: u64) -> bool {
-    INDEX_GENERATION.load(Ordering::Relaxed) > generation
-}
-
 /// 列出工作区内全部 Markdown 文件
 ///
-/// - `root`: 工作区根目录
-/// - `generation`: 索引代次，前端每次发起递增；代次推进后在途旧任务提前退出
+/// 代次在本命令内分配（见 `INDEX_GENERATION`），因此前端**不需要**、也不应传入代次。
 #[tauri::command]
-pub async fn list_workspace_files(
-    root: String,
-    generation: u64,
-) -> Result<WorkspaceFileList, String> {
-    INDEX_GENERATION.fetch_max(generation, Ordering::Relaxed);
+pub async fn list_workspace_files(root: String) -> Result<WorkspaceFileList, String> {
+    let generation = next_generation(&INDEX_GENERATION);
     tauri::async_runtime::spawn_blocking(move || {
-        list_workspace_files_sync(root, generation, MAX_INDEX_FILES)
+        list_workspace_files_with(&root, MAX_INDEX_FILES, &|| {
+            is_stale_with(&INDEX_GENERATION, generation)
+        })
     })
     .await
     .map_err(|e| format!("索引任务执行失败: {e}"))?
 }
 
-fn list_workspace_files_sync(
-    root: String,
-    generation: u64,
+/// 索引实现：取消判定由调用方注入，从而可用固定桩单测（无需触碰全局代次）
+///
+/// `root` 为文件时**无需特判**：`walk_markdown_files` 对文件根会产出该文件自身，
+/// 其 markdown 判定与 UTF-8 路径判定与本函数同源；特判会形成第二份逻辑并最终漂移。
+fn list_workspace_files_with(
+    root: &str,
     max_files: usize,
+    is_cancelled: &dyn Fn() -> bool,
 ) -> Result<WorkspaceFileList, String> {
-    let root_path = Path::new(&root);
-
-    // 单文件模式不建索引（前端在该模式下直接使用标签页与最近文件列表）。
-    // 此处对直接调用做防御性处理：是文件则返回自身（仅当为 Markdown），不报错。
-    if root_path.is_file() {
-        let is_markdown = root_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(ignore_rules::is_markdown_name);
-        let files = match (is_markdown, root_path.to_str()) {
-            (true, Some(path)) => vec![path.to_string()],
-            _ => Vec::new(),
-        };
-        return Ok(WorkspaceFileList {
-            files,
-            truncated: false,
-        });
-    }
-
     let (files, truncated) = ignore_rules::walk_markdown_files(
-        root_path,
+        Path::new(root),
         ignore_rules::MAX_SCAN_DIR_DEPTH,
         max_files,
-        &|| is_stale(generation),
+        is_cancelled,
     )
     .map_err(|error| match error {
         WalkError::Cancelled => cancelled_error(),
@@ -112,9 +108,6 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static NEXT_TEST_DIR: AtomicUsize = AtomicUsize::new(0);
-
-    /// 测试用代次：足够大，保证不受其它测试写入全局代次的影响
-    const TEST_GENERATION: u64 = u64::MAX;
 
     struct TestDir {
         path: PathBuf,
@@ -169,13 +162,17 @@ mod tests {
         out
     }
 
+    /// 走被测实现，取消判定注入固定桩（不触碰全局代次）
+    fn index_with(
+        root: &Path,
+        max_files: usize,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> Result<WorkspaceFileList, String> {
+        list_workspace_files_with(&root.to_string_lossy(), max_files, is_cancelled)
+    }
+
     fn index(root: &Path) -> WorkspaceFileList {
-        list_workspace_files_sync(
-            root.to_string_lossy().into_owned(),
-            TEST_GENERATION,
-            MAX_INDEX_FILES,
-        )
-        .expect("index should succeed")
+        index_with(root, MAX_INDEX_FILES, &|| false).expect("index should succeed")
     }
 
     #[test]
@@ -213,15 +210,14 @@ mod tests {
             write(&temp.child(&format!("f{i}.md")), "x");
         }
 
-        let result =
-            list_workspace_files_sync(temp.path.to_string_lossy().into_owned(), TEST_GENERATION, 2)
-                .expect("index should succeed");
+        let result = index_with(&temp.path, 2, &|| false).expect("index should succeed");
         assert_eq!(result.files.len(), 2);
         assert!(result.truncated, "截断必须对调用方可见");
     }
 
     #[test]
     fn file_root_returns_itself_only_when_markdown() {
+        // 不特判文件根：由 walker 产出该条目自身（避免第二份 markdown 判定逻辑）
         let temp = TestDir::new("file-root");
         let md = temp.child("single.md");
         write(&md, "# single");
@@ -239,12 +235,7 @@ mod tests {
     #[test]
     fn nonexistent_root_reports_workspace_missing() {
         let temp = TestDir::new("missing");
-        let err = list_workspace_files_sync(
-            temp.child("nope").to_string_lossy().into_owned(),
-            TEST_GENERATION,
-            MAX_INDEX_FILES,
-        )
-        .unwrap_err();
+        let err = index_with(&temp.child("nope"), MAX_INDEX_FILES, &|| false).unwrap_err();
         assert!(
             err.contains("工作区不存在"),
             "错误应为工作区不存在，实际: {err}"
@@ -252,40 +243,60 @@ mod tests {
     }
 
     #[test]
-    fn stale_generation_cancels_in_flight_index() {
+    fn cancelled_index_reports_cancelled_message() {
+        // 取消判定注入固定桩，无需写全局代次即可覆盖「取消 → 专属文案」这条链路
         let temp = TestDir::new("cancel");
         write(&temp.child("a.md"), "a");
 
-        // 更新的索引（代次更大）已登记，旧任务必须立刻退出
-        INDEX_GENERATION.store(7, Ordering::Relaxed);
-        let err =
-            list_workspace_files_sync(temp.path.to_string_lossy().into_owned(), 6, MAX_INDEX_FILES)
-                .unwrap_err();
-        assert!(err.contains("取消"), "落后代次的索引应被取消，实际: {err}");
+        let err = index_with(&temp.path, MAX_INDEX_FILES, &|| true).unwrap_err();
+        assert!(err.contains("取消"), "被取消的索引应报取消，实际: {err}");
+    }
 
-        // 代次相等不算过期
-        INDEX_GENERATION.store(3, Ordering::Relaxed);
-        let result =
-            list_workspace_files_sync(temp.path.to_string_lossy().into_owned(), 3, MAX_INDEX_FILES)
-                .unwrap();
-        assert_eq!(result.files.len(), 1);
+    #[test]
+    fn allocated_generations_are_strictly_increasing() {
+        // 用本地计数器验证分配逻辑：严格单调 ⇒ 任意并发请求中「最新者的代次最大」
+        let counter = AtomicU64::new(0);
+        let first = next_generation(&counter);
+        let second = next_generation(&counter);
+        let third = next_generation(&counter);
+
+        assert!(first < second && second < third);
+        assert_eq!(
+            counter.load(Ordering::Relaxed),
+            third,
+            "返回的代次即全局当前值"
+        );
+    }
+
+    #[test]
+    fn staleness_is_strictly_greater_than_its_own_counter() {
+        // 判定只读传入的计数器：相等不算过期、更小算过期、更大不算
+        let counter = AtomicU64::new(5);
+        assert!(!is_stale_with(&counter, 5));
+        assert!(is_stale_with(&counter, 4));
+        assert!(!is_stale_with(&counter, 6));
+
+        counter.store(u64::MAX, Ordering::Relaxed);
+        assert!(!is_stale_with(&counter, u64::MAX), "极大值边界不应误判过期");
     }
 
     #[test]
     fn index_generation_is_independent_from_search_generation() {
-        // 推进搜索代次不得影响索引：共用计数器会让打开 Quick Open 取消在途全局搜索
+        // 本用例写全局代次，必须与 search::generation_cancel_semantics 互斥（#227 复审 P2-1）
+        let _generations = crate::commands::lock_generations();
+
         let temp = TestDir::new("independent-generation");
         write(&temp.child("a.md"), "a");
 
-        INDEX_GENERATION.store(10, Ordering::Relaxed);
+        // 把搜索代次推到极大：若索引误用搜索代次做判定，下面的索引会立刻被判过期
         SEARCH_GENERATION.store(u64::MAX, Ordering::Relaxed);
 
-        let result = list_workspace_files_sync(
-            temp.path.to_string_lossy().into_owned(),
-            10,
-            MAX_INDEX_FILES,
-        )
-        .expect("搜索代次推进不应影响索引");
+        let generation = next_generation(&INDEX_GENERATION);
+        let result =
+            list_workspace_files_with(&temp.path.to_string_lossy(), MAX_INDEX_FILES, &|| {
+                is_stale_with(&INDEX_GENERATION, generation)
+            })
+            .expect("索引的取消判定不得依赖搜索代次");
         assert_eq!(result.files.len(), 1);
     }
 }

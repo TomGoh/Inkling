@@ -624,6 +624,10 @@ mod tests {
         let temp = TestDir::new("cancel");
         write(&temp.path.join("a.md"), "needle\n");
 
+        // 与 file_index 中同样写全局代次的用例互斥：写与断言之间存在窗口，
+        // 并行跑时另一个测试 store 更大的值会把这里本该成功的调用判为过期（#227 复审 P2-1）
+        let _generations = crate::commands::lock_generations();
+
         // 场景 1：更新的搜索（代次 7）已登记，旧任务（代次 6）必须立刻退出（#163）
         SEARCH_GENERATION.store(7, Ordering::Relaxed);
         let result = search_in_workspace_sync(
