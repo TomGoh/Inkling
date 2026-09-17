@@ -5,16 +5,24 @@
 //   2. 工作区文件索引（file_index.rs）
 //   3. 文件树（mod.rs 的单层列目录）
 //
-// 忽略规则 = 一份默认目录黑名单（DEFAULT_IGNORED_DIRS）+ 工作区内的 .gitignore。
-// 黑名单集合与历史上 search.rs / searchIgnore.ts 的 14 项**逐项一致**，不新增硬编码目录，
-// 避免静默改变用户可见的搜索与索引结果；venv/vendor/Pods/__pycache__ 等由项目自带的
-// .gitignore 生效解决（这才是根因）。
+// 忽略规则 = 一份默认目录黑名单（DEFAULT_IGNORED_DIRS）+ 工作区内的 .gitignore
+//            + 隐藏项（名称以 `.` 开头）。
+//
+// 忽略来源穷举（不多不少）：
+//   1. 默认目录黑名单：集合与历史 14 项**逐项一致**，不新增硬编码目录，
+//      避免静默改变用户可见的搜索与索引结果；venv/vendor/Pods/__pycache__ 等由项目自带的
+//      .gitignore 生效解决（这才是根因）。
+//   2. 工作区内的 .gitignore（含嵌套子目录）。
+//   3. 隐藏项 = 名称以 `.` 开头，与文件树（mod.rs 的 starts_with('.')）完全同语义，
+//      跨平台一致，且**不含** Windows 隐藏属性语义。
+// 明确不启用：`.ignore`（fd/ag 等工具的约定文件，会给用户带来界面上看不见的过滤来源）、
+// git 全局排除、.git/info/exclude、祖先目录的 .gitignore。
 
 use std::path::Path;
 
 /// 默认忽略目录清单（唯一真值源）
 ///
-/// 其中以 `.` 开头的条目同时被遍历器的 `hidden(true)` 覆盖，此处保留是为了
+/// 其中以 `.` 开头的条目同时被遍历器的隐藏项判定覆盖，此处保留是为了
 /// 让「文件树单层列目录」这一不经过遍历器的路径也能获得同一份判定结果。
 pub const DEFAULT_IGNORED_DIRS: &[&str] = &[
     "node_modules",
@@ -43,32 +51,36 @@ pub fn is_ignored_dir(name: &str) -> bool {
         .any(|ignored| name.eq_ignore_ascii_case(ignored))
 }
 
+/// 名称是否以 `suffix` 结尾（仅 ASCII 大小写折叠，零分配）
+///
+/// 按字节比较而非 `str` 切片：窗口可能落在多字节字符内部，
+/// 对 `&str` 做 `name[len - suffix.len()..]` 会 panic。
+fn ends_with_ignore_ascii_case(name: &str, suffix: &str) -> bool {
+    let name = name.as_bytes();
+    let suffix = suffix.as_bytes();
+    name.len() >= suffix.len() && name[name.len() - suffix.len()..].eq_ignore_ascii_case(suffix)
+}
+
 /// 文件名是否是 Markdown（大小写不敏感）
+///
+/// 只用 ASCII 折叠：后缀本身是 ASCII，`to_lowercase()` 的全 Unicode 映射在这里
+/// 没有任何额外收益，却会给遍历到的每个文件带来一次堆分配。
 pub fn is_markdown_name(name: &str) -> bool {
-    let lower = name.to_lowercase();
-    lower.ends_with(".md") || lower.ends_with(".markdown")
+    ends_with_ignore_ascii_case(name, ".md") || ends_with_ignore_ascii_case(name, ".markdown")
 }
 
 /// 遍历失败原因
 ///
 /// 刻意不使用 String：取消与「路径不存在」需要由调用方映射成各自的文案
 /// （搜索结果与文件索引的历史文案不同，直接返回 String 会改变既有错误信息）。
+/// 本类型只承载数据，**不提供统一文案方法**：两个调用方都必须先拦下 `Cancelled`
+/// 换成自己的文案，任何「默认文案」都必然是不可达代码。
 #[derive(Debug, PartialEq, Eq)]
 pub enum WalkError {
     /// 被更新的请求取消（代次推进）
     Cancelled,
-    /// 工作区路径不存在
+    /// 工作区路径不存在（携带原始路径，由调用方拼文案）
     NotFound(String),
-}
-
-impl WalkError {
-    /// 默认文案；调用方可覆盖（如搜索保留自己既有的取消文案）
-    pub fn message(&self) -> String {
-        match self {
-            WalkError::Cancelled => "扫描已被更新的请求取消".to_string(),
-            WalkError::NotFound(path) => format!("工作区不存在: {path}"),
-        }
-    }
 }
 
 /// 构造工作区遍历器（本模块是唯一配置点，改配置只改这里）
@@ -80,12 +92,16 @@ impl WalkError {
 fn build_walker(root: &Path, max_dir_depth: usize) -> ignore::Walk {
     let mut builder = ignore::WalkBuilder::new(root);
     builder
-        // 跳过 `.` 开头的项（与历史两处实现一致）
-        .hidden(true)
+        // 隐藏项**不交给** ignore 的 hidden 过滤：它在 Windows 上走文件属性
+        // （pathutil::is_hidden 会读 FILE_ATTRIBUTE_HIDDEN），于是带隐藏属性的普通文件
+        // 会从搜索与索引里消失，而文件树（只看点号前缀）仍然显示它——同一文件两处结论相反；
+        // 且在 ubuntu 上退化为点号前缀，两个平台的 CI 都抓不到差异。
+        // 改为统一由下方 filter_entry 按点号前缀判定，与 commands/mod.rs 的文件树完全同语义。
+        .hidden(false)
         // 不跟随符号链接：目录链接不成环，无需 visited 集合
         .follow_links(false)
         .max_depth(Some(max_dir_depth + 1))
-        // 读取工作区内的 .gitignore
+        // 唯一的声明式忽略规则来源：工作区内的 .gitignore
         .git_ignore(true)
         // 关键：ignore 默认只在检测到 .git 目录时才应用 .gitignore。
         // 本产品的用户大量在**非 git 目录**下写 Markdown，不设为 false 则该功能形同未做。
@@ -97,18 +113,26 @@ fn build_walker(root: &Path, max_dir_depth: usize) -> ignore::Walk {
         // 关闭机器相关的 git 全局排除与 .git/info/exclude，保证跨机器可复现
         .git_global(false)
         .git_exclude(false)
-        // 保留工作区内的 .ignore 文件（用户显式书写，属预期行为）
-        .ignore(true)
-        // 默认黑名单剪枝：只对目录生效（不误伤同名文件）
+        // 关闭 `.ignore`（fd/ag 等工具的约定文件）：它是本次改动之外的**新增过滤来源**，
+        // 会让用户在界面上看不到任何规则来源却搜不到文件。本 PR 的契约收紧为
+        // 「默认黑名单 + 工作区内 .gitignore」，故显式关闭而非沿用 ignore 的默认 true。
+        .ignore(false)
+        // 隐藏项 + 默认黑名单剪枝（唯一判定点）
         .filter_entry(|entry| {
             // root 自身不参与名字判定：否则把名为 target/out 的目录当作工作区打开时会全空
             if entry.depth() == 0 {
                 return true;
             }
+            // to_string_lossy 在合法 UTF-8 时零分配；非 UTF-8 名称沿用历史的有损比较行为
+            let name = entry.file_name().to_string_lossy();
+            // 隐藏项 = 名称以 `.` 开头。与 commands/mod.rs 的文件树判定完全一致，
+            // 跨平台一致，且不含 Windows 隐藏属性语义（那会静默吞掉用户能看见的笔记）。
+            if name.starts_with('.') {
+                return false;
+            }
+            // 默认黑名单只对目录生效，不误伤同名文件
             if entry.file_type().is_some_and(|ft| ft.is_dir()) {
-                if let Some(name) = entry.file_name().to_str() {
-                    return !is_ignored_dir(name);
-                }
+                return !is_ignored_dir(&name);
             }
             true
         })
@@ -123,8 +147,13 @@ fn build_walker(root: &Path, max_dir_depth: usize) -> ignore::Walk {
 /// - `is_cancelled`：取消判定钩子。由调用方注入，从而让搜索与索引各自持有独立代次，
 ///   不会出现「打开 Quick Open 把在途全局搜索取消掉」的耦合
 ///
-/// 返回 `(files, truncated)`，`files` 按路径字节序升序（与历史 `files.sort()` 一致，
-/// 保证分片并行扫描的合并顺序确定）。读取失败与非 UTF-8 路径静默跳过，不中断整个遍历。
+/// 返回 `(files, truncated)`：
+/// - `files` 按路径字节序升序（与历史 `files.sort()` 一致，保证分片并行扫描的合并顺序确定）；
+///   **路径为平台原生分隔符**（Windows 为 `\`），与 `list_dir` 及搜索结果的 `path` 字段一致，
+///   调用方展示前需自行归一化（如 `replace('\\', "/")`）。
+/// - `truncated` 仅在确实存在第 `max_files + 1` 个**可收录**文件时为 true。
+///
+/// 读取失败与非 UTF-8 路径静默跳过，不中断整个遍历。
 pub fn walk_markdown_files(
     root: &Path,
     max_dir_depth: usize,
@@ -162,13 +191,17 @@ pub fn walk_markdown_files(
         if !is_markdown_name(&entry.file_name().to_string_lossy()) {
             continue;
         }
+        // 先确认路径可表示为 UTF-8，再判上限：顺序反了的话，Linux 上遇到非 UTF-8 路径
+        // 会被误当成「还有第 N+1 个可收录文件」而置 truncated=true——它反正收不进来，
+        // 属假截断（调用方会据此以为工作区被截断，实际没有）。
+        let Some(path) = entry.path().to_str() else {
+            continue;
+        };
         if files.len() >= max_files {
             truncated = true;
             break;
         }
-        if let Some(path) = entry.path().to_str() {
-            files.push(path.to_string());
-        }
+        files.push(path.to_string());
     }
 
     files.sort();
@@ -278,6 +311,72 @@ mod tests {
 
         let files = walk(&temp.path);
         assert_eq!(relative(&temp.path, &files), vec!["visible.md"]);
+    }
+
+    #[test]
+    fn dotfile_convention_ignore_file_is_not_honoured() {
+        // 契约锁定：忽略来源只有「默认黑名单 + .gitignore + 隐藏项」，
+        // `.ignore`（fd/ag 的约定文件）**不生效**——它会让用户看到文件消失却找不到规则来源。
+        let temp = TestDir::new("dot-ignore-disabled");
+        write(&temp.child(".ignore"), "secret.md\n");
+        write(&temp.child("secret.md"), "kept");
+        write(&temp.child("keep.md"), "kept");
+
+        let files = walk(&temp.path);
+        assert_eq!(
+            relative(&temp.path, &files),
+            vec!["keep.md", "secret.md"],
+            ".ignore 不得过滤文件；否则是界面上不可见的静默过滤来源"
+        );
+    }
+
+    /// Windows 隐藏属性（FILE_ATTRIBUTE_HIDDEN）**不算**隐藏项
+    ///
+    /// 若把隐藏项判定交给 ignore 的 `hidden(true)`，Windows 上会走文件属性，
+    /// 于是「文件树里看得见、搜索里搜不到」——同一文件两处结论相反。
+    /// 本用例锁定「与文件树同语义」：只有点号前缀算隐藏。
+    #[cfg(windows)]
+    #[test]
+    fn windows_hidden_attribute_is_not_treated_as_hidden() {
+        use std::process::Command;
+
+        fn set_hidden(path: &Path) {
+            let status = Command::new("cmd")
+                .args(["/C", "attrib", "+h"])
+                .arg(path)
+                .status()
+                .expect("run attrib +h");
+            assert!(status.success(), "attrib +h 应执行成功: {}", path.display());
+        }
+
+        let temp = TestDir::new("windows-hidden-attr");
+        write(&temp.child("visible.md"), "visible");
+        let hidden_file = temp.child("attr-hidden.md");
+        write(&hidden_file, "hidden attribute on a file");
+        let hidden_dir = temp.child("attr-hidden-dir");
+        write(
+            &hidden_dir.join("inside.md"),
+            "file inside a hidden-attribute dir",
+        );
+
+        set_hidden(&hidden_file);
+        set_hidden(&hidden_dir);
+
+        let files = walk(&temp.path);
+        assert_eq!(
+            relative(&temp.path, &files),
+            vec!["attr-hidden-dir/inside.md", "attr-hidden.md", "visible.md"],
+            "Windows 隐藏属性不得影响收录结果（与文件树 starts_with('.') 判定一致）"
+        );
+    }
+
+    #[test]
+    fn is_markdown_name_handles_multibyte_tails_without_panicking() {
+        // 后缀比较按字节做：多字节字符结尾时不得因切到字符内部而 panic
+        assert!(!is_markdown_name("x😀"));
+        assert!(is_markdown_name("😀.md"));
+        assert!(is_markdown_name("日本語.MARKDOWN"));
+        assert!(!is_markdown_name(".md.txt"));
     }
 
     #[test]

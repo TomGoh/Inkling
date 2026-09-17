@@ -144,10 +144,10 @@ fn list_dir_shallow(path: &Path) -> Result<FileNode, String> {
         } else {
             (file_type.is_dir(), file_type.is_file())
         };
-        if is_dir && is_ignored_dir(&entry_name) {
+        if is_dir && ignore_rules::is_ignored_dir(&entry_name) {
             continue;
         }
-        if !is_dir && (!is_file || !is_markdown_file(&entry.path())) {
+        if !is_dir && (!is_file || !ignore_rules::is_markdown_name(&entry_name)) {
             continue;
         }
 
@@ -175,17 +175,6 @@ fn list_dir_shallow(path: &Path) -> Result<FileNode, String> {
         .extend(files.into_iter().map(|(_, child)| child));
 
     Ok(node)
-}
-
-/// 目录是否应被忽略（统一到 ignore_rules，与全局搜索 / 文件索引共用一份清单）
-fn is_ignored_dir(name: &str) -> bool {
-    ignore_rules::is_ignored_dir(name)
-}
-
-fn is_markdown_file(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(ignore_rules::is_markdown_name)
 }
 
 #[cfg(test)]

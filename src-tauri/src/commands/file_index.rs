@@ -18,12 +18,19 @@ pub const MAX_INDEX_FILES: usize = 50_000;
 /// 刻意**不复用** `SEARCH_GENERATION`：两者共用一个计数器会让「打开 Quick Open」
 /// 把在途的全局搜索取消掉（搜索结果突然报「已被更新的搜索取消」），属可观察的行为耦合。
 /// 复用是「机制」（代次推进 + 检查点提前退出），不是变量。
+///
+/// 注意：这是**进程级单例**，而 capabilities 允许 `inkling-*` 派生窗口同时存在。
+/// 多窗口并发发起索引时，后发起者会取消先发起者的在途任务（搜索侧历史行为一致）。
+/// 当前按「后发起者胜出」处理，UI 侧不要把「索引被取消」当成异常状态。
 pub static INDEX_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// 工作区文件索引结果
 #[derive(Debug, serde::Serialize)]
 pub struct WorkspaceFileList {
-    /// 工作区内全部 Markdown 文件的完整路径，按路径字节序升序
+    /// 工作区内全部 Markdown 文件的完整路径，按路径字节序升序。
+    ///
+    /// 路径为**平台原生分隔符**（Windows 为 `\`），与 `list_dir` 及搜索结果的
+    /// `path` 字段保持一致；调用方展示或做相对路径匹配前需自行归一化。
     pub files: Vec<String>,
     /// 文件数达到上限被截断时为 true（与搜索结果的 truncated 语义一致）
     pub truncated: bool,
@@ -88,7 +95,8 @@ fn list_workspace_files_sync(
     )
     .map_err(|error| match error {
         WalkError::Cancelled => cancelled_error(),
-        other => other.message(),
+        // 与 search_in_workspace_sync 的历史文案保持一致
+        WalkError::NotFound(path) => format!("工作区不存在: {path}"),
     })?;
 
     Ok(WorkspaceFileList { files, truncated })

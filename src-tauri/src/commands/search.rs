@@ -36,8 +36,6 @@ pub struct SearchResult {
 
 /// 超过此大小（字节）的文件跳过
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024;
-/// 递归搜索的最大目录深度（与文件索引共用 ignore_rules 的同一上限）
-const MAX_SEARCH_DEPTH: usize = ignore_rules::MAX_SCAN_DIR_DEPTH;
 /// 单次搜索最多返回的命中条数，超出截断并置 truncated
 const MAX_TOTAL_HITS: usize = 5000;
 /// preview 中命中点前后各保留的字符数（#176：避免克隆整行）
@@ -63,22 +61,25 @@ fn is_stale(generation: u64) -> bool {
 
 /// 递归收集目录下所有 .md/.markdown 文件路径
 ///
-/// 已统一到 `ignore_rules::walk_markdown_files`（#227）：忽略规则、符号链接处理、
-/// 深度上限与默认黑名单只有一份实现，由搜索 / 文件索引 / 文件树共用。
-/// 搜索保留自己既有的取消文案，故在此做一次错误映射。
-fn collect_md_files(dir: &Path, out: &mut Vec<String>, generation: u64) -> Result<(), String> {
-    let (files, _) = ignore_rules::walk_markdown_files(
+/// 已统一到 `ignore_rules::walk_markdown_files`（#227）：忽略规则、隐藏项判定、
+/// 符号链接处理、深度上限与默认黑名单只有一份实现，由搜索 / 文件索引 / 文件树共用。
+///
+/// `max_files` 传 `usize::MAX`：产出上限只对文件索引生效，搜索必须拿到全部候选文件，
+/// 因此这里刻意丢弃 `truncated`。
+fn collect_md_files(dir: &Path, generation: u64) -> Result<Vec<String>, String> {
+    let is_cancelled = || is_stale(generation);
+    ignore_rules::walk_markdown_files(
         dir,
-        MAX_SEARCH_DEPTH,
+        ignore_rules::MAX_SCAN_DIR_DEPTH,
         usize::MAX,
-        &|| is_stale(generation),
+        &is_cancelled,
     )
+    .map(|(files, _)| files)
     .map_err(|error| match error {
+        // 搜索沿用自己既有的取消文案（与索引的文案不同）
         ignore_rules::WalkError::Cancelled => cancelled_error(),
-        other => other.message(),
-    })?;
-    out.extend(files);
-    Ok(())
+        ignore_rules::WalkError::NotFound(path) => format!("工作区不存在: {path}"),
+    })
 }
 
 /// 取命中点附近的字符级窗口作为预览（#176）
@@ -229,15 +230,18 @@ fn search_in_workspace_sync(
         return Err(format!("工作区不存在: {}", root));
     }
 
-    let mut files: Vec<String> = Vec::new();
-    if root_path.is_dir() {
-        // walk_markdown_files 已按路径字节序升序返回，分片合并顺序因此确定（#163）
-        collect_md_files(root_path, &mut files, generation)?;
+    // walk_markdown_files 已按路径字节序升序返回，分片合并顺序因此确定（#163）
+    let files: Vec<String> = if root_path.is_dir() {
+        collect_md_files(root_path, generation)?
     } else if root_path.is_file() {
-        if let Some(p) = root_path.to_str() {
-            files.push(p.to_string());
-        }
-    }
+        // 单文件模式沿用历史行为：不限定扩展名，任意文件都可作为搜索目标
+        root_path
+            .to_str()
+            .map(|path| vec![path.to_string()])
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
 
     if is_stale(generation) {
         return Err(cancelled_error());
@@ -696,15 +700,18 @@ mod tests {
 
     #[test]
     fn search_stops_beyond_the_maximum_directory_depth() {
+        // 深度上限的唯一定义在 ignore_rules（搜索与索引共用），此处直接引用来源符号
+        use crate::commands::ignore_rules::MAX_SCAN_DIR_DEPTH;
+
         let temp = TestDir::new("max-depth");
         let mut current = temp.path.clone();
-        for depth in 1..=MAX_SEARCH_DEPTH + 1 {
+        for depth in 1..=MAX_SCAN_DIR_DEPTH + 1 {
             current = current.join(format!("level-{depth}"));
             fs::create_dir(&current).unwrap();
-            if depth == MAX_SEARCH_DEPTH {
+            if depth == MAX_SCAN_DIR_DEPTH {
                 write(&current.join("included.md"), "needle\n");
             }
-            if depth == MAX_SEARCH_DEPTH + 1 {
+            if depth == MAX_SCAN_DIR_DEPTH + 1 {
                 write(&current.join("excluded.md"), "needle\n");
             }
         }
