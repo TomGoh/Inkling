@@ -3,8 +3,9 @@
 # 但 app command 的权限标识符不会自动生成，必须在此显式定义，
 # 再由 capabilities/default.json 引用。
 #
-# 定义格式：identifier 用 allow-<command-name>（command 函数名原样，下划线保留），
-# commands.allow 填 command 函数名（即 invoke_handler 注册的名字）。
+# 定义格式：identifier 用 allow-<command 名的 kebab-case 形式>（如 search_in_workspace
+# → allow-search-in-workspace），commands.allow 填 command 函数名原样（下划线保留，
+# 即 invoke_handler 注册的名字）。
 "$schema" = "schemas/schema.json"
 
 # 文件系统命令
@@ -63,6 +64,12 @@ commands.allow = ["allow_asset_dir"]
 identifier = "allow-search-in-workspace"
 description = "Allow search_in_workspace command"
 commands.allow = ["search_in_workspace"]
+
+# 工作区文件索引命令（#227：Quick Open 的索引地基，全局搜索的 ignore 规则同源）
+[[permission]]
+identifier = "allow-list-workspace-files"
+description = "Allow list_workspace_files command"
+commands.allow = ["list_workspace_files"]
 
 # Pandoc 导出命令
 [[permission]]

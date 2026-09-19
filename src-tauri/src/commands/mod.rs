@@ -4,6 +4,11 @@
 pub mod pandoc;
 pub use pandoc::{pandoc_check, pandoc_export_docx};
 
+pub mod ignore_rules;
+
+pub mod file_index;
+pub use file_index::list_workspace_files;
+
 pub mod search;
 pub use search::search_in_workspace;
 
@@ -52,8 +57,6 @@ fn replace_file_with_retry(temp_path: &Path, path: &Path) -> std::io::Result<()>
     }
     Err(last_err.unwrap_or_else(|| std::io::Error::other("替换目标文件失败")))
 }
-
-const IGNORED_DIR_NAMES: &[&str] = &["node_modules", "target", "dist", "build", "out"];
 
 /// 文件树节点
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,10 +144,10 @@ fn list_dir_shallow(path: &Path) -> Result<FileNode, String> {
         } else {
             (file_type.is_dir(), file_type.is_file())
         };
-        if is_dir && is_ignored_dir(&entry_name) {
+        if is_dir && ignore_rules::is_ignored_dir(&entry_name) {
             continue;
         }
-        if !is_dir && (!is_file || !is_markdown_file(&entry.path())) {
+        if !is_dir && (!is_file || !ignore_rules::is_markdown_name(&entry_name)) {
             continue;
         }
 
@@ -174,18 +177,25 @@ fn list_dir_shallow(path: &Path) -> Result<FileNode, String> {
     Ok(node)
 }
 
-fn is_ignored_dir(name: &str) -> bool {
-    IGNORED_DIR_NAMES
-        .iter()
-        .any(|ignored| name.eq_ignore_ascii_case(ignored))
-}
+/// 测试用串行锁：凡「写」全局代次（`SEARCH_GENERATION` / `INDEX_GENERATION`）的用例
+/// 都必须持有它。
+///
+/// `cargo test` 默认多线程并行（CI 即裸 `cargo test`），而这些用例的模式是
+/// 「store 一个代次 → 调用被测函数 → 断言结果」，写与断言之间存在窗口：
+/// 另一个测试在此期间 store 更大的值，就会把本该成功的调用判为过期而 panic。
+/// 这是随机的、跨模块的失败，必须在写侧串行化，光靠读侧 `TEST_GENERATION = u64::MAX`
+/// 的免疫设计堵不住写侧。
+///
+/// 取锁时容忍中毒：某个用例 panic 后其余用例仍应正常执行，而不是级联失败。
+#[cfg(test)]
+pub(crate) static GENERATION_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn is_markdown_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("md") || extension.eq_ignore_ascii_case("markdown")
-        })
+/// 取得全局代次写锁（测试专用）
+#[cfg(test)]
+pub(crate) fn lock_generations() -> std::sync::MutexGuard<'static, ()> {
+    GENERATION_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[cfg(test)]
@@ -271,7 +281,9 @@ mod tests {
     #[test]
     fn filters_hidden_build_and_non_markdown_entries() {
         let temp = TestDir::new("filtering");
-        for name in [".git", "node_modules", "target", "dist", "build", "out"] {
+        // 直接遍历统一清单，锁定「文件树与遍历器 / 索引共用同一份忽略来源」（#227）：
+        // 清单里任何一个目录出现在文件树中，本用例都会失败。
+        for name in ignore_rules::DEFAULT_IGNORED_DIRS {
             fs::create_dir(temp.path.join(name)).unwrap();
         }
         fs::create_dir(temp.path.join("notes")).unwrap();
