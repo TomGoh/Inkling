@@ -51,15 +51,25 @@ let cache: CacheEntry | null = null;
 let inFlight: { root: string; promise: Promise<WorkspaceIndexSnapshot> } | null = null;
 /** 最近一次被请求的 root：迟到的旧 root 响应不得覆盖新 root 的缓存 */
 let latestRoot: string | null = null;
+/**
+ * 失效世代：每次 invalidate 自增
+ *
+ * 仅靠清空 `cache` 拦不住「在途请求落定后写回」——在途响应是在失效**之前**扫的盘，
+ * 落定却会把旧清单以新的 `builtAt` 写回缓存，等于把失效静默抹掉（TTL 内都读到旧数据）。
+ * 因此 build 在发起前捕获世代号，落定时世代已变则视作过期（不写缓存 + 立刻补一次重建）。
+ */
+let invalidateEpoch = 0;
 
 /**
  * 使缓存失效
  *
  * 失效来源（#228）：工作区切换（rootPath 变化）、文件树 refreshTree 完成后、
- * 文件重命名/删除。由这些位置显式调用，模块不做隐式订阅（避免 import 副作用）。
+ * 文件重命名/删除、另存为新建文件。由这些位置显式调用，模块不做隐式订阅
+ * （避免 import 副作用）。
  */
 export function invalidateWorkspaceIndex(): void {
   cache = null;
+  invalidateEpoch += 1;
 }
 
 /** 仅供单测：重置模块级状态 */
@@ -67,6 +77,7 @@ export function __resetWorkspaceIndexForTests(): void {
   cache = null;
   inFlight = null;
   latestRoot = null;
+  invalidateEpoch = 0;
 }
 
 /**
@@ -96,12 +107,25 @@ function emptySnapshot(files: string[]): WorkspaceIndexSnapshot {
 function build(root: string, now: () => number): Promise<WorkspaceIndexSnapshot> {
   if (inFlight && inFlight.root === root) return inFlight.promise;
   latestRoot = root;
+  const startEpoch = invalidateEpoch;
   // 在途标记必须在**本次落定回调里**清掉，而不是挂 .finally()：
   // .finally 的清理比调用方的 await 恢复晚两个微任务，调用方紧接着的读取
   // 会误命中这个已经落定的「在途」项，于是拿到同一份旧结果而不触发新遍历。
   const promise = listWorkspaceFiles(root).then(
     (result) => {
       if (inFlight?.promise === promise) inFlight = null;
+      const snapshot: WorkspaceIndexSnapshot = {
+        files: result.files,
+        truncated: result.truncated,
+        stale: false,
+        refresh: null,
+      };
+      // 期间发生过失效（重命名 / 删除 / 文件树刷新）：这份结果是失效**之前**扫的盘。
+      // 既不写缓存，也不得当成新鲜数据返回，而是立刻补一次重建 —— 调用方沿用
+      // stale-while-revalidate 的既有路径无缝替换（先渲染旧列表，新结果落定后换掉）。
+      if (startEpoch !== invalidateEpoch) {
+        return { ...snapshot, stale: true, refresh: build(root, now) };
+      }
       // 工作区已切走：本次结果仍可返回给调用方，但不写入缓存，
       // 否则迟到的旧 root 响应会把新 root 的缓存挤掉（下次打开要多跑一次遍历）
       if (latestRoot === root) {
@@ -112,12 +136,7 @@ function build(root: string, now: () => number): Promise<WorkspaceIndexSnapshot>
           builtAt: now(),
         };
       }
-      return {
-        files: result.files,
-        truncated: result.truncated,
-        stale: false,
-        refresh: null,
-      };
+      return snapshot;
     },
     (error: unknown) => {
       // 失败同样要清在途标记，否则这个 root 会被后续调用永久合并进同一个失败请求

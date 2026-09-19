@@ -96,6 +96,65 @@ describe("workspaceIndex（索引缓存与失效）", () => {
     expect(mock.roots).toEqual(["/w", "/w"]);
   });
 
+  it("失效（在途窗口）：冷启动遍历期间失效，迟到的响应不得被当成新鲜数据回写缓存", async () => {
+    mock.useDeferred = true;
+
+    const pending = loadCandidates(folderSource("/w"), at(0));
+    expect(mock.roots).toEqual(["/w"]);
+
+    // 遍历在途期间：文件被重命名 / 删除 / 文件树刷新
+    invalidateWorkspaceIndex();
+
+    // 落定的这份结果是失效**之前**扫的盘
+    mock.deferred[0].resolve({ files: ["/w/OLD.md"], truncated: false });
+    const snapshot = await pending;
+
+    expect(snapshot.stale).toBe(true);
+    expect(snapshot.refresh).not.toBeNull();
+    // 必须补一次重建，否则 TTL 内一直读到重命名前的旧清单
+    expect(mock.roots).toEqual(["/w", "/w"]);
+
+    mock.deferred[1].resolve({ files: ["/w/NEW.md"], truncated: false });
+    const fresh = await snapshot.refresh!;
+    expect(fresh.files).toEqual(["/w/NEW.md"]);
+    expect(fresh.stale).toBe(false);
+
+    // 新结果已落缓存：紧接着的读取不再遍历
+    await loadCandidates(folderSource("/w"), at(1));
+    expect(mock.roots).toEqual(["/w", "/w"]);
+  });
+
+  it("失效（在途窗口）：TTL 重建期间失效，重建结果不得以新的 builtAt 冒充新鲜数据", async () => {
+    mock.impl = () => Promise.resolve({ files: ["/w/OLD.md"], truncated: false });
+    // 建立缓存（builtAt = 0）
+    await loadCandidates(folderSource("/w"), at(0));
+
+    // TTL 过期 → 后台重建，且让它停在途中
+    mock.useDeferred = true;
+    const stale = await loadCandidates(folderSource("/w"), at(INDEX_TTL_MS + 1));
+    expect(stale.stale).toBe(true);
+    expect(mock.roots).toEqual(["/w", "/w"]);
+
+    // 重建在途期间失效
+    invalidateWorkspaceIndex();
+
+    mock.deferred[0].resolve({ files: ["/w/OLD.md"], truncated: false });
+    const rebuilt = await stale.refresh!;
+
+    // 关键：若把它当新鲜数据写回，TTL 时钟会被重置、面板连「这是旧的」都无从判断
+    expect(rebuilt.stale).toBe(true);
+    expect(mock.roots).toEqual(["/w", "/w", "/w"]);
+
+    mock.deferred[1].resolve({ files: ["/w/NEW.md"], truncated: false });
+    const fresh = await rebuilt.refresh!;
+    expect(fresh.files).toEqual(["/w/NEW.md"]);
+    expect(fresh.stale).toBe(false);
+
+    // 重建已落缓存，且 builtAt 是这一次的
+    await loadCandidates(folderSource("/w"), at(INDEX_TTL_MS + 2));
+    expect(mock.roots).toEqual(["/w", "/w", "/w"]);
+  });
+
   it("TTL 内复用缓存，不重复遍历", async () => {
     await loadCandidates(folderSource("/w"), at(0));
     await loadCandidates(folderSource("/w"), at(INDEX_TTL_MS - 1));

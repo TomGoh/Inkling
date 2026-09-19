@@ -102,3 +102,41 @@ test.describe("Quick Open（单文件模式）", () => {
     await expect(page.locator(".tab-active")).toContainText("intro.md");
   });
 });
+
+// 禅模式（评审 P2-2）：模态层原先落在 zenMode 的提前 return 之后，
+// 「模态不渲染 + requestModal 照常置位」会让快捷键变成全局静默锁。
+test.describe("Quick Open（禅模式）", () => {
+  test.beforeEach(async ({ page }) => {
+    await openMockWorkspace(page);
+    await openFile(page, "intro.md");
+    await page.locator('button[aria-label="更多操作"]').click();
+    await page.locator("button.export-item", { hasText: "禅模式" }).click();
+    await expect(page.locator(".app-shell.zen-mode")).toBeVisible();
+  });
+
+  test("Q8 禅模式下 Ctrl+P 能真的打开面板（不再是无声的死键）", async ({ page }) => {
+    await expect(page.locator(".sidebar")).toHaveCount(0);
+
+    await openQuickOpen(page);
+
+    await expect(page.locator(".qo-input")).toBeFocused();
+  });
+
+  test("Q9 禅模式下模态互斥成立，且状态不会卡死", async ({ page }) => {
+    await openQuickOpen(page);
+
+    // 已有面板时按 Ctrl+Shift+F：忽略、不叠加
+    await page.keyboard.press(`${MOD}+Shift+F`);
+    await expect(page.locator(".gs-modal")).toHaveCount(0);
+    await expect(page.getByRole("dialog")).toHaveCount(1);
+
+    // 用关闭按钮关闭（Esc 会退出禅模式，这里要在禅模式内继续验证）
+    await page.locator(".qo-close").click();
+    await expect(page.locator(".qo-modal")).toBeHidden();
+    await expect(page.locator(".app-shell.zen-mode")).toBeVisible();
+
+    // 关键回归防线：上一步的 activeModal 必须已清空，否则这里会被 ignore 静默吞掉
+    await page.keyboard.press(`${MOD}+Shift+F`);
+    await expect(page.locator(".gs-modal")).toBeVisible({ timeout: 5_000 });
+  });
+});

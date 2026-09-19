@@ -47,12 +47,15 @@ export function QuickOpenPanel({ onClose }: QuickOpenPanelProps) {
   const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** 打开单个候选失败（多为文件已被删除）：只在状态栏提示，**不隐藏列表**，用户可另选 */
+  const [openError, setOpenError] = useState<string | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   /** 递增即重试：作为取数 effect 的依赖，避免额外的手动重建分支 */
   const [retryToken, setRetryToken] = useState(0);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // 打开时自动聚焦输入框（键盘优先：打开即可直接输入）
   useEffect(() => {
@@ -138,9 +141,10 @@ export function QuickOpenPanel({ onClose }: QuickOpenPanelProps) {
     [ranked],
   );
 
-  // 输入或候选集变化后回到首项，避免高亮停在一个已不存在的位置
+  // 输入或候选集变化后回到首项，避免高亮停在一个已不存在的位置；同时清掉上一条打开失败提示
   useEffect(() => {
     setActiveIndex(0);
+    setOpenError(null);
   }, [query, paths]);
 
   // 高亮项跟随滚动（只滚最近距离，不打断用户手动滚动）
@@ -152,14 +156,50 @@ export function QuickOpenPanel({ onClose }: QuickOpenPanelProps) {
   }, [activeIndex]);
 
   const openAndClose = async (path: string) => {
+    setOpenError(null);
     try {
       await openFile(path);
-    } catch {
-      // 打开失败（文件已被删除 / 无权限）：保持面板打开，用户可另选一项。
-      // 错误已由 workspace store 按路径记录，不在此重复提示。
+    } catch (e) {
+      // 打开失败（最常见是文件已被删除）必须在**面板内**给出反馈：
+      // workspace store 确实按路径记了 fileOpenErrors，但那张表只在侧边栏的
+      // 文件树 / 最近文件 / 书签三处渲染，而「已删除」的路径恰恰不在文件树里，
+      // 用户视线又在遮罩面板上 —— 不提示的表现就是「按 Enter 什么都没发生」。
+      setOpenError(e instanceof Error ? e.message : String(e));
       return;
     }
     onClose();
+  };
+
+  /**
+   * 焦点陷阱
+   *
+   * 本面板声明了 `aria-modal="true"`，语义上等于「背景内容不可交互」，
+   * 因此必须真的把 Tab 限制在面板内；否则键盘/读屏用户会被送到被声明为
+   * inert 的背景上（评审 P3-2）。
+   */
+  const handlePanelKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== "Tab") return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const focusables = panel.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled])',
+    );
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    const inside = active instanceof HTMLElement && panel.contains(active);
+    if (e.shiftKey) {
+      if (!inside || active === first) {
+        e.preventDefault();
+        last.focus();
+      }
+      return;
+    }
+    if (!inside || active === last) {
+      e.preventDefault();
+      first.focus();
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -183,7 +223,9 @@ export function QuickOpenPanel({ onClose }: QuickOpenPanelProps) {
     <div className="qo-backdrop" onClick={onClose}>
       <div
         className="qo-modal"
+        ref={panelRef}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={handlePanelKeyDown}
         role="dialog"
         aria-modal="true"
         aria-label="快速打开文件"
@@ -194,6 +236,9 @@ export function QuickOpenPanel({ onClose }: QuickOpenPanelProps) {
             className="qo-input"
             type="text"
             role="combobox"
+            // 只有 placeholder 不足以构成可访问名称，读屏会念成「编辑框」；
+            // 显式 aria-label 后才会念出「快速打开文件」（评审 P3-2）
+            aria-label="快速打开文件"
             aria-expanded={showList}
             aria-controls={LIST_ID}
             aria-autocomplete="list"
@@ -222,6 +267,11 @@ export function QuickOpenPanel({ onClose }: QuickOpenPanelProps) {
                 重试
               </button>
             </>
+          )}
+          {!loading && !error && openError && (
+            <span className="qo-error" role="alert">
+              打开失败：{openError}
+            </span>
           )}
           {!loading && !error && ranked.length > 0 && (
             <span>

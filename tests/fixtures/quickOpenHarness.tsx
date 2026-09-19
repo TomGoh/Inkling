@@ -59,9 +59,9 @@ export interface QuickOpenHarness {
 export async function renderQuickOpen(): Promise<QuickOpenHarness> {
   const onClose = vi.fn();
   render(<QuickOpenPanel onClose={onClose} />);
-  const input = (await screen.findByPlaceholderText(
-    "输入文件名或路径片段…",
-  )) as HTMLInputElement;
+  // 用 role 而非 placeholder 定位：placeholder 不作为可访问名称，
+  // 靠它取元素会掩盖「输入框没有可访问名称」这类缺陷（#228 评审 P3-2）
+  const input = (await screen.findByRole("combobox")) as HTMLInputElement;
   await waitFor(() => {
     expect(screen.queryByText("正在索引工作区…")).toBeNull();
   });

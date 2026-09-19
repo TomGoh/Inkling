@@ -166,7 +166,53 @@ function App() {
     getEditor,
   });
 
-  // 禅模式：仅渲染编辑器，隐藏所有 UI（侧边栏/大纲/标签页/工具栏/状态栏）
+  // 模态层：**必须在禅模式分支也渲染**（issue #228 评审 P2-2）。
+  // 收敛为单值 activeModal 后，「模态不渲染 + requestModal 照常置位」会变成全局静默锁：
+  // 禅模式下按 mod+p 无任何可见反馈，随后 mod+shift+f 会被 resolveModalAction 判为
+  // ignore 一并吞掉，用户看到的是「快速打开和全局搜索都按不出来」，只能再按一次
+  // mod+p 把它 toggle 掉或 Esc 退出禅模式才恢复。
+  //（此前 6 个独立布尔量同样不可见，但每个快捷键都「生效」，退出禅模式后一起显示；
+  //  即叠加 bug 与这个死键是同一处结构造成的。）
+  // ConflictDialog 一并放这里：它是阻塞式确认，「不可渲染」意味着保存被静默卡住。
+  const modalLayer = (
+    <>
+      {activeModal === "settings" && (
+        <SettingsPanel onClose={() => setActiveModal(null)} />
+      )}
+      {activeModal === "shortcutsHelp" && (
+        <ShortcutsHelp
+          onClose={() => setActiveModal(null)}
+          onCustomize={() => {
+            // 模态之间的显式切换：直接置值，不走互斥归并
+            // （否则「帮助 → 自定义」会被判为 ignore 而卡住）
+            setActiveModal("shortcutsCustomize");
+          }}
+        />
+      )}
+      {activeModal === "shortcutsCustomize" && (
+        <ShortcutsCustomize onClose={() => setActiveModal(null)} />
+      )}
+      {activeModal === "globalSearch" && (
+        <GlobalSearchPanel
+          getEditor={getEditor}
+          onClose={() => setActiveModal(null)}
+        />
+      )}
+      {activeModal === "quickOpen" && (
+        <QuickOpenPanel onClose={() => setActiveModal(null)} />
+      )}
+      {activeModal === "linkDialog" && (
+        <LinkDialog
+          getEditor={getEditor}
+          onClose={() => setActiveModal(null)}
+        />
+      )}
+      <ConflictDialog />
+    </>
+  );
+
+  // 禅模式：仅渲染编辑器，隐藏所有 UI（侧边栏/大纲/标签页/工具栏/状态栏）；
+  // 用户显式唤起的模态层除外（见上方注释）
   if (zenMode && currentFile) {
     return (
       <main className="app-shell zen-mode">
@@ -189,6 +235,7 @@ function App() {
             onSplitEditorReady={handleSplitEditorReady}
           />
         </div>
+        {modalLayer}
       </main>
     );
   }
@@ -249,38 +296,7 @@ function App() {
       {currentFile && outlineVisible && <OutlinePanel getEditor={getEditor} />}
       </div>
       {currentFile && <StatusBar />}
-      {activeModal === "settings" && (
-        <SettingsPanel onClose={() => setActiveModal(null)} />
-      )}
-      {activeModal === "shortcutsHelp" && (
-        <ShortcutsHelp
-          onClose={() => setActiveModal(null)}
-          onCustomize={() => {
-            // 模态之间的显式切换：直接置值，不走互斥归并
-            // （否则「帮助 → 自定义」会被判为 ignore 而卡住）
-            setActiveModal("shortcutsCustomize");
-          }}
-        />
-      )}
-      {activeModal === "shortcutsCustomize" && (
-        <ShortcutsCustomize onClose={() => setActiveModal(null)} />
-      )}
-      {activeModal === "globalSearch" && (
-        <GlobalSearchPanel
-          getEditor={getEditor}
-          onClose={() => setActiveModal(null)}
-        />
-      )}
-      {activeModal === "quickOpen" && (
-        <QuickOpenPanel onClose={() => setActiveModal(null)} />
-      )}
-      {activeModal === "linkDialog" && (
-        <LinkDialog
-          getEditor={getEditor}
-          onClose={() => setActiveModal(null)}
-        />
-      )}
-      <ConflictDialog />
+      {modalLayer}
     </main>
   );
 }

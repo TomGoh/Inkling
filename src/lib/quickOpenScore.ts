@@ -119,10 +119,14 @@ export function matchScoreOf(relPath: string, query: string): number | null {
   return subsequenceScore(lowerPath, q);
 }
 
-/** 单个候选的总分；不命中返回 null */
-export function scoreCandidate(candidate: QuickOpenCandidate, query: string): number | null {
-  const matchScore = matchScoreOf(candidate.relPath, query);
-  if (matchScore === null) return null;
+/**
+ * 候选总分 = 已打开加分 + 最近打开权重 + 档位分 − 深度惩罚
+ *
+ * `matchScore` 由调用方传入（即 `matchScoreOf` 的结果），**不在这里重算**：
+ * `rankQuickOpenFiles` 同时需要档位分与总分，若此处再算一遍，每次按键的
+ * 必然成本会直接翻倍（5,000 候选时可见）。
+ */
+export function scoreCandidate(candidate: QuickOpenCandidate, matchScore: number): number {
   return (
     (candidate.isOpen ? OPEN_TAB_BONUS : 0) +
     recencyScore(candidate.recentIndex) +
@@ -156,7 +160,7 @@ export function rankQuickOpenFiles(
     ranked.push({
       ...candidate,
       basename: basenameOf(candidate.relPath),
-      score: scoreCandidate(candidate, query)!,
+      score: scoreCandidate(candidate, matchScore),
       matchScore,
     });
   }

@@ -154,11 +154,13 @@ describe("quickOpenScore（打分与排序）", () => {
     });
 
     it("scoreCandidate 与 rankQuickOpenFiles 对同一候选给出一致分数", () => {
+      // 「每个候选只算一次档位分」不需要运行时用例守：scoreCandidate 的第二参
+      // 就是 matchScore（数值），想在内部重算必须自己再调 matchScoreOf —— 类型
+      // 上不禁止但已无传入 query 的入口，属于编译期可见的约束（评审 P3-1）。
       const candidate = cand("docs/readme.md", { isOpen: true, recentIndex: 2 });
-      const direct = scoreCandidate(candidate, "readme");
-      const ranked = rank([candidate], "readme")[0];
-      expect(direct).toBe(ranked.score);
-      expect(ranked.matchScore).toBe(MATCH_BASENAME_PREFIX);
+      const matchScore = matchScoreOf(candidate.relPath, "readme")!;
+      expect(scoreCandidate(candidate, matchScore)).toBe(rank([candidate], "readme")[0].score);
+      expect(rank([candidate], "readme")[0].matchScore).toBe(MATCH_BASENAME_PREFIX);
     });
   });
 });

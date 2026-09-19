@@ -104,7 +104,7 @@ describe("QuickOpenPanel（交互）", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("打开失败时保持面板开启，不误报成功（文件已被删除的场景）", async () => {
+  it("打开失败时保持面板开启、在面板内提示，且不误报成功（文件已被删除的场景）", async () => {
     stubIndexFiles(["/w/gone.md"]);
     vi.spyOn(fsApi, "readTextFile").mockRejectedValue(new Error("文件不存在"));
     const { input, onClose } = await renderQuickOpen();
@@ -115,6 +115,13 @@ describe("QuickOpenPanel（交互）", () => {
       expect(useWorkspace.getState().currentFile).not.toBe("/w/gone.md");
     });
     expect(onClose).not.toHaveBeenCalled();
+    // 反馈必须出现在面板内：store 的 fileOpenErrors 只在侧边栏渲染，
+    // 而「已删除」的路径恰恰不在文件树里（#228 评审 P3-3）
+    await waitFor(() => {
+      expect(screen.getByRole("alert").textContent).toContain("打开失败");
+    });
+    // 列表仍可操作，用户能直接改选其他候选
+    expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
   });
 
   it("Esc 关闭面板", async () => {

@@ -5,6 +5,8 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   renderQuickOpen,
   resetWorkspaceState,
@@ -73,11 +75,45 @@ describe("QuickOpenPanel（a11y 语义）", () => {
     expect(screen.queryByRole("listbox")).toBeNull();
   });
 
-  it("键盘可达的按钮都有可见焦点样式（与 #188 约定一致）", async () => {
-    const { onClose } = await renderQuickOpen();
-    void onClose;
-    // 关闭按钮是真实 button（不是 div），可被 Tab 聚焦
+  it("输入框有可访问名称（不能只靠 placeholder）", async () => {
+    const { input } = await renderQuickOpen();
+
+    // placeholder 不作为可访问名称；只靠它读屏会把控件念成「编辑框」
+    expect(input.getAttribute("aria-label")).toBe("快速打开文件");
+  });
+
+  it("Tab 被限制在面板内（aria-modal=true 的前提），Shift+Tab 反向环绕", async () => {
+    const { input } = await renderQuickOpen();
+    const close = screen.getByTitle("关闭 (Esc)");
+
+    // 焦点在最后一个可聚焦控件（关闭按钮）时按 Tab → 回到面板内第一个
+    close.focus();
+    fireEvent.keyDown(close, { key: "Tab" });
+    expect(document.activeElement).toBe(input);
+
+    // 反向：焦点在第一个时按 Shift+Tab → 绕到最后一个（仍在面板内）
+    input.focus();
+    fireEvent.keyDown(input, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(close);
+    expect(document.querySelector(".qo-modal")!.contains(document.activeElement)).toBe(true);
+  });
+
+  it("关闭按钮是可聚焦的真实 button（不是 div）", async () => {
+    await renderQuickOpen();
     const close = screen.getByTitle("关闭 (Esc)");
     expect(close.tagName).toBe("BUTTON");
+  });
+
+  it("可聚焦控件在样式表里有可见焦点环（与 #188 约定一致）", () => {
+    // 焦点环是纯视觉属性，happy-dom 无法用 getComputedStyle 真实求值，
+    // 与 tests/components/aria-a11y-static.test.ts 同思路：对源文件做事实断言
+    const css = readFileSync(
+      resolve(process.cwd(), "src/components/QuickOpen/QuickOpenPanel.css"),
+      "utf8",
+    );
+    expect(css).toContain(".qo-close:focus-visible");
+    expect(css).toContain(".qo-retry:focus-visible");
+    // 输入框用 :focus 给出边框高亮 + ring（面板的默认焦点位置）
+    expect(css).toContain(".qo-input:focus");
   });
 });
