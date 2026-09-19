@@ -126,18 +126,26 @@ describe("QuickOpenPanel（交互）", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("结果超过渲染上限时截断，并提示继续输入以缩小范围", async () => {
+  it("5,000 候选下仍只渲染上限条数，并提示继续输入以缩小范围", async () => {
+    // 取 #228 验收标准的规模（5,000 文件）作为确定性断言：不依赖计时，
+    // 因此可安全进 CI；真实耗时另按本机口径人工记录。
     const many = Array.from(
-      { length: MAX_RENDERED_RESULTS + 50 },
-      (_, i) => `/w/f${String(i).padStart(4, "0")}.md`,
+      { length: 5000 },
+      (_, i) => `/w/d${String(i % 50).padStart(2, "0")}/f${String(i).padStart(4, "0")}.md`,
     );
     stubIndexFiles(many);
-    await renderQuickOpen();
+    const { input } = await renderQuickOpen();
 
     expect(screen.getAllByRole("option").length).toBe(MAX_RENDERED_RESULTS);
     expect(
       screen.getByText(new RegExp(`仅显示前 ${MAX_RENDERED_RESULTS} 条`)),
     ).toBeTruthy();
+
+    // 输入过滤后同样受上限约束（不会因为命中多而放大渲染量）
+    fireEvent.change(input, { target: { value: "f0" } });
+    expect(screen.getAllByRole("option").length).toBeLessThanOrEqual(
+      MAX_RENDERED_RESULTS,
+    );
   });
 
   it("索引失败时展示错误与重试，重试成功后恢复列表", async () => {

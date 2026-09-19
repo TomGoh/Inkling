@@ -1,10 +1,6 @@
 // E2E：Quick Open（Ctrl/Cmd+P，#228）
 //
-// 覆盖：打开并聚焦、实时过滤、键盘选中后打开、Esc 关闭、空态、双向模态互斥。
-//
-// 说明：「单文件模式（未打开工作区）」在本 E2E 装配下无法进入——helpers 的 openFile
-// 依赖已打开工作区的文件树。该场景由单测覆盖（quick-open-panel.test.tsx 的
-// 「单文件模式：候选来自已打开标签页 + 最近文件，且不调用索引命令」）。
+// 覆盖：打开并聚焦、实时过滤、键盘选中后打开、Esc 关闭、空态、双向模态互斥、单文件模式。
 
 import { test, expect } from "@playwright/test";
 import { openMockWorkspace, openFile, MOD } from "./helpers";
@@ -79,5 +75,30 @@ test.describe("Quick Open", () => {
     await expect(page.locator(".gs-modal")).toHaveCount(0);
     await expect(page.locator(".qo-modal")).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(1);
+  });
+});
+
+// 单文件模式单独一组：**不能**先打开工作区，否则 workspaceMode 会变成 "folder"
+test.describe("Quick Open（单文件模式）", () => {
+  test("Q7 无工作区时候选只来自已打开标签页 + 最近文件，不扫磁盘", async ({ page }) => {
+    await page.goto("/");
+    // 浏览器端「打开 Markdown 文件」走 mock 分支，直接以单文件模式打开 intro.md
+    await page.getByRole("button", { name: "打开 Markdown 文件" }).click();
+    await expect(page.locator(".tab-active")).toContainText("intro.md", { timeout: 10_000 });
+
+    await openQuickOpen(page);
+
+    // 恰好一项：单文件模式不发起索引命令，候选 = 当前标签页（最近文件去重后仍是它）
+    const names = page.locator(".qo-item .qo-item-name");
+    await expect(names).toHaveCount(1);
+    await expect(names.first()).toHaveText("intro.md");
+
+    // 工作区里确实存在、但未打开的 readme.md 不得出现——这是「没扫磁盘」的直接证据
+    await expect(page.locator(".qo-item").filter({ hasText: "readme.md" })).toHaveCount(0);
+
+    // 仍然可以正常打开（候选本身就是当前文件，走 ensureTab 复用已打开标签）
+    await page.keyboard.press("Enter");
+    await expect(page.locator(".qo-modal")).toBeHidden();
+    await expect(page.locator(".tab-active")).toContainText("intro.md");
   });
 });

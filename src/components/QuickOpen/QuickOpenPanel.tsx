@@ -109,17 +109,29 @@ export function QuickOpenPanel({ onClose }: QuickOpenPanelProps) {
     };
   }, [rootPath, workspaceMode, openTabs, recentFiles, retryToken]);
 
-  // 打分排序（纯函数，见 quickOpenScore）
-  const ranked = useMemo(() => {
+  // 候选集只在「索引 / 工作区 / 标签 / 最近文件」变化时重建；纯打字只触发重新排序。
+  // 与排序拆成两个 memo 是性能要求（#228 验收：首字符到结果渲染 < 50ms）：
+  // 5,000 候选时若每次按键都重建候选对象（含 5,000 次路径归一化），开销远大于排序本身。
+  const candidates = useMemo<QuickOpenCandidate[]>(() => {
     const openPaths = new Set(openTabs.map((tab) => tab.path));
-    const candidates: QuickOpenCandidate[] = paths.map((path) => ({
+    // 与 Array.prototype.indexOf 同语义：同路径取首次出现（最近文件列表不应有重复，
+    // 但保持与旧实现一致，避免语义漂移）
+    const recentIndexes = new Map<string, number>();
+    recentFiles.forEach((path, index) => {
+      if (!recentIndexes.has(path)) recentIndexes.set(path, index);
+    });
+    return paths.map((path) => ({
       path,
       relPath: relativeToRoot(path, rootPath),
       isOpen: openPaths.has(path),
-      recentIndex: recentFiles.indexOf(path),
+      recentIndex: recentIndexes.get(path) ?? -1,
     }));
-    return rankQuickOpenFiles(candidates, query);
-  }, [paths, query, rootPath, openTabs, recentFiles]);
+  }, [paths, rootPath, openTabs, recentFiles]);
+
+  const ranked = useMemo(
+    () => rankQuickOpenFiles(candidates, query),
+    [candidates, query],
+  );
 
   const visible = useMemo(
     () => ranked.slice(0, MAX_RENDERED_RESULTS),
