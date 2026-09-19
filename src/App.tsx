@@ -9,6 +9,7 @@ import { TabsBar } from "./components/Tabs/TabsBar";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import { ShortcutsHelp } from "./components/Shortcuts/ShortcutsHelp";
 import { GlobalSearchPanel } from "./components/GlobalSearch/GlobalSearchPanel";
+import { QuickOpenPanel } from "./components/QuickOpen/QuickOpenPanel";
 import { ConflictDialog } from "./components/FileConflict/ConflictDialog";
 import { ShortcutsCustomize } from "./components/Shortcuts/ShortcutsCustomize";
 import { LinkDialog } from "./components/Editor/LinkDialog";
@@ -20,6 +21,7 @@ import { useAutoSave } from "./lib/useAutoSave";
 import { useFileWatcher } from "./lib/useFileWatcher";
 import { useCtrlWheelZoom } from "./lib/useCtrlWheelZoom";
 import { useGlobalShortcuts } from "./lib/useGlobalShortcuts";
+import { resolveModalAction, type ModalId } from "./lib/modals";
 import { useStartupFile } from "./lib/useStartupFile";
 import { useExitHandler } from "./lib/useExitHandler";
 import { type EditorOutlineSnapshot } from "./lib/outline";
@@ -89,20 +91,25 @@ function App() {
     [],
   );
 
-  // 偏好设置面板展开状态
-  const [settingsOpen, setSettingsOpen] = useState(false);
   // 查找替换面板展开状态
   const [searchOpen, setSearchOpen] = useState(false);
   // 查找面板是否显示替换框（受控，便于 Ctrl+R 直接展开替换）
   const [searchShowReplace, setSearchShowReplace] = useState(false);
-  // 快捷键帮助面板展开状态
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  // 全局搜索面板展开状态
-  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
-  // 快捷键自定义面板展开状态
-  const [customizeOpen, setCustomizeOpen] = useState(false);
-  // 插入链接对话框展开状态
-  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+
+  // 互斥模态：此前是 6 个彼此不可知的布尔量，导致「全局搜索打开时按 mod+p」会叠加弹层。
+  // 收敛为单值后，由 resolveModalAction 统一决定 打开 / 关闭 / 忽略（#228）。
+  // 注意：编辑器内的查找面板（searchOpen）不是遮挡式模态，不进这个体系。
+  const [activeModal, setActiveModal] = useState<ModalId | null>(null);
+
+  /** 用户发起的模态请求：经互斥规则归并，不叠加 */
+  const requestModal = useCallback((id: ModalId) => {
+    setActiveModal((current) => {
+      const action = resolveModalAction(current, id);
+      if (action === "open") return id;
+      if (action === "close") return null;
+      return current; // ignore：已有其他模态在展示，直接忽略
+    });
+  }, []);
 
   // UI 可见性状态
   const sidebarVisible = useUI((s) => s.sidebarVisible);
@@ -146,14 +153,16 @@ function App() {
       pendingFocusRef.current = true;
       useWorkspace.getState().newTab();
     },
-    openGlobalSearch: () => setGlobalSearchOpen(true),
+    // 模态类快捷键一律走 requestModal：互斥规则只在这一处生效
+    openGlobalSearch: () => requestModal("globalSearch"),
+    openQuickOpen: () => requestModal("quickOpen"),
     openFindPanel: (showReplace) => {
       setSearchShowReplace(showReplace);
       setSearchOpen(true);
     },
-    toggleShortcutsHelp: () => setShortcutsOpen((v) => !v),
-    openSettings: () => setSettingsOpen(true),
-    openLinkDialog: () => setLinkDialogOpen(true),
+    toggleShortcutsHelp: () => requestModal("shortcutsHelp"),
+    openSettings: () => requestModal("settings"),
+    openLinkDialog: () => requestModal("linkDialog"),
     getEditor,
   });
 
@@ -198,8 +207,8 @@ function App() {
               onToggleSourceMode={() => useWorkspace.getState().toggleTabSourceMode()}
               onToggleZenMode={toggleZenMode}
               onToggleSidebar={toggleSidebar}
-              onOpenShortcuts={() => setShortcutsOpen(true)}
-              onOpenSettings={() => setSettingsOpen(true)}
+              onOpenShortcuts={() => requestModal("shortcutsHelp")}
+              onOpenSettings={() => requestModal("settings")}
               getEditor={getEditor}
             />
             <EditorBody
@@ -240,29 +249,35 @@ function App() {
       {currentFile && outlineVisible && <OutlinePanel getEditor={getEditor} />}
       </div>
       {currentFile && <StatusBar />}
-      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
-      {shortcutsOpen && (
+      {activeModal === "settings" && (
+        <SettingsPanel onClose={() => setActiveModal(null)} />
+      )}
+      {activeModal === "shortcutsHelp" && (
         <ShortcutsHelp
-          onClose={() => setShortcutsOpen(false)}
+          onClose={() => setActiveModal(null)}
           onCustomize={() => {
-            setShortcutsOpen(false);
-            setCustomizeOpen(true);
+            // 模态之间的显式切换：直接置值，不走互斥归并
+            // （否则「帮助 → 自定义」会被判为 ignore 而卡住）
+            setActiveModal("shortcutsCustomize");
           }}
         />
       )}
-      {customizeOpen && (
-        <ShortcutsCustomize onClose={() => setCustomizeOpen(false)} />
+      {activeModal === "shortcutsCustomize" && (
+        <ShortcutsCustomize onClose={() => setActiveModal(null)} />
       )}
-      {globalSearchOpen && (
+      {activeModal === "globalSearch" && (
         <GlobalSearchPanel
           getEditor={getEditor}
-          onClose={() => setGlobalSearchOpen(false)}
+          onClose={() => setActiveModal(null)}
         />
       )}
-      {linkDialogOpen && (
+      {activeModal === "quickOpen" && (
+        <QuickOpenPanel onClose={() => setActiveModal(null)} />
+      )}
+      {activeModal === "linkDialog" && (
         <LinkDialog
           getEditor={getEditor}
-          onClose={() => setLinkDialogOpen(false)}
+          onClose={() => setActiveModal(null)}
         />
       )}
       <ConflictDialog />
