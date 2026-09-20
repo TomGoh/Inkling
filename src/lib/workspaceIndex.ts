@@ -138,7 +138,12 @@ function build(root: string, now: () => number): Promise<WorkspaceIndexSnapshot>
         // 期间发生过失效（重命名 / 删除 / 文件树刷新）：这份结果是失效**之前**扫的盘。
         // 既不写缓存，也不得当成新鲜数据返回，而是立刻补一次重建 —— 调用方沿用
         // stale-while-revalidate 的既有路径无缝替换（先渲染旧列表，新结果落定后换掉）。
-        return { ...snapshot, stale: true, refresh: build(root, now) };
+        const refresh = build(root, now);
+        // 兜底消费：调用方可能不接这个 promise（面板已卸载 / 工作区已切换的取消路径），
+        // 那样它一旦失败就会冒出 unhandledRejection（面板已关，用户不可见，但控制台会报）。
+        // 只消除「未处理」事件，不改变结果：其他消费者挂的 handler 照旧收到成功/失败。
+        void refresh.catch(() => {});
+        return { ...snapshot, stale: true, refresh };
       }
       cache = {
         root,

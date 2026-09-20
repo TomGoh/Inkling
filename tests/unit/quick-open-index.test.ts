@@ -155,6 +155,31 @@ describe("workspaceIndex（索引缓存与失效）", () => {
     expect(again.files).toEqual(["/w2/NEW.md"]);
   });
 
+  it("失效补重建失败时不产生未处理拒绝（复审场景 G）", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      mock.useDeferred = true;
+      const pending = loadCandidates(folderSource("/w"), at(0)); // 冷启动在途
+      invalidateWorkspaceIndex(); // 期间失效（c9 起冷启动也会产出 refresh）
+
+      mock.deferred[0].resolve({ files: ["/w/OLD.md"], truncated: false });
+      const snapshot = await pending;
+      expect(snapshot.stale).toBe(true);
+      expect(snapshot.refresh).not.toBeNull();
+
+      // 调用方不消费 refresh（面板已卸载 / 切换工作区），且这次补重建失败
+      mock.deferred[1].reject(new Error("工作区不存在: /w"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("失效（在途窗口）：TTL 重建期间失效，重建结果不得以新的 builtAt 冒充新鲜数据", async () => {
     mock.impl = () => Promise.resolve({ files: ["/w/OLD.md"], truncated: false });
     // 建立缓存（builtAt = 0）
