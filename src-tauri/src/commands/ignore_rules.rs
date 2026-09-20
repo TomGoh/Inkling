@@ -89,7 +89,8 @@ pub enum WalkError {
 
 /// 构造工作区遍历器（本模块是唯一配置点，改配置只改这里）
 ///
-/// `max_dir_depth` 的语义与既有 `search.rs::MAX_SEARCH_DEPTH` 一致：
+/// `max_dir_depth` 的语义与历史 `search.rs` 的 64 层目录上限一致
+/// （该常量已并入本模块的 `MAX_SCAN_DIR_DEPTH`）：
 /// 「包含文件的目录相对 root 的层数」，root 自身为 0 层。
 /// ignore 的 `max_depth` 以「root = 0、直接子项 = 1」计数，位于 `d` 层目录内的文件
 /// 处于 `d + 1` 层，故此处 +1 换算，从而保持既有深度边界不变。
@@ -119,7 +120,8 @@ fn build_walker(root: &Path, max_dir_depth: usize) -> ignore::Walk {
         .git_exclude(false)
         // 关闭 `.ignore`（fd/ag 等工具的约定文件）：它是本次改动之外的**新增过滤来源**，
         // 会让用户在界面上看不到任何规则来源却搜不到文件。本 PR 的契约收紧为
-        // 「默认黑名单 + 工作区内 .gitignore」，故显式关闭而非沿用 ignore 的默认 true。
+        // 「默认黑名单 + 工作区内 .gitignore + 点号前缀隐藏项」（与模块头「忽略来源穷举」
+        // 的三项一致），故显式关闭而非沿用 ignore 的默认 true。
         .ignore(false)
         // 隐藏项 + 默认黑名单剪枝（唯一判定点）
         .filter_entry(|entry| {
