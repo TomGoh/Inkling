@@ -30,7 +30,13 @@ export interface WorkspaceIndexSnapshot {
    * 只是那份在途结果是失效前扫的盘）。判断依据是「结果是否可能已过时」，不是「是否命中缓存」。
    */
   stale: boolean;
-  /** 后台重建的 promise；无过期缓存时为 null（新鲜命中或首次构建完成为 null） */
+  /**
+   * 后台重建的 promise
+   *
+   * 新鲜命中、或构建完全未被失效打断时为 null。**不止「过期缓存」会带上 refresh** ——
+   * 失效发生在在途构建期间时同样会（见 `stale` 的说明），此时调用方拿到的是
+   * 「旧结果 + 一次补重建」。
+   */
   refresh: Promise<WorkspaceIndexSnapshot> | null;
 }
 
@@ -68,9 +74,14 @@ let invalidateEpoch = 0;
 /**
  * 使缓存失效
  *
- * 失效来源（#228）：工作区切换（rootPath 变化）、文件树 refreshTree 完成后、
- * 文件重命名/删除、另存为新建文件。由这些位置显式调用，模块不做隐式订阅
+ * 失效来源（#228）：**只有文件树 `refreshTree` 这一处出口**（`fileTree.ts`）——
+ * 文件增删改、重命名、删除、另存为转正都以它为出口。模块不做隐式订阅
  * （避免 import 副作用）。
+ *
+ * **不包含工作区切换**：`openWorkspace` 不调用本函数，切工作区的正确性由
+ * `loadCandidates` 的 `cache.root === rootPath` 键比对保证（换了 root 就是 miss，
+ * 直接走新 root 的构建）。由此有一个设计边界要记牢：**30s TTL 内切回曾打开过的工作区
+ * 会命中它自己的旧缓存** —— 这是 TTL 的既定语义，不是「忘了失效」，排查时别往这儿找。
  */
 export function invalidateWorkspaceIndex(): void {
   cache = null;
@@ -108,7 +119,31 @@ function emptySnapshot(files: string[]): WorkspaceIndexSnapshot {
   return { files, truncated: false, stale: false, refresh: null };
 }
 
-/** 发起一次真实遍历并写入缓存 */
+/**
+ * 发起后台重建，并在 **mint 处兜底消费**其结果
+ *
+ * 调用方存在「已取消」路径会在同一微任务里提前 return（面板卸载，或 rootPath / 标签 /
+ * 最近文件变化导致取数 effect 重跑），那时这个 promise 没人挂 `.catch`，一旦重建失败就会
+ * 冒出 `unhandledRejection`（面板已关或已切走，用户不可见，只有控制台报错）。
+ * 这里的空 catch **只消除「未处理」事件，不改变结果**：其他消费者挂的 handler 照旧收到成功/失败。
+ *
+ * 两条 mint 路径（TTL 过期的后台重建 / 失效后的补重建）都走这里，避免只护住其中一条。
+ */
+function startBackgroundRebuild(
+  root: string,
+  now: () => number,
+): Promise<WorkspaceIndexSnapshot> {
+  const refresh = build(root, now);
+  void refresh.catch(() => {});
+  return refresh;
+}
+
+/**
+ * 发起一次真实遍历
+ *
+ * 是否回写缓存由落定回调里的两个判断决定（工作区已切走 / 期间发生失效都不回写），
+ * 见函数内注释。
+ */
 function build(root: string, now: () => number): Promise<WorkspaceIndexSnapshot> {
   if (inFlight && inFlight.root === root) return inFlight.promise;
   latestRoot = root;
@@ -138,11 +173,7 @@ function build(root: string, now: () => number): Promise<WorkspaceIndexSnapshot>
         // 期间发生过失效（重命名 / 删除 / 文件树刷新）：这份结果是失效**之前**扫的盘。
         // 既不写缓存，也不得当成新鲜数据返回，而是立刻补一次重建 —— 调用方沿用
         // stale-while-revalidate 的既有路径无缝替换（先渲染旧列表，新结果落定后换掉）。
-        const refresh = build(root, now);
-        // 兜底消费：调用方可能不接这个 promise（面板已卸载 / 工作区已切换的取消路径），
-        // 那样它一旦失败就会冒出 unhandledRejection（面板已关，用户不可见，但控制台会报）。
-        // 只消除「未处理」事件，不改变结果：其他消费者挂的 handler 照旧收到成功/失败。
-        void refresh.catch(() => {});
+        const refresh = startBackgroundRebuild(root, now);
         return { ...snapshot, stale: true, refresh };
       }
       cache = {
@@ -196,7 +227,7 @@ export function loadCandidates(
       });
     }
     // 过期：先返回旧结果，后台重建（失败不影响已渲染的旧结果，仅保持 stale 状态）
-    const refresh = build(rootPath, now);
+    const refresh = startBackgroundRebuild(rootPath, now);
     return Promise.resolve({
       files: hit.files,
       truncated: hit.truncated,

@@ -180,6 +180,32 @@ describe("workspaceIndex（索引缓存与失效）", () => {
     }
   });
 
+  it("TTL 后台重建失败且调用方不消费时，同样不产生未处理拒绝（同型窗口）", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      mock.impl = () => Promise.resolve({ files: ["/w/OLD.md"], truncated: false });
+      await loadCandidates(folderSource("/w"), at(0)); // 建缓存
+
+      // TTL 过期 → 返回旧结果 + 后台重建（停在途中）
+      mock.useDeferred = true;
+      const stale = await loadCandidates(folderSource("/w"), at(INDEX_TTL_MS + 1));
+      expect(stale.stale).toBe(true);
+      expect(stale.refresh).not.toBeNull();
+
+      // 调用方不消费（面板 effect 已 cancelled：deps 含 openTabs / recentFiles 数组，
+      // 打开文件就会重跑并让上一轮提前 return），且这次后台重建失败
+      mock.deferred[0].reject(new Error("工作区不存在: /w"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("失效（在途窗口）：TTL 重建期间失效，重建结果不得以新的 builtAt 冒充新鲜数据", async () => {
     mock.impl = () => Promise.resolve({ files: ["/w/OLD.md"], truncated: false });
     // 建立缓存（builtAt = 0）
