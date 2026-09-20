@@ -124,6 +124,37 @@ describe("workspaceIndex（索引缓存与失效）", () => {
     expect(mock.roots).toEqual(["/w", "/w"]);
   });
 
+  it("在途失效 + 切换工作区：不得为已离开的工作区补重建，当前工作区的结果仍要落缓存", async () => {
+    mock.useDeferred = true;
+
+    const first = loadCandidates(folderSource("/w1"), at(0)); // /w1 在途（世代 0）
+    invalidateWorkspaceIndex(); // 失效发生在 /w1 在途期间
+
+    // 用户随后切到 /w2：这次构建捕获的是**新**世代，结果本身是新鲜的
+    const second = loadCandidates(folderSource("/w2"), at(0));
+    expect(mock.roots).toEqual(["/w1", "/w2"]);
+
+    // /w1 的响应落定，此时用户已经不在该工作区
+    mock.deferred[0].resolve({ files: ["/w1/OLD.md"], truncated: false });
+    await first;
+    // 不得为已离开的工作区白扫一遍（补重建还会把 latestRoot 拉回 /w1）
+    expect(mock.roots).toEqual(["/w1", "/w2"]);
+
+    // /w2 随后落定
+    mock.deferred[1].resolve({ files: ["/w2/NEW.md"], truncated: false });
+    const w2 = await second;
+    expect(w2.files).toEqual(["/w2/NEW.md"]);
+    expect(w2.stale).toBe(false);
+
+    // 若 latestRoot 被旧 root 拉回，/w2 的结果会被误判为「已切走」而不写缓存：
+    // 这里再读一次即可暴露——缓存命中时不该有第 3 次遍历，且应命中 /w2 自己的清单
+    mock.useDeferred = false;
+    mock.impl = () => Promise.resolve({ files: ["/w2/FRESH.md"], truncated: false });
+    const again = await loadCandidates(folderSource("/w2"), at(1));
+    expect(mock.roots).toEqual(["/w1", "/w2"]);
+    expect(again.files).toEqual(["/w2/NEW.md"]);
+  });
+
   it("失效（在途窗口）：TTL 重建期间失效，重建结果不得以新的 builtAt 冒充新鲜数据", async () => {
     mock.impl = () => Promise.resolve({ files: ["/w/OLD.md"], truncated: false });
     // 建立缓存（builtAt = 0）

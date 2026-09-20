@@ -23,7 +23,12 @@ export interface WorkspaceIndexSnapshot {
   files: string[];
   /** 后端因超出上限而截断 */
   truncated: boolean;
-  /** true = 返回的是过期缓存，后台正在重建；调用方可在 refresh 落定后替换列表 */
+  /**
+   * true = 返回的是**失效前或已过期**的结果，后台正在重建（此时 refresh 非 null）
+   *
+   * 注意：不只有「过期缓存」会置 true —— 冷启动期间发生失效时也会（那时根本没有缓存，
+   * 只是那份在途结果是失效前扫的盘）。判断依据是「结果是否可能已过时」，不是「是否命中缓存」。
+   */
   stale: boolean;
   /** 后台重建的 promise；无过期缓存时为 null（新鲜命中或首次构建完成为 null） */
   refresh: Promise<WorkspaceIndexSnapshot> | null;
@@ -120,22 +125,27 @@ function build(root: string, now: () => number): Promise<WorkspaceIndexSnapshot>
         stale: false,
         refresh: null,
       };
-      // 期间发生过失效（重命名 / 删除 / 文件树刷新）：这份结果是失效**之前**扫的盘。
-      // 既不写缓存，也不得当成新鲜数据返回，而是立刻补一次重建 —— 调用方沿用
-      // stale-while-revalidate 的既有路径无缝替换（先渲染旧列表，新结果落定后换掉）。
+      // 顺序要紧：「工作区已切走」必须排在「期间发生失效」**之前**（#228 复审 P3-①）。
+      // 反过来的话，「在途失效 + 用户切走」这个组合会对**已离开的工作区**补一次重建，
+      // 而 build() 开头会无条件把 latestRoot 置为该 root，于是当前工作区 /w2 的结果
+      // 落定时被误判为「已切走」而不写缓存 —— 下次打开面板还要再扫一遍。
+      // 两者都只是性能问题（返回的数据本身仍是各自 root 的正确清单）。
+      if (latestRoot !== root) {
+        // 结果照返，但不写缓存、也不补重建
+        return snapshot;
+      }
       if (startEpoch !== invalidateEpoch) {
+        // 期间发生过失效（重命名 / 删除 / 文件树刷新）：这份结果是失效**之前**扫的盘。
+        // 既不写缓存，也不得当成新鲜数据返回，而是立刻补一次重建 —— 调用方沿用
+        // stale-while-revalidate 的既有路径无缝替换（先渲染旧列表，新结果落定后换掉）。
         return { ...snapshot, stale: true, refresh: build(root, now) };
       }
-      // 工作区已切走：本次结果仍可返回给调用方，但不写入缓存，
-      // 否则迟到的旧 root 响应会把新 root 的缓存挤掉（下次打开要多跑一次遍历）
-      if (latestRoot === root) {
-        cache = {
-          root,
-          files: result.files,
-          truncated: result.truncated,
-          builtAt: now(),
-        };
-      }
+      cache = {
+        root,
+        files: result.files,
+        truncated: result.truncated,
+        builtAt: now(),
+      };
       return snapshot;
     },
     (error: unknown) => {

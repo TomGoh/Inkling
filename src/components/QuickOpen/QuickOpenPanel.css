@@ -100,7 +100,9 @@
 }
 
 .qo-error {
-  color: #cf222e;
+  /* 走主题变量：深色主题下 --danger 是 #f85149，硬编码 #cf222e 会在深色下偏暗
+     （仓库主流写法，与 Sidebar/ConflictDialog/ShortcutsCustomize 一致） */
+  color: var(--danger, #cf222e);
 }
 
 .qo-retry {

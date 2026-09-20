@@ -739,7 +739,7 @@ button.save-indicator:focus-visible {
 .editor-scroll .milkdown .mermaid-error {
   margin: 0;
   padding: 8px;
-  color: #cf222e;
+  color: var(--danger, #cf222e);
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: 0.8rem;
   white-space: pre-wrap;
