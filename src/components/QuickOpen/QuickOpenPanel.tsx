@@ -64,8 +64,11 @@ export function QuickOpenPanel({ onClose }: QuickOpenPanelProps) {
   }, []);
 
   // Esc 关闭
+  // 组字期间交给输入法（此时 Esc 通常是「取消候选」，不该关面板）；与输入框的
+  // 组字判定同源，见 handleKeyDown（#228 TomGoh 复审建议）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing) return;
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
@@ -220,6 +223,10 @@ export function QuickOpenPanel({ onClose }: QuickOpenPanelProps) {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // 输入法组字期间的按键不是命令：拼音/日文候选里按 Enter 是「确认候选」，
+    // 若当成「打开文件」，会同时打开文件并关掉面板（#228 TomGoh 复审建议）。
+    // 方向键同理 —— 组字时它是候选选择，不该移动高亮。
+    if (e.nativeEvent.isComposing) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setActiveIndex((i) => Math.min(i + 1, Math.max(visible.length - 1, 0)));

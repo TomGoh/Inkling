@@ -163,6 +163,8 @@ function App() {
     toggleShortcutsHelp: () => requestModal("shortcutsHelp"),
     openSettings: () => requestModal("settings"),
     openLinkDialog: () => requestModal("linkDialog"),
+    // Esc 层级语义：模态打开时先关模态，不退出禅模式（#228 TomGoh 复审建议）
+    isModalOpen: () => activeModal !== null,
     getEditor,
   });
 

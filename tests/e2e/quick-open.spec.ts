@@ -130,13 +130,28 @@ test.describe("Quick Open（禅模式）", () => {
     await expect(page.locator(".gs-modal")).toHaveCount(0);
     await expect(page.getByRole("dialog")).toHaveCount(1);
 
-    // 用关闭按钮关闭（Esc 会退出禅模式，这里要在禅模式内继续验证）
-    await page.locator(".qo-close").click();
+    // Esc 关闭面板：禅模式下 Esc 不再"顺手"退出禅模式（层级语义，见 Q10）
+    await page.keyboard.press("Escape");
     await expect(page.locator(".qo-modal")).toBeHidden();
     await expect(page.locator(".app-shell.zen-mode")).toBeVisible();
 
     // 关键回归防线：上一步的 activeModal 必须已清空，否则这里会被 ignore 静默吞掉
     await page.keyboard.press(`${MOD}+Shift+F`);
     await expect(page.locator(".gs-modal")).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("Q10 Esc 的层级语义：先关最上层模态，再按一次才退出禅模式", async ({ page }) => {
+    await openQuickOpen(page);
+    await expect(page.locator(".app-shell.zen-mode")).toBeVisible();
+
+    // 第一次 Esc：只关面板，仍在禅模式
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".qo-modal")).toBeHidden();
+    await expect(page.locator(".app-shell.zen-mode")).toBeVisible();
+
+    // 第二次 Esc：此时没有模态了，才退出禅模式
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".app-shell.zen-mode")).toHaveCount(0);
+    await expect(page.locator(".sidebar")).toBeVisible();
   });
 });

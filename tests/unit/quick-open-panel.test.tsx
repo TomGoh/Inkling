@@ -275,4 +275,24 @@ describe("QuickOpenPanel（交互）", () => {
     await waitFor(() => expect(screen.getByText("fresh.md")).toBeTruthy());
     expect(screen.queryByText("mid.md")).toBeNull();
   });
+
+  it("输入法组字期间不触发面板命令：Enter 不打开文件、方向键不移动高亮", async () => {
+    stubIndexFiles(["/w/a.md", "/w/b.md"]);
+    const { input, onClose } = await renderQuickOpen();
+
+    // 组字中按 Enter（拼音 / 日文的「确认候选」）：不得打开文件、不得关面板
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(useWorkspace.getState().currentFile).toBeNull();
+
+    // 组字中按方向键（那是候选选择）：不得移动高亮
+    const before = activeOptionId(input);
+    fireEvent.keyDown(input, { key: "ArrowDown", isComposing: true });
+    expect(activeOptionId(input)).toBe(before);
+
+    // 组字结束后的同一按键仍然是命令（证明守卫没把正常路径一起挡掉）
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(useWorkspace.getState().currentFile).not.toBeNull());
+    expect(onClose).toHaveBeenCalled();
+  });
 });
