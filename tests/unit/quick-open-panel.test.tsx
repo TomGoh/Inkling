@@ -4,16 +4,22 @@
 // 而不是「某个 mock 被调用过」。
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useWorkspace } from "../../src/store/workspace";
 import * as fsApi from "../../src/lib/fs";
 import {
+  INDEX_TTL_MS,
+  invalidateWorkspaceIndex,
+} from "../../src/lib/workspaceIndex";
+import {
   MAX_RENDERED_RESULTS,
+  QuickOpenPanel,
 } from "../../src/components/QuickOpen/QuickOpenPanel";
 import {
   minimalTab,
   renderQuickOpen,
   resetWorkspaceState,
+  stubDeferredIndexFiles,
   stubFileRead,
   stubIndexFiles,
   type QuickOpenHarness,
@@ -210,5 +216,63 @@ describe("QuickOpenPanel（交互）", () => {
     const { input }: QuickOpenHarness = await renderQuickOpen();
 
     expect(document.activeElement).toBe(input);
+  });
+
+  it("单文件模式：候选跨目录时用共同父目录区分同名文件，并能按目录片段搜到", async () => {
+    resetWorkspaceState({
+      workspaceMode: "file",
+      // 单文件模式的真实语义：rootPath 只是其中一个文件的父目录
+      rootPath: "/a",
+      openTabs: [minimalTab("/a/report.md"), minimalTab("/b/report.md")],
+      recentFiles: [],
+    });
+
+    const { input } = await renderQuickOpen();
+
+    // 两个同名文件都必须出现，且目录列足以区分（退化成 basename 时两行都是空字符串）
+    const dirs = [...document.querySelectorAll(".qo-item-dir")].map((el) => el.textContent);
+    expect(dirs.sort()).toEqual(["a", "b"]);
+
+    // 按目录片段过滤：只有 /b 下那个命中（退化成 basename 时这里会 0 条）
+    fireEvent.change(input, { target: { value: "b/report" } });
+    await waitFor(() => {
+      const options = screen.getAllByRole("option");
+      expect(options).toHaveLength(1);
+      expect(options[0].getAttribute("title")).toBe("/b/report.md");
+    });
+  });
+
+  it("嵌套 stale：TTL 重建期间失效时，面板要跟到最后一层重建，不能停在中间态", async () => {
+    // 用可注入的时间推进 TTL（面板内部走 Date.now），并让每次遍历都停在途中
+    const { pending } = stubDeferredIndexFiles();
+    let nowMs = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => nowMs);
+
+    render(<QuickOpenPanel onClose={vi.fn()} />);
+
+    // 1) 冷启动建缓存：old.md（builtAt = 0）
+    await waitFor(() => expect(pending).toHaveLength(1));
+    pending[0].resolve(["/w/old.md"]);
+    await waitFor(() => expect(screen.getByText("old.md")).toBeTruthy());
+
+    // 2) TTL 过期后重新取数（改 recentFiles 触发取数 effect）→ 后台重建 P1 在途
+    nowMs = INDEX_TTL_MS + 1;
+    act(() => {
+      useWorkspace.setState({ recentFiles: ["/w/old.md"] });
+    });
+    await waitFor(() => expect(pending).toHaveLength(2));
+
+    // 3) P1 在途期间发生失效 → P1 的落定结果会再派生一层补重建 P2
+    invalidateWorkspaceIndex();
+    pending[1].resolve(["/w/mid.md"]);
+    await waitFor(() => expect(pending).toHaveLength(3));
+
+    // 中间态先渲染（stale-while-revalidate 的既定行为）
+    await waitFor(() => expect(screen.getByText("mid.md")).toBeTruthy());
+
+    // 4) 最后一层落定 → 面板必须跟到它，而不是停在 mid
+    pending[2].resolve(["/w/fresh.md"]);
+    await waitFor(() => expect(screen.getByText("fresh.md")).toBeTruthy());
+    expect(screen.queryByText("mid.md")).toBeNull();
   });
 });

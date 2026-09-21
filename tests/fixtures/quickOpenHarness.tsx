@@ -31,6 +31,36 @@ export function stubIndexFiles(paths: string[]): void {
   });
 }
 
+/** 一次可控在途的索引遍历 */
+export interface PendingIndexCall {
+  root: string;
+  /** 以给定候选集落定这次遍历 */
+  resolve: (files: string[]) => void;
+  /** 让这次遍历失败 */
+  reject: (error: unknown) => void;
+}
+
+/**
+ * 可控在途的索引桩（复现「在途 + 失效 / TTL 过期」这类时间窗口用）
+ *
+ * 每次遍历都挂起，由用例自行按序落定 —— 这样才能构造出「重建在途时发生失效，
+ * 于是重建结果又派生下一层 refresh」这种嵌套链（#228 TomGoh 复审 P2）。
+ */
+export function stubDeferredIndexFiles(): { pending: PendingIndexCall[] } {
+  __resetWorkspaceIndexForTests();
+  const pending: PendingIndexCall[] = [];
+  vi.spyOn(fsApi, "listWorkspaceFiles").mockImplementation((root: string) => {
+    return new Promise<{ files: string[]; truncated: boolean }>((resolve, reject) => {
+      pending.push({
+        root,
+        resolve: (files) => resolve({ files, truncated: false }),
+        reject,
+      });
+    });
+  });
+  return { pending };
+}
+
 /** 让「打开文件」这条链路真的能跑通（openFile → ensureTab 需要读文件与 mtime） */
 export function stubFileRead(): void {
   vi.spyOn(fsApi, "readTextFile").mockResolvedValue("# opened");

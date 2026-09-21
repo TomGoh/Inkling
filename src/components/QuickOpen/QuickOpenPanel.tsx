@@ -10,10 +10,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useWorkspace } from "../../store/workspace";
-import { relativeToRoot } from "../../lib/path";
+import { commonParentDir, normalizePath, relativeToRoot } from "../../lib/path";
 import {
   loadCandidates,
   type CandidateSource,
+  type WorkspaceIndexSnapshot,
 } from "../../lib/workspaceIndex";
 import {
   rankQuickOpenFiles,
@@ -83,23 +84,27 @@ export function QuickOpenPanel({ onClose }: QuickOpenPanelProps) {
     setLoading(true);
     setError(null);
 
-    loadCandidates(source)
-      .then((snapshot) => {
-        if (cancelled) return;
-        setPaths(snapshot.files);
-        setTruncated(snapshot.truncated);
-        setLoading(false);
-        if (!snapshot.refresh) return;
-        // 过期缓存已先行渲染，后台重建完成后无缝替换；
-        // 重建失败保持旧结果（不把已在展示的列表变成错误态）
-        void snapshot.refresh
-          .then((fresh) => {
-            if (cancelled) return;
-            setPaths(fresh.files);
-            setTruncated(fresh.truncated);
-          })
-          .catch(() => {});
-      })
+    /**
+     * 消费一份快照，并**递归**跟进它可能携带的下一层重建
+     *
+     * 索引层的失效分支会在重建结果里再带一个 `refresh`：失效恰好落在在途构建窗口时，
+     * 那一层重建本身也是「失效前扫的盘」，于是它会再派生一层。只消费一层会让面板停在
+     * 中间版本（列表不是最终结果），必须一直跟到 `refresh === null`（#228 TomGoh 复审 P2）。
+     * 每一层都先渲染再继续跟进，因此用户看到的始终是当前最新的可用结果。
+     */
+    const consume = (snapshot: WorkspaceIndexSnapshot): void => {
+      if (cancelled) return;
+      setPaths(snapshot.files);
+      setTruncated(snapshot.truncated);
+      setLoading(false);
+      if (!snapshot.refresh) return;
+      void snapshot.refresh.then(consume).catch(() => {
+        // 重建失败保持已展示的结果（不把已在展示的列表变成错误态）
+      });
+    };
+
+    void loadCandidates(source)
+      .then(consume)
       .catch((e: unknown) => {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : String(e));
@@ -123,13 +128,25 @@ export function QuickOpenPanel({ onClose }: QuickOpenPanelProps) {
     recentFiles.forEach((path, index) => {
       if (!recentIndexes.has(path)) recentIndexes.set(path, index);
     });
+    // 展示/匹配用的相对路径基准：
+    // - 文件夹模式：相对工作区 root（与原行为一致，含「root 外路径退化为 basename」）；
+    // - 单文件模式：候选可来自**任意目录**，而 rootPath 只是其中某个文件的父目录 ——
+    //   对它之外的路径 relativeToRoot 会退化成 basename（`/a/report.md` 与 `/b/report.md`
+    //   都变成 `report.md`，查 `b/report` 也搜不到）。故改用「全部候选的共同父目录」；
+    //   求不出共同父目录（分属不同盘符 / 根）时退回完整路径 —— 也不用 basename（#228 TomGoh 复审 P2）。
+    const folderMode = workspaceMode === "folder";
+    const commonBase = folderMode ? null : commonParentDir(paths);
+    const toRelPath = (path: string): string => {
+      if (folderMode) return relativeToRoot(path, rootPath);
+      return commonBase ? relativeToRoot(path, commonBase) : normalizePath(path);
+    };
     return paths.map((path) => ({
       path,
-      relPath: relativeToRoot(path, rootPath),
+      relPath: toRelPath(path),
       isOpen: openPaths.has(path),
       recentIndex: recentIndexes.get(path) ?? -1,
     }));
-  }, [paths, rootPath, openTabs, recentFiles]);
+  }, [paths, rootPath, openTabs, recentFiles, workspaceMode]);
 
   const ranked = useMemo(
     () => rankQuickOpenFiles(candidates, query),

@@ -112,3 +112,41 @@ export function relativeToRoot(targetPath: string, root: string | null): string 
   }
   return baseName(targetPath);
 }
+
+/** `path` 是否等于 `parent` 或位于其下（两侧都已 normalize） */
+function isSameOrUnder(path: string, parent: string): boolean {
+  if (path === parent) return true;
+  const prefix = parent.endsWith("/") ? parent : parent + "/";
+  return path.startsWith(prefix);
+}
+
+/**
+ * 求一组文件路径的共同父目录
+ *
+ * 用途：候选来自不同目录、又没有统一 root 时（例如 Quick Open 的单文件模式，
+ * 那里 `rootPath` 只是其中某个文件的父目录），需要一个能区分全部候选的展示基准。
+ * 直接退化成 basename 会让 `/a/report.md` 与 `/b/report.md` 无法区分（#228）。
+ *
+ * 返回 null 表示**没有可用的共同父目录**（空列表、或分属不同盘符 / 根），
+ * 调用方应退回完整路径而不是 basename。
+ */
+export function commonParentDir(paths: string[]): string | null {
+  if (paths.length === 0) return null;
+  const dirs: string[] = [];
+  for (const path of paths) {
+    const dir = normalizePath(parentDir(path));
+    // 空路径：无从判断，交由调用方退回完整路径
+    if (!dir) return null;
+    dirs.push(dir);
+  }
+  let common = dirs[0];
+  for (const dir of dirs) {
+    while (!isSameOrUnder(dir, common)) {
+      const up = normalizePath(parentDir(common));
+      // 已经到根仍不包含 → 分属不同根，无共同父目录
+      if (up === common) return null;
+      common = up;
+    }
+  }
+  return common;
+}
