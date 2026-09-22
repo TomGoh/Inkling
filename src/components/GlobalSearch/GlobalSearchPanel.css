@@ -142,7 +142,8 @@
 }
 
 .gs-error {
-  color: #cf222e;
+  /* 同 #228：改为主题变量，避免深色主题下错误色偏暗（本 PR 已动过本文件，顺手对齐） */
+  color: var(--danger, #cf222e);
 }
 
 .gs-results {

@@ -15,6 +15,8 @@ export interface GlobalShortcutHandlers {
   onNewTab: () => void;
   /** Ctrl/Cmd+Shift+F 打开全局搜索 */
   openGlobalSearch: () => void;
+  /** Ctrl/Cmd+P 打开快速打开面板（#228） */
+  openQuickOpen: () => void;
   /** Ctrl/Cmd+F / Ctrl/Cmd+R 打开当前文件查找/替换面板 */
   openFindPanel: (showReplace: boolean) => void;
   /** Ctrl/Cmd+/ 切换快捷键帮助 */
@@ -23,6 +25,13 @@ export interface GlobalShortcutHandlers {
   openSettings: () => void;
   /** 打开插入链接弹窗 */
   openLinkDialog?: () => void;
+  /**
+   * 是否有模态打开（#228 TomGoh 复审建议：Esc 的层级语义）
+   *
+   * 模态状态在 App 内（单值 `activeModal`），所以由 App 注入这个判定；
+   * 模态打开时 Esc 先交给模态自己处理，不退出禅模式。
+   */
+  isModalOpen: () => boolean;
   /** 主编辑器实例获取函数 */
   getEditor: () => Editor | undefined;
 }
@@ -41,8 +50,11 @@ export function useGlobalShortcuts(handlers: GlobalShortcutHandlers) {
         toggleZenMode();
         return;
       }
-      // 禅模式下 Esc 退出
+      // Esc 的层级语义：**先关最上层模态**（六个模态各自都有 Esc 监听），
+      // 模态关完之后再按一次才退出禅模式。否则禅模式下按一次 Esc 会同时
+      // 「关面板 + 退禅模式」，用户失去层级感（#228 TomGoh 复审建议）。
       if (e.key === "Escape" && useUI.getState().zenMode) {
+        if (handlersRef.current.isModalOpen()) return; // 交给模态自己的 Esc 监听（见上）
         setZenMode(false);
         return;
       }
@@ -134,6 +146,10 @@ export function useGlobalShortcuts(handlers: GlobalShortcutHandlers) {
       } else if (tryMatch("openSettings")) {
         e.preventDefault();
         handlersRef.current.openSettings();
+      } else if (tryMatch("quickOpen")) {
+        // Ctrl/Cmd+P：Chromium 下是原生打印，必须先 preventDefault 再打开面板
+        e.preventDefault();
+        handlersRef.current.openQuickOpen();
       } else if (tryMatch("toggleSourceMode")) {
         e.preventDefault();
         useWorkspace.getState().toggleTabSourceMode();
