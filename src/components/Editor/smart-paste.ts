@@ -1,10 +1,11 @@
-// Smart Paste（#217 Epic：#219 / #229）
+// Smart Paste（#217 Epic：#219 / #229 / #220）
 //
 // 两条输入、一条出口——「Markdown 文本 → Milkdown parser → Slice」：
 // - 纯文本（#229）：clipboardTextParser 判定「看起来像 Markdown 源码」（≥2 类独立信号）
 //   时按 Markdown 解析成富文本；判定不成立时返回 null，走 ProseMirror 默认纯文本行为
 // - 网页/富文本 HTML（#219）：sanitizeHTML（粘贴模式）清洗 → htmlToMarkdown 结构映射 →
 //   同一条 Markdown 解析出口。**清洗必须在结构映射之前**：粘贴路径是本特性最大的攻击面
+// - 远程图片（#220）：HTML 粘贴插入后，把其中的 http(s) 图片交给 remote-image 后台落盘
 //
 // 不转换的情形（保持 ProseMirror 默认行为）：
 // - 编辑器内部复制（HTML 带 data-pm-slice，默认路径能无损还原）
@@ -22,6 +23,7 @@ import { closeHistory } from "@milkdown/kit/prose/history";
 import { isSafeUrl, sanitizeHTML } from "./html-view";
 import { htmlToMarkdown } from "./html-to-markdown";
 import { looksLikeMarkdown } from "./markdown-detect";
+import { collectRemoteImages, queueRemoteImages } from "./remote-image";
 import { matchBinding, useShortcuts } from "../../store/shortcuts";
 
 /** HTML 元素数上限：超出整体降级为纯文本（大内容粘贴的主线程保护） */
@@ -148,6 +150,8 @@ function plainTextSlice(schema: Schema, text: string): Slice {
 
 interface PreparedHtmlPaste {
   slice: Slice;
+  /** 是否把其中的远程图片交给后台落盘（仅网页富文本转换路径） */
+  localizeImages: boolean;
 }
 
 /** 按路由结果准备待插入内容；返回 null 表示交还 ProseMirror 默认处理 */
@@ -162,14 +166,14 @@ function prepareHtmlPaste(
     case "default":
       return null;
     case "plain-text":
-      return { slice: plainTextSlice(schema, text || htmlToText(html)) };
+      return { slice: plainTextSlice(schema, text || htmlToText(html)), localizeImages: false };
     case "markdown-text": {
       const doc = parsePastedMarkdown(text, parse);
-      return doc ? { slice: sliceForInsertion(doc.content) } : null;
+      return doc ? { slice: sliceForInsertion(doc.content), localizeImages: false } : null;
     }
     case "convert": {
       const doc = parsePastedMarkdown(route.markdown, parse);
-      return doc ? { slice: sliceForInsertion(doc.content) } : null;
+      return doc ? { slice: sliceForInsertion(doc.content), localizeImages: true } : null;
     }
   }
 }
@@ -321,7 +325,10 @@ export const smartPastePlugin = (deps: SmartPasteDeps) => {
         pendingHtml = null;
         pasteEvent = null;
         if (prepared) {
-          dispatchPaste(view, prepared.slice);
+          const range = dispatchPaste(view, prepared.slice);
+          if (prepared.localizeImages) {
+            void queueRemoteImages(view, collectRemoteImages(view.state.doc, range.from, range.to));
+          }
           return true;
         }
         // 纯文本 Markdown：clipboardTextParser 已解析；按与 HTML 路径相同的块边界语义插入
