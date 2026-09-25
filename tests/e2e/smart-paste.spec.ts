@@ -1,4 +1,4 @@
-// E2E：Smart Paste（#219）
+// E2E：Smart Paste（#219 / #229）
 //
 // 在真实 Chromium 里走完整粘贴链路。两种注入方式：
 // - 构造 ClipboardEvent（DataTransfer 注入 text/html / text/plain）派发到编辑区——可精确控制
@@ -86,7 +86,15 @@ test.describe("Smart Paste", () => {
     expect(md).not.toMatch(/onclick|onerror|__spXss|<script/);
   });
 
-  test("SP3 纯文本粘贴按原样插入（不做转换）", async ({ page }) => {
+  test("SP2 粘贴 Markdown 源码渲染为富文本（#229）", async ({ page }) => {
+    await focusDocEnd(page);
+    await dispatchPaste(page, { "text/plain": "## 来自 VS Code\n\n- 列表项\n\n```bash\npnpm dev\n```\n" });
+    await expect(page.locator(`${PM} h2`, { hasText: "来自 VS Code" })).toBeVisible();
+    await expect(page.locator(`${PM} li`, { hasText: "列表项" })).toBeVisible();
+    await expect(page.locator(PM)).not.toContainText("## 来自");
+  });
+
+  test("SP3 普通中文段落不误判，按原样插入", async ({ page }) => {
     await focusDocEnd(page);
     await dispatchPaste(page, { "text/plain": "今天天气很好，我们去公园散步。" });
     await expect(page.locator(`${PM} p`, { hasText: "今天天气很好，我们去公园散步。" })).toBeVisible();
