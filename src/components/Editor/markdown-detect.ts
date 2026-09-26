@@ -24,8 +24,11 @@ export type MarkdownSignal =
 /** 判定所需的最少独立信号数 */
 export const MIN_MARKDOWN_SIGNALS = 2;
 
-/** 只扫描开头这么多字符：信号判定不需要读完超大文本 */
-const SCAN_LIMIT = 64 * 1024;
+/**
+ * 只扫描开头这么多字符（UTF-16 码元数）：信号判定不需要读完超大文本。
+ * smart-paste 也以它作为 Markdown 解析的长度上限（主线程保护）。
+ */
+export const SCAN_LIMIT = 64 * 1024;
 
 const SIGNAL_PATTERNS: [MarkdownSignal, RegExp][] = [
   ["heading", /^ {0,3}#{1,6}[ \t]+\S/m],
