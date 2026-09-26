@@ -257,3 +257,52 @@ describe("粘贴为纯文本（mod+shift+v，可自定义）", () => {
     expect(countNodes(h.view.state.doc, "heading")).toBe(1);
   });
 });
+
+describe("页面自带的私有区字符（U+E000~U+E006）经完整链路原样保留（#244 review）", () => {
+  const raw = Array.from({ length: 7 }, (_, i) => String.fromCodePoint(0xe000 + i)).join("");
+  const refs = Array.from({ length: 7 }, (_, i) => `&#x${(0xe000 + i).toString(16)};`).join("");
+
+  it("正文/标题/表格中的图标字符原样进入文档，不产生加粗、斜体、删除线或硬换行", async () => {
+    const h = await make("");
+    h.paste({
+      "text/html":
+        `<h2>标题${refs}</h2><p>图标${refs}结尾 <b>真粗</b></p>` +
+        `<table><tr><th>h${refs}</th></tr><tr><td>c</td></tr></table>`,
+      "text/plain": "x",
+    });
+    const doc = h.view.state.doc;
+    expect(findNode(doc, "heading")?.textContent).toBe(`标题${raw}`);
+    expect(findNode(doc, "paragraph")?.textContent).toBe(`图标${raw}结尾 真粗`);
+    expect(findNode(doc, "table_header")?.textContent).toBe(`h${raw}`);
+    expect(countNodes(doc, "hardbreak")).toBe(0);
+    const marked: string[] = [];
+    doc.descendants((n) => {
+      if (n.isText && n.marks.length) marked.push(`${n.marks.map((m) => m.type.name).join("+")}:${n.text}`);
+      return true;
+    });
+    expect(marked).toEqual(["strong:真粗"]);
+  });
+
+  it("图片 alt / 链接地址中的图标字符原样保留", async () => {
+    const h = await make("");
+    h.paste({ "text/html": `<p><a href="https://a/${refs}">链${refs}</a><img src="https://b/${refs}.png" alt="图${refs}"></p>`, "text/plain": "x" });
+    const img = findNode(h.view.state.doc, "image")!;
+    expect(img.attrs.alt).toBe(`图${raw}`);
+    expect(img.attrs.src).toBe(`https://b/${raw}.png`);
+    let href = "";
+    h.view.state.doc.descendants((n) => {
+      for (const m of n.marks) if (m.type.name === "link") href = m.attrs.href;
+      return true;
+    });
+    expect(href).toBe(`https://a/${raw}`);
+  });
+
+  it("保存后重新打开（serialize → parse）字符依然在、结构不变", async () => {
+    const h = await make("");
+    h.paste({ "text/html": `<p>图标${refs}结尾 <b>粗${refs}</b>后</p>`, "text/plain": "x" });
+    const reparsed = h.parse(h.markdown());
+    expect(reparsed.textContent).toBe(h.view.state.doc.textContent);
+    expect(reparsed.textContent).toContain(raw);
+    expect(structure(reparsed)).toEqual(structure(h.view.state.doc));
+  });
+});
