@@ -229,6 +229,11 @@ describe("Markdown 源码解析的长度上限（主线程保护，#245 review�
     return text;
   }
 
+  // 以下三例处理 64K~200K 字符的文本：隔离运行约 0.5~1.7s，全量套件并行负载下会被放大
+  // 数倍而越过 vitest 默认 5s 超时（#245 复审实测 6.7s / 7.3s），显式给出预算，
+  // 与 smart-paste-fixtures.test.ts 的 beforeAll(..., 30_000) 惯例一致
+  const HEAVY_TIMEOUT = 30_000;
+
   it(`上限为 ${MAX_MARKDOWN_PASTE_CHARS} 字符，与特征判定的扫描上限一致`, () => {
     expect(MAX_MARKDOWN_PASTE_CHARS).toBe(64 * 1024);
     expect(isParsableMarkdownSource(markdownOfLength(MAX_MARKDOWN_PASTE_CHARS))).toBe(true);
@@ -239,12 +244,12 @@ describe("Markdown 源码解析的长度上限（主线程保护，#245 review�
     const h = await make("");
     h.paste({ "text/plain": markdownOfLength(MAX_MARKDOWN_PASTE_CHARS) });
     expect(countNodes(h.view.state.doc, "heading")).toBeGreaterThan(0);
-  });
+  }, HEAVY_TIMEOUT);
 
   it("超过上限：整体降级为纯文本，与未装配 Smart Paste 的行为完全一致", async () => {
     const { base, smart } = await pasteBoth({ "text/plain": markdownOfLength(MAX_MARKDOWN_PASTE_CHARS + 1) });
     expect(smart).toEqual(base);
-  });
+  }, HEAVY_TIMEOUT);
 
   it("超大文本：Markdown 解析器根本不被调用（真实耗时见 E2E SP9）", async () => {
     const parseCalls: number[] = [];
@@ -265,7 +270,7 @@ describe("Markdown 源码解析的长度上限（主线程保护，#245 review�
     // 对照：上限内的同类文本会调用解析器
     h.paste({ "text/plain": markdownOfLength(1024) });
     expect(parseCalls).toEqual([1024]);
-  });
+  }, HEAVY_TIMEOUT);
 
   it("VS Code / IDE 着色 HTML 路由同样受上限约束", () => {
     const over = markdownOfLength(MAX_MARKDOWN_PASTE_CHARS + 1);
