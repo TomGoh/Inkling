@@ -356,3 +356,59 @@ describe("htmlToMarkdown：清理规则", () => {
     expect(md("<div> </div>")).toBe("");
   });
 });
+
+describe("htmlToMarkdown：页面自带的私有区字符不被当成内部占位符（#244 review）", () => {
+  // 转换器内部用 U+E000~U+E006 做硬换行/强调定界符占位；图标字体、Nerd Fonts 也用这段码位。
+  // 修复前：`前&#xE001;后` → `前**后`（凭空加粗）、`前&#xE000;后` → 硬换行
+  const SENTINELS = Array.from({ length: 7 }, (_, i) => 0xe000 + i);
+  const hex = (cp: number) => cp.toString(16).toUpperCase();
+  const ref = (cp: number) => `&#x${hex(cp)};`;
+
+  for (const cp of SENTINELS) {
+    it(`U+${hex(cp)}：正文中编码为字符引用，不产生定界符或换行`, () => {
+      expect(md(`<p>前${ref(cp)}后</p>`)).toBe(`前${ref(cp)}后`);
+    });
+  }
+
+  it("出现在标题、表格单元格、列表项、引用、Word 列表里同样被编码", () => {
+    for (const cp of SENTINELS) {
+      const c = ref(cp);
+      expect(md(`<h2>标${c}题</h2>`)).toBe(`## 标${c}题`);
+      expect(md(`<table><tr><th>h${c}</th></tr><tr><td>d${c}</td></tr></table>`)).toBe(
+        `| h${c} |\n| --- |\n| d${c} |`,
+      );
+      expect(md(`<ul><li>项${c}</li></ul>`)).toBe(`- 项${c}`);
+      expect(md(`<blockquote><p>引${c}</p></blockquote>`)).toBe(`> 引${c}`);
+      expect(md(`<p class="MsoListParagraph"><span>·&nbsp;</span>词${c}</p>`)).toBe(`- 词${c}`);
+    }
+  });
+
+  it("alt / title / 链接地址中被编码为字符引用", () => {
+    expect(md('<p><img src="https://a/&#xE001;.png" alt="图&#xE003;" title="题&#xE000;"></p>')).toBe(
+      '![图&#xE003;](https://a/&#xE001;.png "题&#xE000;")',
+    );
+    expect(md('<p><a href="https://a/&#xE005;" title="t&#xE002;">链&#xE006;</a></p>')).toBe(
+      '[链&#xE006;](https://a/&#xE005; "t&#xE002;")',
+    );
+  });
+
+  it("行内代码无法承载字符引用：替换为 U+FFFD，不破坏代码 span", () => {
+    for (const cp of SENTINELS) {
+      expect(md(`<p><code>a${ref(cp)}b</code></p>`)).toBe("`a�b`");
+    }
+  });
+
+  it("代码块不经过行内构建：原字符原样保留", () => {
+    const raw = SENTINELS.map((cp) => String.fromCodePoint(cp)).join("");
+    expect(md(`<pre>x${raw}y</pre>`)).toBe(`\`\`\`\nx${raw}y\n\`\`\``);
+  });
+
+  it("与真实格式混排：真实的加粗/换行照常生效，页面字符不干扰", () => {
+    // 字符引用的 `;` 是标点，收尾 ** 后接文字时按 flanking 规则再编码外侧的「后」
+    expect(md("<p><b>粗&#xE002;</b>后<br>&#xE000;次行</p>")).toBe("**粗&#xE002;**&#x540E;\\\n&#xE000;次行");
+  });
+
+  it("占位区之外的私有区字符（U+E007、U+F8FF）不受影响，原样输出", () => {
+    expect(md("<p>a&#xE007;b&#xF8FF;c</p>")).toBe("abc");
+  });
+});

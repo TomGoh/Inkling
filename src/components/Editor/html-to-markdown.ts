@@ -30,13 +30,13 @@ const LAYOUT_TABLE_SELECTOR = "table,h1,h2,h3,h4,h5,h6,ul,ol,pre,blockquote,hr";
 // 行内构建期用私有区字符做占位，最终按实际左右邻居决定如何落成 Markdown：
 // - BR：硬换行（单个）或段落分隔（连续两个及以上）
 // - 强调定界符：先占位，等拿到真实邻居字符后再处理 CommonMark 的 flanking 规则
-const BR = "";
-const STRONG_OPEN = "";
-const STRONG_CLOSE = "";
-const EM_OPEN = "";
-const EM_CLOSE = "";
-const DEL_OPEN = "";
-const DEL_CLOSE = "";
+const BR = "\uE000";
+const STRONG_OPEN = "\uE001";
+const STRONG_CLOSE = "\uE002";
+const EM_OPEN = "\uE003";
+const EM_CLOSE = "\uE004";
+const DEL_OPEN = "\uE005";
+const DEL_CLOSE = "\uE006";
 const DELIMS: Record<string, { md: string; open: boolean }> = {
   [STRONG_OPEN]: { md: "**", open: true },
   [STRONG_CLOSE]: { md: "**", open: false },
@@ -45,7 +45,19 @@ const DELIMS: Record<string, { md: string; open: boolean }> = {
   [DEL_OPEN]: { md: "~~", open: true },
   [DEL_CLOSE]: { md: "~~", open: false },
 };
-const SENTINEL_RE = /[-]/g;
+const SENTINEL_RE = /[\uE000-\uE006]/g;
+
+/**
+ * 粘贴内容本身也可能含这些码位（图标字体、Nerd Fonts 等把图标放在私有区）。
+ * 所有来自页面的字符串进入行内构建之前都要先「去哨兵化」，否则会被当成占位符：
+ * `前\uE001后` 会变成 `前**后`、`前\uE000后` 会变成硬换行。
+ * - 文本、alt、title、链接地址：编码为字符引用 `&#xE001;`，Markdown 解析后还原为原字符
+ * - 行内代码：CommonMark 不解码代码 span 内的字符引用，只能替换为 U+FFFD
+ * （代码块不经过行内构建，原样保留，无需处理）
+ */
+function encodeSentinels(text: string): string {
+  return text.replace(SENTINEL_RE, (c) => `&#x${c.codePointAt(0)!.toString(16).toUpperCase()};`);
+}
 
 interface InlineCtx {
   strong: boolean;
@@ -124,22 +136,22 @@ function escapeLineStart(line: string): string {
 
 /** 空白折叠（按 HTML 渲染语义），不间断空格归一为普通空格 */
 function collapseWhitespace(text: string): string {
-  return text.replace(/[ \t\n\r\f ]+/g, " ");
+  return text.replace(/[ \t\n\r\f\u00A0]+/g, " ");
 }
 
 function formatDestination(url: string): string {
-  const safe = url.replace(/[<>\n\r]/g, (c) => encodeURIComponent(c));
+  const safe = encodeSentinels(url.replace(/[<>\n\r]/g, (c) => encodeURIComponent(c)));
   return /[\s()\\]/.test(safe) ? `<${safe}>` : safe;
 }
 
 function formatTitle(title: string | null): string {
   const t = title?.trim();
   if (!t) return "";
-  return ` "${t.replace(/[\\"]/g, "\\$&").replace(/\s+/g, " ")}"`;
+  return ` "${encodeSentinels(t.replace(/[\\"]/g, "\\$&").replace(/\s+/g, " "))}"`;
 }
 
 function codeSpan(raw: string, inTable: boolean): string {
-  let text = collapseWhitespace(raw);
+  let text = collapseWhitespace(raw).replace(SENTINEL_RE, "\uFFFD");
   if (!text.trim()) return "";
   if (inTable) text = text.replace(/\|/g, "\\|");
   const longest = Math.max(0, ...Array.from(text.matchAll(/`+/g), (m) => m[0].length));
@@ -154,7 +166,7 @@ function codeSpan(raw: string, inTable: boolean): string {
 
 /** 用占位定界符包裹：首尾空白移到定界符外（`** x**` 不是合法强调） */
 function wrap(inner: string, open: string, close: string): string {
-  const m = /^([ ]*)([\s\S]*?)([ ]*)$/.exec(inner);
+  const m = /^([ \uE000]*)([\s\S]*?)([ \uE000]*)$/.exec(inner);
   if (!m || !m[2].replace(SENTINEL_RE, "").trim()) return inner;
   return `${m[1]}${open}${m[2]}${close}${m[3]}`;
 }
@@ -169,7 +181,7 @@ function inlineChildren(el: Node, ctx: InlineCtx): string {
 
 function inlineOf(node: Node, ctx: InlineCtx): string {
   if (node.nodeType === Node.TEXT_NODE) {
-    return escapeInlineText(collapseWhitespace(node.textContent ?? ""));
+    return encodeSentinels(escapeInlineText(collapseWhitespace(node.textContent ?? "")));
   }
   if (node.nodeType !== Node.ELEMENT_NODE) return "";
   const el = node as Element;
@@ -180,7 +192,9 @@ function inlineOf(node: Node, ctx: InlineCtx): string {
     case "img": {
       const src = el.getAttribute("src");
       if (!src) return "";
-      const alt = collapseWhitespace(el.getAttribute("alt") ?? "").trim().replace(/[\\[\]]/g, "\\$&");
+      const alt = encodeSentinels(
+        collapseWhitespace(el.getAttribute("alt") ?? "").trim().replace(/[\\[\]]/g, "\\$&"),
+      );
       return `![${alt}](${formatDestination(src)}${formatTitle(el.getAttribute("title"))})`;
     }
     case "input":
@@ -197,7 +211,7 @@ function inlineOf(node: Node, ctx: InlineCtx): string {
       if (ctx.link || !href) return inner;
       // 无可见内容的锚点（GitHub 标题旁的 permalink 图标）直接丢弃
       if (!inner.replace(SENTINEL_RE, "").trim()) return "";
-      const m = /^([ ]*)([\s\S]*?)([ ]*)$/.exec(inner)!;
+      const m = /^([ \uE000]*)([\s\S]*?)([ \uE000]*)$/.exec(inner)!;
       return `${m[1]}[${m[2]}](${formatDestination(href)}${formatTitle(el.getAttribute("title"))})${m[3]}`;
     }
     default:
@@ -321,7 +335,7 @@ function singleLine(el: Element, ctx: InlineCtx): string {
 // ---------------------------------------------------------------------------
 
 const WORD_LIST_CLASS = /\bMsoListParagraph/i;
-const WORD_LIST_MARKER = /^\s*(?:[·•▪◦§Øo•·-]|(\d{1,9}|[a-zA-Z]|[ivxlcdmIVXLCDM]{1,6})[.)])\s+/;
+const WORD_LIST_MARKER = /^\s*(?:[·•▪◦§Øo•·\uF0B7-]|(\d{1,9}|[a-zA-Z]|[ivxlcdmIVXLCDM]{1,6})[.)])\s+/;
 
 function isWordListParagraph(node: Node): boolean {
   return tagOf(node) === "p" && WORD_LIST_CLASS.test((node as Element).getAttribute("class") ?? "");
@@ -527,7 +541,7 @@ function preText(node: Node): string {
   let out = "";
   node.childNodes.forEach((child) => {
     if (child.nodeType === Node.TEXT_NODE) {
-      out += (child.textContent ?? "").replace(/ /g, " ");
+      out += (child.textContent ?? "").replace(/\u00A0/g, " ");
     } else if (child.nodeType === Node.ELEMENT_NODE) {
       const tag = tagOf(child);
       if (tag === "br") {
