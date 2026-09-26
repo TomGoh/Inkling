@@ -2,7 +2,8 @@
 //
 // 两条输入、一条出口——「Markdown 文本 → Milkdown parser → Slice」：
 // - 纯文本（#229）：clipboardTextParser 判定「看起来像 Markdown 源码」（≥2 类独立信号）
-//   时按 Markdown 解析成富文本；判定不成立时返回 null，走 ProseMirror 默认纯文本行为
+//   时按 Markdown 解析成富文本；判定不成立时返回 null，走 ProseMirror 默认纯文本行为。
+//   只作用于粘贴（拖放文本保持原行为），且超过 MAX_MARKDOWN_PASTE_CHARS 的文本不解析
 // - 网页/富文本 HTML（#219）：sanitizeHTML（粘贴模式）清洗 → htmlToMarkdown 结构映射 →
 //   同一条 Markdown 解析出口。**清洗必须在结构映射之前**：粘贴路径是本特性最大的攻击面
 //
@@ -21,11 +22,24 @@ import { Transform } from "@milkdown/kit/prose/transform";
 import { closeHistory } from "@milkdown/kit/prose/history";
 import { isSafeUrl, sanitizeHTML } from "./html-view";
 import { htmlToMarkdown } from "./html-to-markdown";
-import { looksLikeMarkdown } from "./markdown-detect";
+import { looksLikeMarkdown, SCAN_LIMIT } from "./markdown-detect";
 import { matchBinding, useShortcuts } from "../../store/shortcuts";
 
 /** HTML 元素数上限：超出整体降级为纯文本（大内容粘贴的主线程保护） */
 export const MAX_PASTE_HTML_ELEMENTS = 5000;
+
+/**
+ * Markdown 源码解析的文本长度上限（UTF-16 码元数，与特征判定的扫描上限同一个值）：
+ * 超出按纯文本粘贴。与 HTML 路径的元素上限对等的主线程保护——解析 + 渲染成本随长度
+ * 近似线性增长，实测（Chromium，dev 构建）：真实文档（CHANGELOG，约 40K 字符）约 0.3s；
+ * 代码块/表格密集的最坏情况 64K 约 1.7s、128K 约 3.7s、160K 约 6s，1.1M 触发 OOM。
+ */
+export const MAX_MARKDOWN_PASTE_CHARS = SCAN_LIMIT;
+
+/** 值得按 Markdown 源码解析：长度在上限内，且命中至少 2 类独立信号 */
+export function isParsableMarkdownSource(text: string): boolean {
+  return text.length <= MAX_MARKDOWN_PASTE_CHARS && looksLikeMarkdown(text);
+}
 
 export interface SmartPasteDeps {
   /** Milkdown 的 Markdown 解析器（parserCtx），与打开文件用的是同一个 */
@@ -114,13 +128,13 @@ export function routeHtmlPaste(html: string, text: string, types: readonly strin
   // 编辑器内部复制：ProseMirror 自带的序列化能无损还原，不做二次转换
   if (/data-pm-slice/.test(html)) return { kind: "default" };
   if (types.includes("vscode-editor-data")) {
-    return looksLikeMarkdown(text) ? { kind: "markdown-text" } : { kind: "default" };
+    return isParsableMarkdownSource(text) ? { kind: "markdown-text" } : { kind: "default" };
   }
   if (countHtmlElements(html) > MAX_PASTE_HTML_ELEMENTS) return { kind: "plain-text" };
   // 安全：先清洗，结构映射只处理清洗后的 DOM
   const fragment = sanitizeHTML(html, { mode: "paste" });
   if (isSourceLikeHtml(fragment)) {
-    return looksLikeMarkdown(text) ? { kind: "markdown-text" } : { kind: "default" };
+    return isParsableMarkdownSource(text) ? { kind: "markdown-text" } : { kind: "default" };
   }
   const markdown = htmlToMarkdown(fragment);
   if (!markdown.trim()) return { kind: "default" };
@@ -308,7 +322,10 @@ export const smartPastePlugin = (deps: SmartPasteDeps) => {
       },
       clipboardTextParser(text, $context, plain) {
         parseState = { plain, doc: null };
-        if (plain || inTableOrCode($context) || !looksLikeMarkdown(text)) return null as unknown as Slice;
+        // pasteEvent 为空说明不是粘贴（ProseMirror 的拖放也会调用本钩子）：保持原行为
+        if (plain || !pasteEvent || inTableOrCode($context) || !isParsableMarkdownSource(text)) {
+          return null as unknown as Slice;
+        }
         const doc = parsePastedMarkdown(text, deps.parseMarkdown);
         if (!doc) return null as unknown as Slice;
         parseState.doc = doc;

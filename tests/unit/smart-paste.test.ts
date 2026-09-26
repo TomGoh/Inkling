@@ -6,7 +6,14 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TextSelection } from "@milkdown/kit/prose/state";
-import { smartPastePlugin, MAX_PASTE_HTML_ELEMENTS, routeHtmlPaste, countHtmlElements } from "../../src/components/Editor/smart-paste";
+import {
+  smartPastePlugin,
+  MAX_PASTE_HTML_ELEMENTS,
+  MAX_MARKDOWN_PASTE_CHARS,
+  routeHtmlPaste,
+  countHtmlElements,
+  isParsableMarkdownSource,
+} from "../../src/components/Editor/smart-paste";
 import { useShortcuts } from "../../src/store/shortcuts";
 import {
   countNodes,
@@ -211,6 +218,61 @@ describe("#229 粘贴 Markdown 源码 → 富文本", () => {
     expect(countNodes(h.view.state.doc, "heading")).toBe(0);
     h.redo();
     expect(h.view.state.doc.toJSON()).toEqual(afterPaste);
+  });
+});
+
+describe("Markdown 源码解析的长度上限（主线程保护，#245 review）", () => {
+  /** 构造恰好 n 个字符、命中多类信号的 Markdown 源码 */
+  function markdownOfLength(n: number): string {
+    const unit = "## 小节\n\n正文 **粗体** 与 `代码`。\n\n- 列表项\n\n";
+    const text = unit.repeat(Math.ceil(n / unit.length)).slice(0, n);
+    return text;
+  }
+
+  it(`上限为 ${MAX_MARKDOWN_PASTE_CHARS} 字符，与特征判定的扫描上限一致`, () => {
+    expect(MAX_MARKDOWN_PASTE_CHARS).toBe(64 * 1024);
+    expect(isParsableMarkdownSource(markdownOfLength(MAX_MARKDOWN_PASTE_CHARS))).toBe(true);
+    expect(isParsableMarkdownSource(markdownOfLength(MAX_MARKDOWN_PASTE_CHARS + 1))).toBe(false);
+  });
+
+  it("恰好等于上限：仍按 Markdown 解析", async () => {
+    const h = await make("");
+    h.paste({ "text/plain": markdownOfLength(MAX_MARKDOWN_PASTE_CHARS) });
+    expect(countNodes(h.view.state.doc, "heading")).toBeGreaterThan(0);
+  });
+
+  it("超过上限：整体降级为纯文本，与未装配 Smart Paste 的行为完全一致", async () => {
+    const { base, smart } = await pasteBoth({ "text/plain": markdownOfLength(MAX_MARKDOWN_PASTE_CHARS + 1) });
+    expect(smart).toEqual(base);
+  });
+
+  it("超大文本：Markdown 解析器根本不被调用（真实耗时见 E2E SP9）", async () => {
+    const parseCalls: number[] = [];
+    const h = await createHarness({
+      plugins: (parse) => [
+        smartPastePlugin({
+          parseMarkdown: (md) => {
+            parseCalls.push(md.length);
+            return parse(md);
+          },
+        }),
+      ],
+    });
+    open.push(h);
+    h.paste({ "text/plain": markdownOfLength(200_000) });
+    expect(parseCalls).toEqual([]);
+    expect(countNodes(h.view.state.doc, "heading")).toBe(0);
+    // 对照：上限内的同类文本会调用解析器
+    h.paste({ "text/plain": markdownOfLength(1024) });
+    expect(parseCalls).toEqual([1024]);
+  });
+
+  it("VS Code / IDE 着色 HTML 路由同样受上限约束", () => {
+    const over = markdownOfLength(MAX_MARKDOWN_PASTE_CHARS + 1);
+    expect(routeHtmlPaste("<div>x</div>", over, ["vscode-editor-data"]).kind).toBe("default");
+    expect(routeHtmlPaste("<div><span>x</span></div>", over).kind).toBe("default");
+    const within = markdownOfLength(1024);
+    expect(routeHtmlPaste("<div>x</div>", within, ["vscode-editor-data"]).kind).toBe("markdown-text");
   });
 });
 
