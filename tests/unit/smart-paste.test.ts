@@ -407,6 +407,41 @@ describe("#219 网页富文本 HTML → Markdown 结构", () => {
     expect(countNodes(h.parse(md2), "bullet_list")).toBe(2);
   });
 
+  it("列表项内相邻同型子列表粘贴后保持独立，父列表仍紧凑，往返幂等（#264）", async () => {
+    const lists = (d: import("@milkdown/kit/prose/model").Node) =>
+      countNodes(d, "bullet_list") + countNodes(d, "ordered_list");
+    for (const html of [
+      "<ul><li>x<ul><li>a</li></ul><ul><li>b</li></ul></li><li>y</li></ul>",
+      "<ul><li>a</li><ul><li>x</li></ul><ul><li>y</li></ul></ul>",
+    ]) {
+      const h = await make();
+      h.paste({ "text/html": html, "text/plain": "x" });
+      const doc = h.view.state.doc;
+      // 父列表 + 两个子列表（修复前子列表被并成一个：2）
+      expect(lists(doc), html).toBe(3);
+      // 不加空行的分隔不会把父列表变成松散列表
+      expect(findNode(doc, "bullet_list")?.attrs.spread, html).toBe("false");
+      // 分隔注释不产生用户可见文字
+      expect(doc.textContent, html).not.toContain("<!--");
+      // 保存后重新打开：边界不丢，二次序列化起幂等
+      const md2 = h.markdown();
+      expect(md2).toContain("<!-- -->");
+      const doc2 = h.parse(md2);
+      expect(lists(doc2), html).toBe(3);
+      expect(h.serialize(doc2)).toBe(md2);
+    }
+  });
+
+  it("列表项内相邻有序子列表：第二个的起始编号不被改写（#264）", async () => {
+    const h = await make();
+    h.paste({
+      "text/html": '<ol><li>x<ol><li>a</li></ol><ol start="5"><li>b</li></ol></li></ol>',
+      "text/plain": "x",
+    });
+    expect(countNodes(h.view.state.doc, "ordered_list")).toBe(3);
+    expect(h.markdown()).toMatch(/5\. b/);
+  });
+
   it("相邻有序列表（起始编号不同）粘贴后编号不被改写（#249）", async () => {
     const h = await make();
     h.paste({

@@ -501,10 +501,7 @@ function formatList(items: ListItemMd[], ordered: boolean, start: number): strin
       if (item.blocks.length === 0) return `${marker}${task}`.trimEnd();
       let body = "";
       item.blocks.forEach((block, bi) => {
-        if (bi > 0) {
-          // 子列表紧跟上一块（紧凑列表），其余块之间空一行
-          body += /^(?:[-*+]|\d+[.)])(?: |$)/.test(block) ? "\n" : "\n\n";
-        }
+        if (bi > 0) body += itemBlockSeparator(item.blocks[bi - 1], block);
         body += block;
       });
       const lines = body.split("\n");
@@ -513,6 +510,20 @@ function formatList(items: ListItemMd[], ordered: boolean, start: number): strin
         .join("\n");
     })
     .join("\n");
+}
+
+/**
+ * 列表项内相邻两块之间的分隔（joinBlocks 之外的第三个拼接点，#264）：
+ * - 子列表紧跟上一块（紧凑列表），其余块之间空一行
+ * - 相邻两个**同型**子列表之间插入 `<!-- -->`，否则 CommonMark 会把它们并成一个列表
+ *   （与 joinBlocks 同病同治，#249）。这里**不加空行**：列表项内两块之间出现空行会让
+ *   父列表变成松散列表；`<!-- -->` 是可打断段落的 HTML 块，单独一行即可闭合上一个子列表。
+ *   分隔行随列表项正文一起按内容列缩进（formatList 对后续行统一加 indent）。
+ */
+function itemBlockSeparator(prev: string, block: string): string {
+  const kind = listBlockKind(block);
+  if (kind === null) return "\n\n";
+  return kind === listBlockKind(prev) ? "\n<!-- -->\n" : "\n";
 }
 
 /** 块首行呈现的列表类型；非列表块返回 null */
