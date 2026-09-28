@@ -516,21 +516,39 @@ function formatList(items: ListItemMd[], ordered: boolean, start: number): strin
  * 列表项内相邻两块之间的分隔（joinBlocks 之外的第三个拼接点，#264）：
  * - 子列表紧跟上一块（紧凑列表），其余块之间空一行
  * - 相邻两个**同型**子列表之间插入 `<!-- -->`，否则 CommonMark 会把它们并成一个列表
- *   （与 joinBlocks 同病同治，#249）。这里**不加空行**：列表项内两块之间出现空行会让
- *   父列表变成松散列表；`<!-- -->` 是可打断段落的 HTML 块，单独一行即可闭合上一个子列表。
- *   分隔行随列表项正文一起按内容列缩进（formatList 对后续行统一加 indent）。
+ *   （与 joinBlocks 同病同治，#249）
+ * - 子列表紧跟正文、但**不能打断段落**时（起始编号 ≠ 1 的有序列表、首项为空的列表）
+ *   同样插入 `<!-- -->`：否则子列表行会成为段落续行，编号被吞成正文、单独的 `-`
+ *   变成 setext 标题下划线（#266）
+ *
+ * 分隔都**不加空行**：列表项内两块之间出现空行会让父列表变成松散列表；`<!-- -->` 是可打断
+ * 段落的 HTML 块，单独一行即可闭合上一块，其后起列表不受「打断段落」的限制。
+ * 分隔行随列表项正文一起按内容列缩进（formatList 对后续行统一加 indent）。
  */
 function itemBlockSeparator(prev: string, block: string): string {
   const kind = listBlockKind(block);
   if (kind === null) return "\n\n";
-  return kind === listBlockKind(prev) ? "\n<!-- -->\n" : "\n";
+  const prevKind = listBlockKind(prev);
+  if (kind === prevKind) return "\n<!-- -->\n";
+  if (prevKind === null && !canInterruptParagraph(block)) return "\n<!-- -->\n";
+  return "\n";
+}
+
+/**
+ * 块首行的列表能否打断段落（CommonMark 5.2）：首项非空，且有序列表必须从 1 开始。
+ * 仅对 listBlockKind 非 null 的块有意义。
+ */
+function canInterruptParagraph(block: string): boolean {
+  const first = block.split("\n", 1)[0];
+  return /^[-*+] +\S/.test(first) || /^1[.)] +\S/.test(first);
 }
 
 /** 块首行呈现的列表类型；非列表块返回 null */
 function listBlockKind(block: string): "bullet" | "ordered" | null {
   const first = block.split("\n", 1)[0];
-  if (/^(?:[-*+]) /.test(first)) return "bullet";
-  if (/^\d{1,9}[.)] /.test(first)) return "ordered";
+  // 首项可能为空（formatList 输出裸标记 `-` / `3.`），同样是列表（#266）
+  if (/^[-*+](?: |$)/.test(first)) return "bullet";
+  if (/^\d{1,9}[.)](?: |$)/.test(first)) return "ordered";
   return null;
 }
 

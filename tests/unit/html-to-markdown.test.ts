@@ -230,6 +230,36 @@ describe("htmlToMarkdown：列表", () => {
     );
   });
 
+  it("列表项内紧跟正文、不能打断段落的子列表插入 <!-- -->（起始编号 ≠ 1 / 首项为空，#266）", () => {
+    // 起始编号 ≠ 1 的有序子列表：此前 `1. 第一步\n   3. 子步骤三` 被吞成正文
+    expect(md('<ol><li>第一步<ol start="3"><li>子步骤三</li><li>子步骤四</li></ol></li></ol>')).toBe(
+      "1. 第一步\n   <!-- -->\n   3. 子步骤三\n   4. 子步骤四",
+    );
+    // 无序父列表 / 正文包在 <p> 里：同一拼接点
+    expect(md('<ul><li>x<ol start="3"><li>a</li></ol></li></ul>')).toBe("- x\n  <!-- -->\n  3. a");
+    expect(md('<ul><li><p>x</p><ol start="2"><li>a</li></ol></li></ul>')).toBe("- x\n  <!-- -->\n  2. a");
+    // 首项为空的子列表：此前单独的 `-` 把正文变成 setext 标题
+    expect(md("<ul><li>父项<ul><li></li></ul></li></ul>")).toBe("- 父项\n  <!-- -->\n  -");
+    expect(md("<ul><li>x<ul><li></li><li>b</li></ul></li></ul>")).toBe("- x\n  <!-- -->\n  -\n  - b");
+    expect(md("<ol><li>x<ol><li></li></ol></li></ol>")).toBe("1. x\n   <!-- -->\n   1.");
+  });
+
+  it("首项为空的列表同样被识别为列表：顶层相邻同型列表照常分隔（#266 / #249）", () => {
+    expect(md("<ul><li></li></ul><ul><li>b</li></ul>")).toBe("-\n\n<!-- -->\n\n- b");
+  });
+
+  it("能打断段落的子列表不加分隔（#266 回归护栏）", () => {
+    // 从 1 开始的有序子列表、首项非空的无序子列表：保持紧凑、不插注释
+    expect(md("<ol><li>x<ol><li>a</li></ol></li></ol>")).toBe("1. x\n   1. a");
+    expect(md("<ul><li>x<ul><li>a</li></ul></li></ul>")).toBe("- x\n  - a");
+    // 上一块是异型子列表（不是正文）：不属于「打断段落」
+    expect(md('<ul><li>x<ul><li>a</li></ul><ol start="3"><li>b</li></ol></li></ul>')).toBe("- x\n  - a\n  3. b");
+    // 子列表是列表项首块：同一行起列表，不打断段落
+    expect(md('<ul><li><ol start="3"><li>a</li></ol></li></ul>')).toBe("- 3. a");
+    // 顶层：joinBlocks 用空行分隔，本就正确
+    expect(md('<p>x</p><ol start="3"><li>a</li></ol>')).toBe("x\n\n3. a");
+  });
+
   it("列表项内不需要分隔的情形保持原输出（#264 回归护栏）", () => {
     // 异型子列表本就不合并
     expect(md("<ul><li>x<ul><li>a</li></ul><ol><li>b</li></ol></li></ul>")).toBe("- x\n  - a\n  1. b");
