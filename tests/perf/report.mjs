@@ -16,7 +16,10 @@ import { resolve, join } from "node:path";
 import { baselineComparability, MODE_FALLBACK, ROUNDS_FALLBACK } from "./comparability.js";
 import {
   COMPARED_SCALARS,
+  COUNT_FLOOR_FACTOR,
   DRIFT_WARN_PCT,
+  effectiveAbsMin,
+  historyFloor,
   isOver,
   isPrimary,
   median,
@@ -238,17 +241,24 @@ function compareRun(raw, baseline) {
    * 噪声门槛（3σ）：由基线历史（同一环境、同一 fixture 的多次运行）估计。
    * 历史不足时返回 null → 判定退化为"百分比 + 绝对地板"。
    * 被噪声抑制的行不是 PASS（它确实动了），而是 WARN「变化在运行噪声内」。
+   *
+   * 生效地板（#270 方案 B）：= 登记常数 与「同代码历史散布推导的下限」取大者。
+   * 小基数计数指标的百分比规则本就不可信，手写常数又常比该指标自身散布还小，这里统一收紧。
    */
   const pushRow = (row, entry, statistic) => {
     const noise = noiseFor(entry, statistic);
+    const absMin = effectiveAbsMin(entry, row.metric, statistic);
     rows.push({
       ...row,
       noise,
+      absMin,
+      // 由「同代码历史散布」推导出的那部分地板（用于报告里显式披露哪几行被抬高了）
+      floorDerived: historyFloor(entry, row.metric, statistic),
       // 3σ 占参考值的比例 = 该指标在当前环境下的检出下限（见 judgment.resolutionPct）
       resolution: resolutionPct(entry, statistic),
       historyPoints: (statistic === "p95" ? entry?.historyP95 : entry?.history)?.length ?? 0,
       // 过了相对阈值但被绝对地板/噪声门槛挡下：不是 PASS，需要显式标注原因
-      suppressed: suppressionReason(row.metric, row.cur, row.base, noise),
+      suppressed: suppressionReason(row.metric, row.cur, row.base, noise, absMin),
     });
   };
 
@@ -265,7 +275,7 @@ function compareRun(raw, baseline) {
         p95: cur.p95,
         max: cur.max,
         n: cur.n,
-        over: isOver(metric, cur.median, base, noiseFor(entry, "median")),
+        over: isOver(metric, cur.median, base, noiseFor(entry, "median"), effectiveAbsMin(entry, metric, "median")),
       },
       entry,
       "median",
@@ -283,7 +293,13 @@ function compareRun(raw, baseline) {
           p95: null,
           max: cur.max,
           n: cur.n,
-          over: isOver(`${metric}.p95`, cur.p95, baseP95, noiseFor(entry, "p95")),
+          over: isOver(
+            `${metric}.p95`,
+            cur.p95,
+            baseP95,
+            noiseFor(entry, "p95"),
+            effectiveAbsMin(entry, `${metric}.p95`, "p95"),
+          ),
         },
         entry,
         "p95",
@@ -305,7 +321,7 @@ function compareRun(raw, baseline) {
         p95: null,
         max: null,
         n: null,
-        over: isOver(metric, cur, base, noiseFor(entry, "median")),
+        over: isOver(metric, cur, base, noiseFor(entry, "median"), effectiveAbsMin(entry, metric, "median")),
       },
       entry,
       "median",
@@ -484,7 +500,24 @@ function main() {
     // 绝对行必须无条件进入复测：它的指标名是 `frameMs.p95(绝对)` 这种带后缀的形式，
     // 不命中 PRIMARY_METRICS，若不豁免就会被"需佐证"规则滤掉 → raw2 缺失 →
     // final 阶段落成 WARN「未复测」→ 退出码 0，使「绝对目标未达标」成为死代码。
+    //
+    // ⚠️ 这一处用「首轮」是**正确**的：check 阶段还没有复测数据，而且它的语义只是
+    // 「值不值得再跑一轮」，不参与结论。终判阶段的佐证必须换用 primaryReproduced（见下，#270）。
     const primaryOver = rows1.some((r) => r.over && isPrimary(r.metric));
+
+    // 终判阶段的佐证基准：**本场景存在同样被判 FAIL 的主指标**（#270）。
+    //
+    // 修复前这里复用了 primaryOver（只看首轮），而终判用的是「首轮 + 复测」两轮证据，
+    // 两者证据基础不一致 → 一个「首轮超、复测回落」的主指标行（已被判 WARN、已宣告是抖动）
+    // 仍然能给全场景的派生指标发豁免券，导致「零主指标 FAIL 的场景产出 FAIL、exit 1」。
+    // 实测案例见 issue #270：`frameMs.p95` 复测差 0.05ms 未过阈值判 WARN，而
+    // `longFrameCount` 因复测微升被判 FAIL。
+    const primaryReproduced = rows1.some(
+      (r) =>
+        r.over &&
+        isPrimary(r.metric) &&
+        Boolean(rows2.find((s) => s.metric === r.metric)?.over),
+    );
     const actionableOver = rows1.filter(
       (r) =>
         r.over &&
@@ -519,11 +552,15 @@ function main() {
       }
       // 派生指标（longTaskMs / jankRate 之类）在共享 runner 上的自然波动可达 35%，
       // 无主指标佐证时不判 FAIL，只提示：没有主指标佐证的"回归"不可行动。
+      // 佐证基准是 primaryReproduced —— 必须与终判同证据基础（主指标自己也要「首轮 + 复测都超」），
+      // 否则「首轮超、复测回落」的主指标（已判 WARN）会给出无效豁免券（#270）。
       // 绝对行不受此限——它本来就只在定向测量（headed/uncapped）下产出。
-      if (!isAbsolute && requiresPrimaryCorroboration(row.metric) && !primaryOver) {
+      if (!isAbsolute && requiresPrimaryCorroboration(row.metric) && !primaryReproduced) {
         verdicts.push({
           ...row,
           verdict: "WARN",
+          // 复测值照常披露：结论虽是"无佐证"，但读者仍需要看到复测那一轮的数字
+          retest: second ? second.cur : null,
           note: "派生指标无主指标佐证（疑似运行抖动）",
         });
         continue;
@@ -840,8 +877,22 @@ function main() {
   // 而读者会据此理解"哪些指标能单独判 FAIL"。派生 + 单测断言，名单再漂移会当场失败。
   lines.push(
     `- 判定分层：主指标（${PRIMARY_METRICS.join(" / ")}）可单独判 FAIL；` +
-      `派生指标（longTaskMs / longTaskCount / jankRate 等）需同场景有主指标佐证，否则只提示 WARN`,
+      `派生指标（longTaskMs / longTaskCount / jankRate 等）需同场景有主指标**同样被判 FAIL**（首轮与复测都超阈值）才判 FAIL，否则只提示 WARN`,
   );
+  // 生效地板（#270 方案 B）：小基数计数指标的登记常数若比它自身的跨运行散布还小，
+  // 会被「由历史散布推导的下限」抬高。必须显式列出——否则读者看到"低于绝对地板"
+  // 会以为是登记的那个常数，无法判断判定是否被悄悄放宽/收紧。
+  const raisedFloors = results.flatMap((r) =>
+    r.metrics
+      .filter((m) => typeof m.floorDerived === "number" && m.absMin === m.floorDerived)
+      .map((m) => `${r.id}:${m.metric} → ${round(m.absMin)}`),
+  );
+  if (raisedFloors.length > 0) {
+    lines.push(
+      `- 生效地板：${raisedFloors.length} 行按「同代码历史散布」抬高到 ${COUNT_FLOOR_FACTOR}×历史极差` +
+        `（登记常数不足以覆盖该指标自身的噪声，见 #270 方案 B）：${raisedFloors.join("、")}`,
+    );
+  }
   if (absoluteCount < results.length) {
     lines.push(
       `- 其余 ${results.length - absoluteCount} 个场景未参与绝对判定：本次为 headless 测量（vsync 锁 60Hz，帧间隔反映显示器节拍而非单帧工作耗时）。要拿绝对结论请用 PERF_HEADED=1 或 PERF_UNCAPPED=1，或用 PERF_ABSOLUTE=1 强制开启`,

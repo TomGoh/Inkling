@@ -48,16 +48,44 @@ export function noiseThreshold(history, sigma = NOISE_SIGMA) {
 }
 
 /**
- * 比较时使用的参考值：历史点数足够时用**历史中位数**（滚动参考），否则用基线记录的点值。
+ * 参考值使用的**滚动窗口**长度（取历史里最近 K 点，issue #270 方案 C）。
+ *
+ * 取 4（HISTORY_MAX=8 的一半）：参考值要跟随 runner 池的**当前档位**，而历史里越早的点
+ * 越可能来自更快的环境。实测 `scroll-M-rich.longFrameCount` 的全历史中位数是 0.75、
+ * 最近两点是 3 和 2——用全历史当参考等于拿几天前的快机器当基准。
+ *
+ * ⚠️ **窗口化只用于「上抬」方向**，见 referenceValue 的说明：无偏地取窗口会让参考值跟着
+ * 噪声一起下压，把判定系统性推向偏严。
+ *
+ * 注意：**散布估计（3σ）不跟着缩窗**——σ 的稳定性依赖点数（仓库纪律：3 点相对误差约 50%、
+ * 8 点约 27%），而窗口更宽只会让门槛更保守，不会放松。
+ */
+export const REFERENCE_WINDOW = 4;
+
+/**
+ * 比较时使用的参考值：历史点数足够时，取**全历史中位数**与**最近 REFERENCE_WINDOW 点中位数**
+ * 中的**较高者**；否则退化为全历史中位数，再退化为基线记录的点值。
  *
  * 为什么不用单点基线：实测 5 次同代码运行的聚合值整体偏移达 -8%~-25%
  * （基线那次恰好是偏慢的一次），单点参考会把整批指标一起判成"改善"或"恶化"。
+ *
+ * 为什么窗口只允许**上抬**（#270 方案 C 的实测取舍）：
+ * - 本方案要修的成因只有一个方向——「参考值停在更快的旧环境」→ 参考偏低 → 相对变化被放大
+ *   → 假 FAIL。`scroll-M-rich` 的 `longFrameCount` 就是这种（0.75 vs 近况 1.25）。
+ * - 反方向（近况低于全历史中位数时把参考压下去）会让参考**系统性偏严**：实测 quick 档基线里
+ *   46 行会被下压（最多 -50%，多数是 8 点中位数本就带着更早的快机器），只有 2 行上抬。
+ *   把无偏窗口用上之后，本次待修的样本反而从 exit 0 变成 exit 1（`frameMs.p95` 参考 23.8→22.9，
+ *   复测 +29.7% 越过 25% 阈值）——与"消除假 FAIL"的目标相反。
+ * - 要让「环境变快」也能安全地反映到参考值上，前提是**环境归一化**（用会话标定 probeMs 把
+ *   参考值缩放到当轮档位），那需要单独立项——本文件把 DRIFT_WARN_PCT 标定只做披露也是同一原因。
  */
 export function referenceValue(entry, statistic = "median") {
   if (!entry) return undefined;
   const key = statistic === "p95" ? "historyP95" : "history";
   const history = entry[key];
-  if (Array.isArray(history) && history.length >= NOISE_MIN_POINTS) return median(history);
+  if (Array.isArray(history) && history.length >= NOISE_MIN_POINTS) {
+    return Math.max(median(history), median(history.slice(-REFERENCE_WINDOW)));
+  }
   return entry[statistic];
 }
 
@@ -161,6 +189,62 @@ export const METRIC_RULES = {
 };
 
 /**
+ * 「小基数计数指标」需要额外保护的那一批（issue #270 方案 B）。
+ *
+ * 为什么单独列出来：这类指标的**参考值只有个位数**，百分比规则等于把小差异无限放大
+ * （0.75 → 4 就是 +433%），而手写的 `absMin` 常数又往往比该指标**自身**的跨运行散布还小
+ * （实测 `scroll-M-rich.longFrameCount` 的 history 极差就是 3，登记地板也是 3 → 门槛贴着噪声走）。
+ * 反过来，L/XL 档上 `longFrameCount` 能到 100+，百分比规则本就有效，再额外收紧是多余的。
+ */
+export const COUNT_METRICS = ["longFrameCount", "jankCount", "longTaskCount"];
+
+/** 参考值低于此值的计数指标被视为「小基数」——此时才启用历史推导地板 */
+export const COUNT_SMALL_BASE = 10;
+
+/**
+ * 历史极差 → 地板下限的系数。
+ *
+ * 取 1.5 的依据：参考值取的是**中位数**，而同一份代码的极差是 R —— 一次运行落在极值、
+ * 另一次落在中位数，delta 就已经接近 R；要求 1.5R 意味着「明显超出这份代码历史见过的范围」
+ * 才可行动。真正的成倍恶化（0.75/1.25 量级 → 8+）仍远超该地板。
+ */
+export const COUNT_FLOOR_FACTOR = 1.5;
+
+/**
+ * 由**同一份代码的历史散布**推导的绝对地板下限（#270 方案 B）。
+ *
+ * 只对「小基数计数指标」生效，且只用于**收紧**（调用方取与登记常数的较大者）。
+ * 依据来自基线自身的 history（同一环境、同一 fixture 的逐次运行），符合仓库纪律
+ * 「地板必须由同代码的重复实测得出，不能凭感觉给」。
+ */
+export function historyFloor(entry, metric, statistic = "median") {
+  if (!COUNT_METRICS.includes(baseMetric(metric))) return undefined;
+  const key = statistic === "p95" ? "historyP95" : "history";
+  const history = entry?.[key];
+  if (!Array.isArray(history) || history.length < NOISE_MIN_POINTS) return undefined;
+  const reference = referenceValue(entry, statistic);
+  if (!(typeof reference === "number" && reference < COUNT_SMALL_BASE)) return undefined;
+  const range = Math.max(...history) - Math.min(...history);
+  return range > 0 ? COUNT_FLOOR_FACTOR * range : undefined;
+}
+
+/**
+ * 该指标在当前基线上**生效**的绝对地板：登记常数与历史推导下限取较大者。
+ * 返回 undefined 表示该指标没有地板（走纯百分比判定）。
+ *
+ * 单向性：`historyFloor` 只会抬高地板，永远不会把它降到登记值以下——所以本函数
+ * 只可能收紧判定，不可能放宽。
+ */
+export function effectiveAbsMin(entry, metric, statistic = "median") {
+  const rule = ruleFor(metric);
+  if (rule.abs !== undefined) return undefined;
+  const derived = historyFloor(entry, metric, statistic);
+  if (rule.absMin === undefined) return derived;
+  if (derived === undefined) return rule.absMin;
+  return Math.max(rule.absMin, derived);
+}
+
+/**
  * 主指标：直接反映用户可感知的耗时，可以**单独**判定 FAIL。
  * 它们的量级大（数百毫秒级）且语义明确，CI 抖动的相对影响可控。
  */
@@ -233,24 +317,29 @@ export function ruleFor(metric) {
  * - 规则带 abs 时按绝对增量判定
  * - 基数为 0 时百分比无意义，退化为绝对增量门槛（absMin）
  * - 规则同时带 pct 与 absMin 时要求两者**同时**成立（避免小基数百分比放大）
+ *
+ * `absMin` 参数是**调用方算好的生效地板**（`effectiveAbsMin`，含历史推导下限，见 #270 方案 B）；
+ * 不传即退回规则里登记的常数。调用方只允许传「登记值与推导值取大者」，
+ * 传更小的值会放宽判定——这是本函数唯一的越权用法，故在 effectiveAbsMin 里做单向保证。
  */
-export function isOver(metric, current, base, noise) {
+export function isOver(metric, current, base, noise, absMin) {
   const rule = ruleFor(metric);
   const delta = current - base;
   if (rule.abs !== undefined) return delta > rule.abs;
+  const floor = absMin === undefined ? rule.absMin : absMin;
   if (base === 0) {
-    return delta > (rule.absMin ?? 0.5);
+    return delta > (floor ?? 0.5);
   }
   const pctOk = delta / base > rule.pct / 100;
-  const minOk = rule.absMin === undefined || delta >= rule.absMin;
+  const minOk = floor === undefined || delta >= floor;
   // 噪声门槛：变化必须超过 3σ（来自基线历史），否则无法与运行间抖动区分
   const noiseOk = typeof noise !== "number" || delta > noise;
   return pctOk && minOk && noiseOk;
 }
 
 /** 只按百分比 + 绝对地板判断（不含噪声门槛）：用于区分"超阈值"与"被噪声抑制" */
-export function isOverIgnoringNoise(metric, current, base) {
-  return isOver(metric, current, base, null);
+export function isOverIgnoringNoise(metric, current, base, absMin) {
+  return isOver(metric, current, base, null, absMin);
 }
 
 /**
@@ -258,17 +347,20 @@ export function isOverIgnoringNoise(metric, current, base) {
  *
  * 为什么需要它：被抑制不等于"没变化"。若直接落成 PASS，读者会以为指标纹丝不动，
  * 而实际上它可能涨了 25%（只是幅度在实测噪声/绝对地板之内）。判定要可解释：
- * - "floor"：幅度低于该指标的绝对地板（如 inputSyncMs Δ<1ms）
+ * - "floor"：幅度低于该指标的绝对地板（如 inputSyncMs Δ<1ms，或小基数计数指标的历史推导下限）
  * - "noise"：幅度在运行噪声内（< 3σ，来自基线历史）
+ *
+ * `absMin` 与 `isOver` 同义：调用方传入的生效地板。
  */
-export function suppressionReason(metric, current, base, noise) {
+export function suppressionReason(metric, current, base, noise, absMin) {
   const rule = ruleFor(metric);
   const delta = current - base;
   if (delta <= 0) return null; // 改善或持平不算"被抑制"
   if (rule.abs !== undefined) return null; // 绝对值型指标没有相对阈值可谈
   if (base === 0) return null; // 基数为 0 的走绝对增量门槛
   if (!(delta / base > rule.pct / 100)) return null; // 未过相对阈值 → 正常 PASS
-  if (rule.absMin !== undefined && delta < rule.absMin) return "floor";
+  const floor = absMin === undefined ? rule.absMin : absMin;
+  if (floor !== undefined && delta < floor) return "floor";
   if (typeof noise === "number" && delta <= noise) return "noise";
   return null;
 }
