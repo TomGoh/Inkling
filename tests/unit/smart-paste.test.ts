@@ -442,6 +442,39 @@ describe("#219 网页富文本 HTML → Markdown 结构", () => {
     expect(h.markdown()).toMatch(/5\. b/);
   });
 
+  it("列表项内紧跟正文、起始编号 ≠ 1 的有序子列表：子列表保留、编号不被吞成正文（#266）", async () => {
+    const h = await make();
+    h.paste({
+      "text/html": '<ol><li>第一步<ol start="3"><li>子步骤三</li><li>子步骤四</li></ol></li></ol>',
+      "text/plain": "x",
+    });
+    const doc = h.view.state.doc;
+    // 父列表 + 子列表（修复前子列表丢失：1）
+    expect(countNodes(doc, "ordered_list")).toBe(2);
+    expect(findNode(doc, "paragraph")?.textContent).toBe("第一步");
+    expect(doc.textContent).not.toContain("3.");
+    // 父列表仍紧凑；保存后重新打开编号与结构不变，二次序列化起幂等
+    expect(findNode(doc, "ordered_list")?.attrs.spread).toBe("false");
+    const md2 = h.markdown();
+    expect(md2).toMatch(/3\. 子步骤三/);
+    const doc2 = h.parse(md2);
+    expect(countNodes(doc2, "ordered_list")).toBe(2);
+    expect(h.serialize(doc2)).toBe(md2);
+  });
+
+  it("列表项内首项为空的子列表：正文不被变成标题（#266）", async () => {
+    for (const html of ["<ul><li>父项<ul><li></li></ul></li></ul>", "<ol><li>父项<ol><li></li></ol></li></ol>"]) {
+      const h = await make();
+      h.paste({ "text/html": html, "text/plain": "x" });
+      const doc = h.view.state.doc;
+      expect(countNodes(doc, "heading"), html).toBe(0);
+      expect(countNodes(doc, "bullet_list") + countNodes(doc, "ordered_list"), html).toBe(2);
+      expect(findNode(doc, "paragraph")?.textContent, html).toBe("父项");
+      const doc2 = h.parse(h.markdown());
+      expect(countNodes(doc2, "heading"), html).toBe(0);
+    }
+  });
+
   it("相邻有序列表（起始编号不同）粘贴后编号不被改写（#249）", async () => {
     const h = await make();
     h.paste({
