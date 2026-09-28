@@ -235,6 +235,25 @@ test.describe("Smart Paste", () => {
     await expect(page.locator(`${PM} h2`, { hasText: "拖放标题" })).toHaveCount(0);
   });
 
+  test("SP11 首块是子列表的列表项：保存后源码里不出现字面 <br />（#268）", async ({ page }) => {
+    await focusDocEnd(page);
+    // issue #268 的最小复现形态：li 直接以下级列表开头、无前置正文
+    expect(
+      await dispatchPaste(page, {
+        "text/html": "<ul><li><ul><li>子项</li></ul></li></ul>",
+        "text/plain": "子项",
+      }),
+    ).toBe(true);
+    await expect(page.locator(`${PM} li li`, { hasText: "子项" })).toBeVisible();
+
+    // 保存路径 = 源码模式读到的内容（进入源码模式前会 flush 发布器）。
+    // 修复前这里是 "- <br />" + 次行的子列表（字面 HTML 标签落进用户源码）
+    const md = await sourceText(page);
+    expect(md).not.toContain("<br");
+    // 「父标记 + 子标记 + 文本」在同一行：首块子列表的紧凑形态
+    expect(md).toMatch(/^[-*] [-*] 子项$/m);
+  });
+
   test("SP8 源码模式不做 HTML 转换，保持纯文本", async ({ page }) => {
     await page.keyboard.press(`${MOD}+Alt+KeyS`);
     const cm = page.getByTestId("source-mode-editor").locator(".cm-content");
