@@ -9,7 +9,12 @@
 import { describe, expect, it } from "vitest";
 import {
   baseMetric,
+  COUNT_FLOOR_FACTOR,
+  COUNT_METRICS,
+  COUNT_SMALL_BASE,
   DEFAULT_PCT,
+  effectiveAbsMin,
+  historyFloor,
   isOver,
   isPrimary,
   median,
@@ -19,6 +24,7 @@ import {
   noiseFor,
   noiseThreshold,
   P95_EXTRA_PCT,
+  REFERENCE_WINDOW,
   referenceValue,
   requiresPrimaryCorroboration,
   RESOLUTION_WARN_PCT,
@@ -199,19 +205,88 @@ describe("统计工具", () => {
     expect(NOISE_MIN_POINTS).toBe(3);
   });
 
-  it("referenceValue：历史足够时用历史中位数（滚动参考），否则用点值", () => {
+  it("referenceValue：取「全历史中位数」与「最近 4 点中位数」的较高者，历史不足时用点值", () => {
+    // 全历史中位数 1.6 > 近况 1.45 → 取 1.6（窗口只允许上抬，见 #270 方案 C 的说明）
     const entry = { median: 1.9, history: [1.9, 1.3, 1.2, 2.2, 1.6] };
-    expect(referenceValue(entry)).toBe(1.6); // 历史中位数
+    expect(referenceValue(entry)).toBe(1.6);
     expect(referenceValue({ median: 1.9, history: [1.9, 1.3] })).toBe(1.9); // 点值
     expect(referenceValue({ median: 1.9 })).toBe(1.9);
-    // p95 走 historyP95
+    // 真实样本：scroll-M-rich.longFrameCount 的全历史中位数 0.75、近况 1.25 → 上抬到 1.25
+    expect(referenceValue({ median: 0.75, history: [0, 1, 0, 1, 0.5, 0.5, 3, 2] })).toBe(1.25);
+    // 反方向（近况低于全历史）不下压：全历史中位数 3、近况 1 → 仍取 3。
+    // 下压会把判定系统性推向偏严（实测反例见 #270）
+    expect(referenceValue({ median: 5, history: [5, 5, 5, 5, 1, 1, 1, 1] })).toBe(3);
+    // p95 走 historyP95：全历史 2.8 < 近况 2.9 → 取 2.9
     const withP95 = { median: 2.4, historyP95: [2.4, 3.0, 2.6, 2.8, 3.1] };
-    expect(referenceValue(withP95, "p95")).toBe(2.8);
+    expect(referenceValue(withP95, "p95")).toBe(2.9);
+    expect(REFERENCE_WINDOW).toBe(4);
+    // 散布估计不跟着缩窗（σ 的稳定性依赖点数）
     expect(noiseFor(entry)).toBeCloseTo(1.25, 1);
     expect(noiseFor({ historyP95: [2.4, 3.0, 2.6, 2.8, 3.1] }, "p95")).toBeCloseTo(
       0.81,
       1,
     );
+  });
+});
+
+// 小基数计数指标的历史推导地板（issue #270 方案 B）
+//
+// 依据：这类指标的参考值只有个位数，百分比规则等于把小差异无限放大（0.75 → 4 就是 +433%），
+// 而手写常数又常比该指标**自身**的跨运行散布还小。实测数据来自 quick 档基线
+// （`.perf-baseline/quick/headless/r2/`）。
+describe("小基数计数指标的历史推导地板（#270 方案 B）", () => {
+  /** scroll-M-rich.longFrameCount 的真实 history：极差 3（0~3），参考值（窗口上抬后）1.25 */
+  const scrollLongFrame = { median: 0.75, history: [0, 1, 0, 1, 0.5, 0.5, 3, 2] };
+
+  it("登记常数与推导下限取较大者，且推导下限 = 1.5×历史极差", () => {
+    expect(COUNT_FLOOR_FACTOR).toBe(1.5);
+    expect(COUNT_METRICS).toEqual(["longFrameCount", "jankCount", "longTaskCount"]);
+    expect(historyFloor(scrollLongFrame, "longFrameCount")).toBeCloseTo(4.5, 6);
+    expect(effectiveAbsMin(scrollLongFrame, "longFrameCount")).toBeCloseTo(4.5, 6);
+  });
+
+  it("本 issue 的实测行不再判超阈值（Δ3.25 < 地板 4.5，且 3σ=3.11 拦不住）", () => {
+    const floor = effectiveAbsMin(scrollLongFrame, "longFrameCount");
+    // 复测 4.5、参考值 1.25、3σ 3.11：没有推导地板时 Δ3.25 > 3σ → 会被判 FAIL
+    expect(isOver("longFrameCount", 4.5, 1.25, 3.11, floor)).toBe(false);
+    expect(suppressionReason("longFrameCount", 4.5, 1.25, 3.11, floor)).toBe("floor");
+    // 对照：不给地板（旧行为）时同一行确实超阈值
+    expect(isOver("longFrameCount", 4.5, 1.25, 3.11, 3)).toBe(true);
+  });
+
+  it("真正的成倍恶化仍判超阈值（地板不许把真回归一起收掉）", () => {
+    const floor = effectiveAbsMin(scrollLongFrame, "longFrameCount");
+    // 健康水平 1.25 → 真实劣化到 8：Δ6.75 ≥ 4.5、+540%、超 3σ
+    expect(isOver("longFrameCount", 8, 1.25, 3.11, floor)).toBe(true);
+  });
+
+  it("只收紧不放松：登记常数更大时保留登记值", () => {
+    // jankCount 真实 history：极差 3 → 推导 4.5，小于登记常数 6
+    const entry = { median: 4.5, history: [2, 4.5, 4.5, 4.5, 3.5, 4.5, 5, 3.5] };
+    expect(historyFloor(entry, "jankCount")).toBeCloseTo(4.5, 6);
+    expect(effectiveAbsMin(entry, "jankCount")).toBe(6);
+  });
+
+  it("大基数（参考值 ≥10）场景不额外收紧：百分比规则本就有效", () => {
+    // full 档 scroll-L 的真实量级：参考值 ~131
+    const big = {
+      median: 134,
+      history: [109.33, 148, 130, 141, 120, 133, 137, 126],
+    };
+    expect(referenceValue(big)).toBeGreaterThanOrEqual(COUNT_SMALL_BASE);
+    expect(historyFloor(big, "longFrameCount")).toBeUndefined();
+    expect(effectiveAbsMin(big, "longFrameCount")).toBe(3); // 退回登记常数
+  });
+
+  it("不适用于非计数指标，也不适用于绝对值型指标（cls）", () => {
+    expect(historyFloor(scrollLongFrame, "frameMs")).toBeUndefined();
+    expect(effectiveAbsMin(scrollLongFrame, "cls")).toBeUndefined();
+  });
+
+  it("历史不足 3 点、极差为 0 时不启用（退回登记常数）", () => {
+    expect(historyFloor({ median: 0, history: [0, 0] }, "longFrameCount")).toBeUndefined();
+    expect(historyFloor({ median: 0, history: [0, 0, 0] }, "longFrameCount")).toBeUndefined();
+    expect(effectiveAbsMin({ median: 0, history: [0, 0, 0] }, "longFrameCount")).toBe(3);
   });
 });
 
