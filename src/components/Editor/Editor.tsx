@@ -28,7 +28,7 @@ import { remoteImagePlugin } from "./remote-image";
 import { linkClickPlugin } from "./link-click";
 import { outlineTrackerPlugin } from "./outline-tracker";
 import { markdownPublisherPlugin } from "./markdown-publisher";
-import { stripListPlaceholderParagraphs } from "./markdown-serialize";
+import { normalizeListPlaceholders } from "./markdown-serialize";
 import { formulaNumberingPlugin, formulaNumberingKey } from "./formula-numbering";
 import { editorModesPlugin } from "./editor-modes";
 import { blockDragPlugin } from "./block-drag";
@@ -170,10 +170,9 @@ function EditorInner({
               // Markdown 源码发布：全文序列化防抖 150ms，避免每次按键
               // 都 O(n) 序列化整篇文档（万行文档输入掉帧的主因之一）
               markdownPublisherPlugin({
-                // 写盘前剔除列表项首部的结构占位空段落（#268）：否则「首块是子列表」的
-                // 列表项会把 Milkdown 补出来的空段落写成字面 `<br />` 落进用户源码
-                serialize: (doc) =>
-                  ctx.get(serializerCtx)(stripListPlaceholderParagraphs(doc)),
+                // 写盘前的列表项规整（#268 / #272）：剔除首块是子列表的列表项的占位空段落、
+                // 把空列表项改写成裸标记，否则两者都会把 `<br />` 写进用户源码
+                serialize: (doc) => ctx.get(serializerCtx)(normalizeListPlaceholders(doc)),
                 getLastSynced: () => lastSyncedRef.current,
                 setLastSynced: (md) => {
                   lastSyncedRef.current = md;

@@ -1,4 +1,4 @@
-// 写盘前的文档规整（#268）
+// 写盘前的文档规整（#268 / #272）
 //
 // 背景：Milkdown 的 list_item schema 是 `paragraph block*`——列表项**必须**以段落开头。
 // 所以「首块是子列表」的列表项（中间态 Markdown `- - a` / `- 3. a`，源自 HTML
@@ -14,21 +14,40 @@
 // 两处危害：① 用户的 Markdown 源文件里出现原始 HTML 标签 `<br />`（源码模式可见）；
 // ② 序列化插进去的空行让该列表项重开后变成松散项（list_item.spread false → true）。
 //
-// 修复：序列化前把这种「结构占位空段落」剔除。判据是「空段落 + 它是 list_item 的首个子
-// 节点 + 该列表项后面还有别的块」——此时空段落只能是 schema 补出来的占位（用户无内容可
-// 对应）。重新解析同一份 Markdown 时 schema 会把它补回来，因此文本与结构无损。
+// 修复（#268）：序列化前把这种「结构占位空段落」剔除。判据是「空段落 + 它是 list_item
+// 的首个子节点 + 该列表项后面还有别的块」——此时空段落只能是 schema 补出来的占位（用户
+// 无内容可对应）。重新解析同一份 Markdown 时 schema 会把它补回来，因此文本与结构无损。
 //
 // 为什么必须是「后面还有块」这个附加条件：唯一子节点就是空段落时，它代表的是
-// 「空列表项」（裸标记 `-`）本身的内容，剔除后 mdast-util-to-markdown 拿到空 listItem
-// 会抛 `Cannot read properties of undefined`（实测）。那种形态不在本 issue 范围内。
+// 「空列表项」（裸标记 `-`）**本身的内容**，剔除后 mdast listItem 会变成没有 `children`
+// 字段的空节点，mdast-util-gfm-task-list-item 的 `node.children[0]` 直接抛
+// `Cannot read properties of undefined`（实测）。那种形态由下面的第二条规则处理。
+//
+// 修复（#272）：空列表项（裸标记 `-`，唯一子节点是空段落）反过来是**不能删段落**的，
+// 但它同样会被写成 `* <br />`。这里改成「保留段落、换掉段落内容」：给段落塞一个
+// **空值 html 锚点**（`html` 节点 attr `value: ""`），它在 mdast 里是 `{ type: "html" }`、
+// 序列化出零长度字符串——于是段落渲染为空、列表项只剩裸标记 `*`（有序为 `1.`）。
+//
+//   `-`  →  保存  →  "*\n"
+//
+// 选 html 空值节点而不是「删段落」或塞可见字符的原因：
+// - 删段落会让 mdast listItem 没有 `children`（见上），且 schema `paragraph block*` 本也
+//   不允许空列表项；
+// - 塞任何可见字符都会污染用户源码；
+// - `html` 是 schema 里唯一「可以是原子 inline 节点、又能序列化成零长度」的类型。
+//
+// 任务列表项（`checked` 为布尔）**不走**这条替换：mdast 侧靠
+// `value.replace(/^(?:[*+-]|\d+\.)([\r\n]| {1,3})/, …)` 把 `[ ] ` 插到裸标记之后，
+// 而裸标记后面没有空格时该正则匹配不上，替换会让 checkbox 直接丢失（实测 `* [ ] <br />`
+// → `*`）。任务列表项的空段落形态另有 issue 跟进，这里保持原样不动。
 //
 // 想验证「这个空段落是 schema 补的、不是用户写的」：任何 Markdown 形态都无法让
 // list_item 以子列表开头而不被补空段落——`- - a` 与 `-\n  - a` 解析结果完全相同（实测），
 // 所以修复点只能在序列化侧，转换器（html-to-markdown.ts）的输出无需改动。
 
-import { Fragment, type Node as PMNode } from "@milkdown/kit/prose/model";
+import { Fragment, type Node as PMNode, type NodeType } from "@milkdown/kit/prose/model";
 
-/** list_item 首部、且其后还有块的空段落 = schema 补出来的结构占位段落 */
+/** list_item 首部、且其后还有块的空段落 = schema 补出来的结构占位段落（#268） */
 function hasPlaceholderParagraph(node: PMNode): boolean {
   return (
     node.type.name === "list_item" &&
@@ -39,28 +58,71 @@ function hasPlaceholderParagraph(node: PMNode): boolean {
   );
 }
 
-function rebuild(node: PMNode): PMNode {
+/** 唯一子节点是空段落的 list_item = 空列表项（裸标记 `-`）（#272） */
+function isEmptyListItem(node: PMNode): boolean {
+  return (
+    node.type.name === "list_item" &&
+    node.childCount === 1 &&
+    node.firstChild !== null &&
+    node.firstChild.type.name === "paragraph" &&
+    node.firstChild.content.size === 0
+  );
+}
+
+/** 任务列表项（GFM `[ ]` / `[x]`）：空段落形态不做替换，避免丢掉 checkbox（#272） */
+function isTaskListItem(node: PMNode): boolean {
+  return typeof node.attrs.checked === "boolean";
+}
+
+/**
+ * 把空列表项的段落内容换成空值 html 锚点，让它序列化成零长度。
+ *
+ * 锚点只在写盘副本上存在，编辑器里的文档仍是原来的空段落，因此不影响编辑态。
+ */
+function anchorEmptyListItem(node: PMNode, htmlType: NodeType): PMNode {
+  const paragraph = node.firstChild!;
+  return node.copy(
+    Fragment.fromArray([
+      paragraph.type.create(paragraph.attrs, Fragment.fromArray([htmlType.create({ value: "" })])),
+    ]),
+  );
+}
+
+function rebuild(node: PMNode, htmlType: NodeType | undefined): PMNode {
   if (node.isLeaf || node.childCount === 0) return node;
+
+  if (htmlType && isEmptyListItem(node) && !isTaskListItem(node)) {
+    return anchorEmptyListItem(node, htmlType);
+  }
+
   const children: PMNode[] = [];
   node.forEach((child, _offset, index) => {
     if (index === 0 && hasPlaceholderParagraph(node)) return;
-    children.push(rebuild(child));
+    children.push(rebuild(child, htmlType));
   });
   return node.copy(Fragment.fromArray(children));
 }
 
 /**
- * 剔除列表项首部的结构占位空段落（#268）。
+ * 写盘前的列表项规整：
+ * 1. 剔除列表项首部的结构占位空段落（#268），避免字面 `<br />` 与意外的松散项；
+ * 2. 空列表项改写成空值 html 锚点（#272），避免裸标记被写成 `* <br />`。
  *
- * 文档里没有这种段落时原样返回**同一个** doc 实例（不做任何重建），
+ * 文档里没有这两种形态时原样返回**同一个** doc 实例（不做任何重建），
  * 避免给「每次保存/防抖序列化都要跑一遍」的路径增加无谓开销。
  */
-export function stripListPlaceholderParagraphs(doc: PMNode): PMNode {
+export function normalizeListPlaceholders(doc: PMNode): PMNode {
+  const htmlType = doc.type.schema?.nodes?.html;
   let found = false;
   doc.descendants((node) => {
     if (found) return false;
-    if (hasPlaceholderParagraph(node)) found = true;
+    if (
+      hasPlaceholderParagraph(node) ||
+      (htmlType && isEmptyListItem(node) && !isTaskListItem(node))
+    ) {
+      found = true;
+    }
     return !found;
   });
-  return found ? rebuild(doc) : doc;
+  return found ? rebuild(doc, htmlType) : doc;
 }
