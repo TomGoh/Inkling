@@ -209,6 +209,39 @@ describe("htmlToMarkdown：列表", () => {
     );
   });
 
+  it("列表项内相邻同型子列表同样插入 <!-- -->，且不加空行以保持父列表紧凑（#264）", () => {
+    // 规范嵌套：同一 li 里两个 ul
+    expect(md("<ul><li>x<ul><li>a</li></ul><ul><li>b</li></ul></li></ul>")).toBe(
+      "- x\n  - a\n  <!-- -->\n  - b",
+    );
+    // 不规范嵌套：ul 直接挂在 ul 下（归到上一项），走同一拼接点
+    expect(md("<ul><li>a</li><ul><li>x</li></ul><ul><li>y</li></ul></ul>")).toBe(
+      "- a\n  - x\n  <!-- -->\n  - y",
+    );
+    // 有序子列表：分隔后的第二个列表起始编号保留（HTML 块之后起列表不受「打断段落须从 1 开始」约束）
+    expect(md('<ol><li>x<ol><li>a</li></ol><ol start="5"><li>b</li></ol></li><li>y</li></ol>')).toBe(
+      "1. x\n   1. a\n   <!-- -->\n   5. b\n2. y",
+    );
+    // 子列表作为列表项的首块
+    expect(md("<ul><li><ul><li>a</li></ul><ul><li>b</li></ul></li></ul>")).toBe("- - a\n  <!-- -->\n  - b");
+    // 更深层：分隔行随所在列表项的内容列缩进
+    expect(md("<ul><li>x<ul><li>m<ul><li>a</li></ul><ul><li>b</li></ul></li></ul></li></ul>")).toBe(
+      "- x\n  - m\n    - a\n    <!-- -->\n    - b",
+    );
+  });
+
+  it("列表项内不需要分隔的情形保持原输出（#264 回归护栏）", () => {
+    // 异型子列表本就不合并
+    expect(md("<ul><li>x<ul><li>a</li></ul><ol><li>b</li></ol></li></ul>")).toBe("- x\n  - a\n  1. b");
+    // 子列表之间隔着段落：不相邻
+    expect(md("<ul><li>x<ul><li>a</li></ul><p>mid</p><ul><li>b</li></ul></li></ul>")).toBe(
+      "- x\n  - a\n\n  mid\n  - b",
+    );
+    // 单个子列表与多段落列表项
+    expect(md("<ol><li>一<ul><li>子</li></ul></li><li>二</li></ol>")).toBe("1. 一\n   - 子\n2. 二");
+    expect(md("<ul><li><p>第一段</p><p>第二段</p></li></ul>")).toBe("- 第一段\n\n  第二段");
+  });
+
   it("Word 列表段落（MsoListParagraph + 手写项目符号）转为列表", () => {
     const html =
       '<p class="MsoListParagraphCxSpFirst"><span>·<span>&nbsp;&nbsp;&nbsp;&nbsp;</span></span>苹果</p>' +
