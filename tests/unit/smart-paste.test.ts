@@ -14,7 +14,7 @@ import {
   countHtmlElements,
   isParsableMarkdownSource,
 } from "../../src/components/Editor/smart-paste";
-import { stripListPlaceholderParagraphs } from "../../src/components/Editor/markdown-serialize";
+import { normalizeListPlaceholders } from "../../src/components/Editor/markdown-serialize";
 import { useShortcuts } from "../../src/store/shortcuts";
 import {
   countNodes,
@@ -491,7 +491,7 @@ describe("#219 网页富文本 HTML → Markdown 结构", () => {
       expect(lists(doc), html).toBe(listCount);
 
       // 保存路径：序列化前剔除 schema 补出来的占位空段落（修复前这里是 "* <br />\n\n  * a\n"）
-      const saved = h.serialize(stripListPlaceholderParagraphs(doc));
+      const saved = h.serialize(normalizeListPlaceholders(doc));
       expect(saved, html).toBe(savedExpected);
       expect(saved, html).not.toContain("<br");
 
@@ -499,7 +499,33 @@ describe("#219 网页富文本 HTML → Markdown 结构", () => {
       const doc2 = h.parse(saved);
       expect(lists(doc2), html).toBe(listCount);
       expect(doc2.textContent, html).toBe(doc.textContent);
-      expect(h.serialize(stripListPlaceholderParagraphs(doc2)), html).toBe(saved);
+      expect(h.serialize(normalizeListPlaceholders(doc2)), html).toBe(saved);
+    }
+  });
+
+  // 注：整表都是空 li 的 HTML（如 `<ul><li></li></ul>`）转换出的 `-` 会被
+  // parsePastedMarkdown 的「解析结果无内容则丢弃」守卫挡下、粘贴为空操作，
+  // 所以这里用「夹杂空项」的列表复现：空项的段落会按 #272 的规则只留裸标记。
+  it("空列表项（空 li）：保存后源码是裸标记，不出现字面 <br />（#272）", async () => {
+    for (const [html, listCount, savedExpected] of [
+      ["<ul><li>a</li><li></li></ul>", 1, "* a\n\n*\n"],
+      ["<ul><li></li><li>a</li></ul>", 1, "*\n\n* a\n"],
+      ["<ol><li>a</li><li></li></ol>", 1, "1. a\n2.\n"],
+    ] as const) {
+      const h = await make();
+      h.paste({ "text/html": html, "text/plain": "" });
+      const doc = h.view.state.doc;
+      expect(countNodes(doc, "bullet_list") + countNodes(doc, "ordered_list"), html).toBe(listCount);
+
+      // 保存路径：空列表项的段落换成空值 html 锚点，只留裸标记（修复前是 "* <br />\n"）
+      const saved = h.serialize(normalizeListPlaceholders(doc));
+      expect(saved, html).toBe(savedExpected);
+      expect(saved, html).not.toContain("<br");
+
+      // 重新打开：列表数量与二次保存都与首次一致
+      const doc2 = h.parse(saved);
+      expect(countNodes(doc2, "bullet_list") + countNodes(doc2, "ordered_list"), html).toBe(listCount);
+      expect(h.serialize(normalizeListPlaceholders(doc2)), html).toBe(saved);
     }
   });
 

@@ -254,6 +254,27 @@ test.describe("Smart Paste", () => {
     expect(md).toMatch(/^[-*] [-*] 子项$/m);
   });
 
+  test("SP12 空列表项：保存后源码是裸标记，不出现字面 <br />（#272）", async ({ page }) => {
+    await focusDocEnd(page);
+    // issue #272 的复现形态：列表里夹杂一个空 li。整表都是空 li 的 HTML（`<ul><li></li></ul>`）
+    // 会被粘贴层的「解析结果无内容则丢弃」守卫挡下、粘贴为空操作，所以用夹杂形态
+    expect(
+      await dispatchPaste(page, {
+        "text/html": "<ul><li>保留项</li><li></li></ul>",
+        "text/plain": "保留项",
+      }),
+    ).toBe(true);
+    await expect(page.locator(`${PM} li`, { hasText: "保留项" })).toBeVisible();
+
+    // 保存路径 = 源码模式读到的内容（进入源码模式前会 flush 发布器）。
+    // 修复前空项那行是 "- <br />"，字面 HTML 标签落进用户源码
+    const md = await sourceText(page);
+    expect(md).not.toContain("<br");
+    // 有内容的项正常、空项整行只剩裸标记（与相邻列表靠 `*`/`-` 换标记区分，故不锁空行）
+    expect(md).toMatch(/^[-*] 保留项$/m);
+    expect(md).toMatch(/^[-*]$/m);
+  });
+
   test("SP8 源码模式不做 HTML 转换，保持纯文本", async ({ page }) => {
     await page.keyboard.press(`${MOD}+Alt+KeyS`);
     const cm = page.getByTestId("source-mode-editor").locator(".cm-content");
