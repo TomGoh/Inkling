@@ -14,6 +14,7 @@ import {
   countHtmlElements,
   isParsableMarkdownSource,
 } from "../../src/components/Editor/smart-paste";
+import { stripListPlaceholderParagraphs } from "../../src/components/Editor/markdown-serialize";
 import { useShortcuts } from "../../src/store/shortcuts";
 import {
   countNodes,
@@ -472,6 +473,33 @@ describe("#219 网页富文本 HTML → Markdown 结构", () => {
       expect(findNode(doc, "paragraph")?.textContent, html).toBe("父项");
       const doc2 = h.parse(h.markdown());
       expect(countNodes(doc2, "heading"), html).toBe(0);
+    }
+  });
+
+  it("首块是子列表的列表项：保存后源码里不出现字面 <br />，往返结构不变（#268）", async () => {
+    const lists = (d: import("@milkdown/kit/prose/model").Node) =>
+      countNodes(d, "bullet_list") + countNodes(d, "ordered_list");
+    for (const [html, listCount, savedExpected] of [
+      ["<ul><li><ul><li>a</li></ul></li></ul>", 2, "* * a\n"],
+      ['<ul><li><ol start="3"><li>a</li></ol></li></ul>', 2, "* 3. a\n"],
+      // 两个同型子列表：父列表 + 两个子列表 + 保持边界的 <!-- --> 分隔（#264）
+      ["<ul><li><ul><li>a</li></ul><ul><li>b</li></ul></li></ul>", 3, "* * a\n\n  <!-- -->\n\n  * b\n"],
+    ] as const) {
+      const h = await make();
+      h.paste({ "text/html": html, "text/plain": "a" });
+      const doc = h.view.state.doc;
+      expect(lists(doc), html).toBe(listCount);
+
+      // 保存路径：序列化前剔除 schema 补出来的占位空段落（修复前这里是 "* <br />\n\n  * a\n"）
+      const saved = h.serialize(stripListPlaceholderParagraphs(doc));
+      expect(saved, html).toBe(savedExpected);
+      expect(saved, html).not.toContain("<br");
+
+      // 重新打开：列表数量与文本不变，二次保存幂等
+      const doc2 = h.parse(saved);
+      expect(lists(doc2), html).toBe(listCount);
+      expect(doc2.textContent, html).toBe(doc.textContent);
+      expect(h.serialize(stripListPlaceholderParagraphs(doc2)), html).toBe(saved);
     }
   });
 
