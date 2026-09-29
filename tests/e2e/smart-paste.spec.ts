@@ -291,4 +291,25 @@ test.describe("Smart Paste", () => {
     await expect(cm).toContainText("纯文本内容");
     await expect(cm).not.toContainText("## HTML 标题");
   });
+  test("SP13 任务列表项首块是子列表：子列表不丢，保存源码把标记单独成行（#273）", async ({ page }) => {
+    await focusDocEnd(page);
+    // issue #273 的复现形态：task-list-item 的 checkbox 后没有正文、直接跟子列表
+    expect(
+      await dispatchPaste(page, {
+        "text/html":
+          '<ul class="contains-task-list"><li class="task-list-item"><input type="checkbox"><ul><li>子项</li></ul></li></ul>',
+        "text/plain": "子项",
+      }),
+    ).toBe(true);
+
+    // 修复前子列表被并进标记行、解析成正文字面量「- 子项」，只剩一个列表项
+    await expect(page.locator(`${PM} li[data-checked]`)).toHaveAttribute("data-checked", "false");
+    await expect(page.locator(`${PM} li li`, { hasText: "子项" })).toBeVisible();
+
+    // 保存路径 = 源码模式读到的内容：标记独占一行（带空段落锚点），子列表整块缩进在下一行
+    const md = await sourceText(page);
+    expect(md).toMatch(/^[-*] \[ \] <!-- -->$/m);
+    expect(md).toMatch(/^ {2}[-*] 子项$/m);
+  });
+
 });

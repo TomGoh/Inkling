@@ -172,6 +172,54 @@ describe("htmlToMarkdown：列表", () => {
     ).toBe("- [x] 完成\n- [ ] 未完成");
   });
 
+  it("任务列表项首块是子列表：给标记单独一行 + 锚点，子列表不被并成正文（#273）", () => {
+    // GFM 要求 `[ ] ` 后跟段落，块级结构与标记同行时整行会退化成正文（曾转出 `- [ ] - 子项`）
+    expect(
+      md('<ul><li class="task-list-item"><input type="checkbox"><ul><li>子项</li></ul></li></ul>'),
+    ).toBe("- [ ] <!-- -->\n  - 子项");
+    expect(
+      md('<ul><li class="task-list-item"><input type="checkbox" checked><ul><li>子项</li></ul></li></ul>'),
+    ).toBe("- [x] <!-- -->\n  - 子项");
+    // 有序列表项：标记更宽，子列表缩进随之加宽
+    expect(
+      md('<ol><li class="task-list-item"><input type="checkbox"><ul><li>子项</li></ul></li></ol>'),
+    ).toBe("1. [ ] <!-- -->\n   - 子项");
+    // 自身还带子列表的嵌套形态
+    expect(
+      md('<ul><li class="task-list-item"><input type="checkbox"><ul><li>a<ul><li>b</li></ul></li></ul></li></ul>'),
+    ).toBe("- [ ] <!-- -->\n  - a\n    - b");
+  });
+
+  it("任务列表项首块是其它块级结构：同样不与标记同行（#273）", () => {
+    expect(
+      md('<ul><li class="task-list-item"><input type="checkbox"><blockquote>引用</blockquote></li></ul>'),
+    ).toBe("- [ ] <!-- -->\n  > 引用");
+    expect(
+      md('<ul><li class="task-list-item"><input type="checkbox"><h3>标题</h3></li></ul>'),
+    ).toBe("- [ ] <!-- -->\n  ### 标题");
+    expect(md('<ul><li class="task-list-item"><input type="checkbox"><hr></li></ul>')).toBe(
+      "- [ ] <!-- -->\n  ***",
+    );
+    expect(
+      md('<ul><li class="task-list-item"><input type="checkbox"><pre><code>x = 1</code></pre></li></ul>'),
+    ).toBe("- [ ] <!-- -->\n  ```\n  x = 1\n  ```");
+  });
+
+  it("空任务项：标记行补锚点，`- [ ]` 不再退化成正文字面量（#273）", () => {
+    expect(md('<ul><li class="task-list-item"><input type="checkbox"></li></ul>')).toBe(
+      "- [ ] <!-- -->",
+    );
+    expect(md('<ul><li class="task-list-item"><input type="checkbox" checked></li></ul>')).toBe(
+      "- [x] <!-- -->",
+    );
+  });
+
+  it("普通列表项不受影响：首块是子列表时仍是紧凑的 `- - a`（#268）", () => {
+    expect(md("<ul><li><ul><li>a</li></ul></li></ul>")).toBe("- - a");
+    expect(md("<ul><li></li></ul>")).toBe("-");
+    expect(md("<ul><li>正文<ul><li>子</li></ul></li></ul>")).toBe("- 正文\n  - 子");
+  });
+
   it("列表项内多段落空行分隔并缩进", () => {
     expect(md("<ul><li><p>第一段</p><p>第二段</p></li></ul>")).toBe("- 第一段\n\n  第二段");
   });
