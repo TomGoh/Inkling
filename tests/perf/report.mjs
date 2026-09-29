@@ -30,6 +30,7 @@ import {
   referenceValue,
   requiresPrimaryCorroboration,
   RESOLUTION_WARN_PCT,
+  ruleFor,
   SESSION_PROBE_METRICS,
   resolutionPct,
   suppressionReason,
@@ -252,6 +253,8 @@ function compareRun(raw, baseline) {
       ...row,
       noise,
       absMin,
+      // 登记常数（未受历史散布影响的那一份）：报告据此判断本行地板是不是**真的**被抬高（#274）
+      registeredAbsMin: ruleFor(row.metric).absMin,
       // 由「同代码历史散布」推导出的那部分地板（用于报告里显式披露哪几行被抬高了）
       floorDerived: historyFloor(entry, row.metric, statistic),
       // 3σ 占参考值的比例 = 该指标在当前环境下的检出下限（见 judgment.resolutionPct）
@@ -882,9 +885,11 @@ function main() {
   // 生效地板（#270 方案 B）：小基数计数指标的登记常数若比它自身的跨运行散布还小，
   // 会被「由历史散布推导的下限」抬高。必须显式列出——否则读者看到"低于绝对地板"
   // 会以为是登记的那个常数，无法判断判定是否被悄悄放宽/收紧。
+  // 「抬高」的判据是**严格大于登记常数**（#274）：推导值恰好等于登记常数时地板并没变，
+  // 以前按 `absMin === floorDerived` 过滤会把这类行也算进去，让读者高估被收紧的行数。
   const raisedFloors = results.flatMap((r) =>
     r.metrics
-      .filter((m) => typeof m.floorDerived === "number" && m.absMin === m.floorDerived)
+      .filter((m) => typeof m.floorDerived === "number" && m.floorDerived > (m.registeredAbsMin ?? 0))
       .map((m) => `${r.id}:${m.metric} → ${round(m.absMin)}`),
   );
   if (raisedFloors.length > 0) {

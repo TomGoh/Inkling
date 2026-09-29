@@ -493,3 +493,29 @@ describe("范围内偏慢会话的归因披露（#259）", () => {
     expect(report()).toContain("基线参考 41.23ms"); // 41.225 按 2 位小数四舍五入
   });
 });
+
+// 生效地板（#270 方案 B）的**披露**口径：#274 之前用 `absMin === floorDerived` 过滤，
+// 把「推导值恰好等于登记常数」的行也算成被抬高——那种行地板并没有变，
+// 混进名单会让读者高估被收紧的行数。longFrameCount 登记 absMin=3，用它构造两种历史极差。
+describe("生效地板披露口径（#274）", () => {
+  const withHistory = (history: number[]) =>
+    writeBaseline({ longFrameCount: { median: 3, p95: 3, max: 5, n: history.length, history } });
+
+  it("推导值恰好等于登记常数：不列入「抬高」名单", () => {
+    // 极差 2 → 推导值 1.5×2 = 3 = 登记常数，地板没变
+    withHistory([3, 3, 5]);
+
+    expect(runReport("final").status).toBe(0);
+    expect(report()).not.toContain("生效地板：");
+  });
+
+  it("推导值严格大于登记常数：照常披露，并写明抬高到的值", () => {
+    // 极差 4 → 推导值 1.5×4 = 6 > 登记 3，地板确实被抬高
+    withHistory([3, 3, 7]);
+
+    expect(runReport("final").status).toBe(0);
+    const table = report();
+    expect(table).toContain("生效地板：1 行");
+    expect(table).toContain(`${ID}:longFrameCount → 6`);
+  });
+});
