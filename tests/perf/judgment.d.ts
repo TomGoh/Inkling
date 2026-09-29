@@ -54,7 +54,7 @@ export function isPrimary(metric: string): boolean;
 export function requiresPrimaryCorroboration(metric: string): boolean;
 export function ruleFor(metric: string): MetricRule;
 /**
- * 由同一份代码的历史散布推导的绝对地板下限（只对小数计数指标生效，且只用于收紧）。
+ * 由同一份代码的历史散布推导的绝对地板下限（只对小基数计数指标生效，且只用于收紧）。
  * 历史不足 3 点、极差为 0 或参考值不在「小基数」范围时返回 undefined。
  */
 export function historyFloor(
