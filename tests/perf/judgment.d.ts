@@ -82,12 +82,6 @@ export function isOver(
   noise?: number | null,
   absMin?: number,
 ): boolean;
-export function isOverIgnoringNoise(
-  metric: string,
-  current: number,
-  base: number,
-  absMin?: number,
-): boolean;
 /**
  * 噪声门槛的分辨率：3σ 占参考值的百分比（"最小能分辨多大的变化"）。
  * σ 不可用或参考值 ≤0 时返回 null
