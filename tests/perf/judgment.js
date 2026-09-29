@@ -337,11 +337,6 @@ export function isOver(metric, current, base, noise, absMin) {
   return pctOk && minOk && noiseOk;
 }
 
-/** 只按百分比 + 绝对地板判断（不含噪声门槛）：用于区分"超阈值"与"被噪声抑制" */
-export function isOverIgnoringNoise(metric, current, base, absMin) {
-  return isOver(metric, current, base, null, absMin);
-}
-
 /**
  * 一行"过了相对阈值、但被抑制"的原因；没有则返回 null。
  *
