@@ -492,19 +492,66 @@ function listItem(li: Element, depth: number, overflow: ListItemMd[]): ListItemM
   return { blocks: blocksOf(li, { listDepth: depth, overflow }), task };
 }
 
+/**
+ * 任务标记的「空段落锚点」。
+ *
+ * `<!-- -->` 是可打断段落的 HTML 块：让它紧跟在 `[ ] ` 后面，既给了标记一个**非空段落**可依附
+ * （GFM 解析勾选项的前提），又闭合该段落、让随后缩进的块成为列表项的下一个块。
+ * 渲染侧（html-view 的白名单遍历只保留文本与元素节点，注释被丢弃）在编辑器里不可见；
+ * 与 #249 / #264 / #266 用来分隔相邻列表的是同一个锚点。
+ */
+const TASK_MARKER_ANCHOR = "<!-- -->";
+
+/**
+ * 任务列表项的标记行能不能承载首块——不能时得给 `[ ] ` 单独一行（#273）。
+ *
+ * GFM 要求 `[ ] ` / `[x] ` 后面**跟段落**：块级结构（子列表 / 引用 / 标题 / 代码围栏 / 表格 /
+ * 分隔线）与标记同行时，整行被当成段落正文——子列表会连同标记一起并成普通文本
+ * （`<li class="task-list-item"><input type=checkbox><ul><li>子项</li></ul></li>` 曾转出
+ * `- [ ] - 子项`，解析回来是「勾选项 + 正文 `- 子项`」，嵌套结构丢失）。
+ *
+ * 普通列表项不受此限：`- - a` / `- ### x` 本就是合法的紧凑形态（#268），所以只在有 task 标记时分行。
+ */
+function taskMarkerNeedsOwnLine(item: ListItemMd): boolean {
+  if (item.task === null) return false;
+  // 空任务项：`- [ ]` 同样解析不成勾选项（`[ ]` 会退化成正文字面量），一并用锚点补齐空段落
+  if (item.blocks.length === 0) return true;
+  return isBlockLedLine(item.blocks[0].split("\n", 1)[0]);
+}
+
+/**
+ * 块首行是否以「块级起点」开头（列表 / 引用 / 标题 / 代码围栏 / 表格 / 分隔线）。
+ *
+ * 依据是转义契约：段落块的行首语义字符（`# > + = -`、`N.` / `N)`）在 escapeLineStart 里转义、
+ * 行内语义字符（`` ` `` `~` `|` `*` 等）在 escapeInlineText 里转义，所以**未被转义的**
+ * 这些字符出现在行首，只可能来自 blockOf / formatList 生成的块级结构本身。
+ */
+function isBlockLedLine(line: string): boolean {
+  return /^[#>+*=`~|\-]/.test(line) || /^\d{1,9}[.)]\s/.test(line);
+}
+
 function formatList(items: ListItemMd[], ordered: boolean, start: number): string {
   return items
     .map((item, idx) => {
       const marker = ordered ? `${start + idx}. ` : "- ";
       const task = item.task === null ? "" : item.task ? "[x] " : "[ ] ";
       const indent = " ".repeat(marker.length);
-      if (item.blocks.length === 0) return `${marker}${task}`.trimEnd();
+      const ownLine = taskMarkerNeedsOwnLine(item);
+      if (item.blocks.length === 0) {
+        return ownLine ? `${marker}${task}${TASK_MARKER_ANCHOR}` : `${marker}${task}`.trimEnd();
+      }
       let body = "";
       item.blocks.forEach((block, bi) => {
         if (bi > 0) body += itemBlockSeparator(item.blocks[bi - 1], block);
         body += block;
       });
       const lines = body.split("\n");
+      // 标记独占一行时：锚点闭合「勾选项段落」（否则下一行的块会与标记行连成一个段落），
+      // 首块整体按内容列缩进，成为该列表项的第一个块
+      if (ownLine) {
+        return [`${marker}${task}${TASK_MARKER_ANCHOR}`, ...lines.map((line) => (line ? `${indent}${line}` : ""))]
+          .join("\n");
+      }
       return lines
         .map((line, li) => (li === 0 ? `${marker}${task}${line}` : line ? `${indent}${line}` : ""))
         .join("\n");

@@ -603,6 +603,32 @@ describe("#219 网页富文本 HTML → Markdown 结构", () => {
     expect(routeHtmlPaste("<div><span>普通</span></div>", "普通").kind).toBe("default");
     expect(routeHtmlPaste("<h1>标题</h1>", "标题")).toEqual({ kind: "convert", markdown: "# 标题" });
   });
+  it("任务列表项首块是子列表：粘贴后子列表不丢，保存源码不把标记并成正文（#273）", async () => {
+    for (const [html, checked, plain] of [
+      ['<ul class="contains-task-list"><li class="task-list-item"><input type="checkbox"><ul><li>子项</li></ul></li></ul>', false, "子项"],
+      ['<ul class="contains-task-list"><li class="task-list-item"><input type="checkbox" checked><ul><li>子项</li></ul></li></ul>', true, "子项"],
+    ] as const) {
+      const h = await make();
+      h.paste({ "text/html": html, "text/plain": plain });
+      const doc = h.view.state.doc;
+      // 修复前：子列表被并进标记行、解析成正文字面量 `- 子项`，只剩一个列表
+      expect(countNodes(doc, "bullet_list"), html).toBe(2);
+      expect(findNode(doc, "list_item")?.attrs.checked, html).toBe(checked);
+      expect(doc.textContent, html).toBe("子项");
+
+      // 保存路径：标记独占一行（带空段落锚点），子列表整块缩进在下一行
+      const saved = h.serialize(doc);
+      expect(saved, html).toMatch(/^[-*] \[[ x]\] <!-- -->$/m);
+      expect(saved, html).toMatch(/^ {2}[-*] 子项$/m);
+
+      // 重新打开：结构与勾选态不变，二次保存幂等
+      const doc2 = h.parse(saved);
+      expect(countNodes(doc2, "bullet_list"), html).toBe(2);
+      expect(findNode(doc2, "list_item")?.attrs.checked, html).toBe(checked);
+      expect(h.serialize(doc2), html).toBe(saved);
+    }
+  });
+
 });
 
 describe("粘贴为纯文本（mod+shift+v，可自定义）", () => {
