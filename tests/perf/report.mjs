@@ -22,6 +22,7 @@ import {
   historyFloor,
   isOver,
   isPrimary,
+  isRaisedFloor,
   median,
   NOISE_MIN_POINTS,
   NOISE_SIGMA,
@@ -887,9 +888,11 @@ function main() {
   // 会以为是登记的那个常数，无法判断判定是否被悄悄放宽/收紧。
   // 「抬高」的判据是**严格大于登记常数**（#274）：推导值恰好等于登记常数时地板并没变，
   // 以前按 `absMin === floorDerived` 过滤会把这类行也算进去，让读者高估被收紧的行数。
+  // 无登记常数的指标不算「抬高」（#285，见 judgment.isRaisedFloor）——它的地板完全来自
+  // 历史散布，谈不上「登记常数不足」；此前用 `?? 0` 兜底会恒真、配上与事实相反的措辞。
   const raisedFloors = results.flatMap((r) =>
     r.metrics
-      .filter((m) => typeof m.floorDerived === "number" && m.floorDerived > (m.registeredAbsMin ?? 0))
+      .filter((m) => isRaisedFloor(m.registeredAbsMin, m.floorDerived))
       .map((m) => `${r.id}:${m.metric} → ${round(m.absMin)}`),
   );
   if (raisedFloors.length > 0) {
