@@ -339,4 +339,34 @@ test.describe("Smart Paste", () => {
     expect(md).toMatch(/^[-*] \[ \] <!-- -->$/m);
   });
 
+  test("SP15 空任务项 + 子列表：删空正文后 checkbox 不丢、无字面 <br />（#286）", async ({ page }) => {
+    await focusDocEnd(page);
+    // #286 复现形态：任务项**有正文** + 子列表，删空正文后 checkbox 曾整块丢失（保存成 `* * 子项`）
+    expect(
+      await dispatchPaste(page, {
+        "text/html":
+          '<ul class="contains-task-list"><li class="task-list-item"><input type="checkbox">待办<ul><li>子项</li></ul></li></ul>',
+        "text/plain": "待办 子项",
+      }),
+    ).toBe(true);
+    const item = page.locator(`${PM} li[data-checked]`).first();
+    await expect(item).toHaveAttribute("data-checked", "false");
+    await expect(item.locator("p", { hasText: "待办" })).toBeVisible();
+    await expect(page.locator(`${PM} li li`, { hasText: "子项" })).toBeVisible();
+
+    // 删空正文（「待办」两字），子列表保留
+    await item.locator("p", { hasText: "待办" }).click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await expect(item.locator("p").first()).toHaveText("");
+
+    // 保存路径：首部空段落保留并填非空锚点 —— checkbox 不丢、源码无字面 HTML 标签、子列表仍在
+    await expect(page.locator(`${PM} li[data-checked]`)).toHaveAttribute("data-checked", "false");
+    const md = await sourceText(page);
+    expect(md).not.toContain("<br");
+    expect(md).toMatch(/^[-*] \[ \] <!-- -->$/m);
+    expect(md).toMatch(/^ {2}[-*] 子项$/m);
+  });
+
 });
