@@ -49,12 +49,15 @@ permissions:
 # **双双**被拖慢（实测先例：同一份代码在并发窗口里 88% 的相对行同时变差），双超阈值直接穿透
 # #234 的独立 retest 防线，产出假 FAIL——2026-09-30 main 与 PR #289 各一例，换 runner 静默
 # 复跑全部证伪（-20.2% / +4.5%，均 PASS）。
-# group 用**静态名**（不含 ref）= 跨 PR / main / tag 全局串行；
-# cancel-in-progress=false = 排队而不取消——发版验证（tag）与播种运行绝不能被后续运行打断。
-# ⚠️ GitHub 语义：同一 group 最多「1 running + 1 pending」，新入队的运行会取代**排队中**的那个；
-# 因此 tag 运行不要在队列已有 pending 时触发（否则会被顶掉，需重跑一次）。
+# - group 用**静态名**（不含 ref）→ 跨 PR / main / tag 全局串行；
+# - queue: max + cancel-in-progress: false → 同组最多 1 个运行中，其余按入队先后**排队执行**
+#   （最多 100 个 pending，FIFO，排队中的运行**不会**被新入队者顶掉）——发版验证 / 播种绝不丢失。
+# ⚠️ 边界（官方语义）：队列满（100）时**新入队者**被取消；FIFO 以「开始等待的时刻」而非触发时刻
+#     排序，故不保证严格顺序。重要运行（tag / 播种）仍建议在安静窗口触发，避免排在长队之后。
+# 注：`queue: max` 与 `cancel-in-progress: true` 互斥（同时写会触发 workflow 校验错误）。
 concurrency:
   group: benchmark
+  queue: max
   cancel-in-progress: false
 
 jobs:
