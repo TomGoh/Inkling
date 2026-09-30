@@ -36,10 +36,14 @@
 // - 塞任何可见字符都会污染用户源码；
 // - `html` 是 schema 里唯一「可以是原子 inline 节点、又能序列化成零长度」的类型。
 //
-// 任务列表项（`checked` 为布尔）**不走**这条替换：mdast 侧靠
-// `value.replace(/^(?:[*+-]|\d+\.)([\r\n]| {1,3})/, …)` 把 `[ ] ` 插到裸标记之后，
-// 而裸标记后面没有空格时该正则匹配不上，替换会让 checkbox 直接丢失（实测 `* [ ] <br />`
-// → `*`）。任务列表项的空段落形态另有 issue 跟进，这里保持原样不动。
+// 修复（#284）：任务列表项（`checked` 为布尔）的空段落形态**不能**用上面的空值锚点——
+// 任务列表项同样会被写成 `* [ ] <br />`，而 mdast 侧靠
+// `value.replace(/^(?:[*+-]|\d+\.)([\r\n]| {1,3})/, …)` 把 `[ ] ` 插到裸标记之后：
+// 空值锚点让段落渲染成空串、列表项只剩裸标记 `*`（后面既不是换行也不是空格）→ 正则匹配
+// 不上 → checkbox 整块丢失（实测 `* [ ] <br />` → `*`，比保留 `<br />` 更糟）。
+// 换成**非空**锚点 `<!-- -->` 即可：列表项值是 `* <!-- -->` → 正则命中 → 输出
+// `* [ ] <!-- -->`，checkbox 保住；注释在渲染侧不可见（见 TASK_ITEM_ANCHOR）。
+// 普通（非任务）空列表项继续用空值锚点，保持裸标记输出不变。
 //
 // 想验证「这个空段落是 schema 补的、不是用户写的」：任何 Markdown 形态都无法让
 // list_item 以子列表开头而不被补空段落——`- - a` 与 `-\n  - a` 解析结果完全相同（实测），
@@ -69,21 +73,31 @@ function isEmptyListItem(node: PMNode): boolean {
   );
 }
 
-/** 任务列表项（GFM `[ ]` / `[x]`）：空段落形态不做替换，避免丢掉 checkbox（#272） */
+/** 任务列表项（GFM `[ ]` / `[x]`）：空段落形态要用非空锚点，见 TASK_ITEM_ANCHOR（#284） */
 function isTaskListItem(node: PMNode): boolean {
   return typeof node.attrs.checked === "boolean";
 }
 
 /**
- * 把空列表项的段落内容换成空值 html 锚点，让它序列化成零长度。
+ * 任务列表项空段落的**非空**锚点（#284）。
+ *
+ * 为什么不能空：见文件头「修复（#284）」——空值锚点会让 mdast 侧的任务项正则匹配不上，
+ * checkbox 整块丢失。
+ * 为什么用 `<!-- -->`：与 #249 / #264 / #266 / #273 同一个锚点，html-view 的白名单遍历
+ * 只保留文本与元素节点、注释被丢弃，在编辑器里不产生可见字符（往返 parse → serialize 幂等）。
+ */
+const TASK_ITEM_ANCHOR = "<!-- -->";
+
+/**
+ * 把空列表项的段落内容换成 html 锚点，让它序列化成零长度（普通项）或纯注释（任务项）。
  *
  * 锚点只在写盘副本上存在，编辑器里的文档仍是原来的空段落，因此不影响编辑态。
  */
-function anchorEmptyListItem(node: PMNode, htmlType: NodeType): PMNode {
+function anchorEmptyListItem(node: PMNode, htmlType: NodeType, anchor: string): PMNode {
   const paragraph = node.firstChild!;
   return node.copy(
     Fragment.fromArray([
-      paragraph.type.create(paragraph.attrs, Fragment.fromArray([htmlType.create({ value: "" })])),
+      paragraph.type.create(paragraph.attrs, Fragment.fromArray([htmlType.create({ value: anchor })])),
     ]),
   );
 }
@@ -91,8 +105,9 @@ function anchorEmptyListItem(node: PMNode, htmlType: NodeType): PMNode {
 function rebuild(node: PMNode, htmlType: NodeType | undefined): PMNode {
   if (node.isLeaf || node.childCount === 0) return node;
 
-  if (htmlType && isEmptyListItem(node) && !isTaskListItem(node)) {
-    return anchorEmptyListItem(node, htmlType);
+  if (htmlType && isEmptyListItem(node)) {
+    // 任务项必须用非空锚点，否则 checkbox 会在 mdast 侧的正则里丢掉（#284）
+    return anchorEmptyListItem(node, htmlType, isTaskListItem(node) ? TASK_ITEM_ANCHOR : "");
   }
 
   const children: PMNode[] = [];
@@ -106,7 +121,8 @@ function rebuild(node: PMNode, htmlType: NodeType | undefined): PMNode {
 /**
  * 写盘前的列表项规整：
  * 1. 剔除列表项首部的结构占位空段落（#268），避免字面 `<br />` 与意外的松散项；
- * 2. 空列表项改写成空值 html 锚点（#272），避免裸标记被写成 `* <br />`。
+ * 2. 空列表项改写成 html 锚点，避免裸标记被写成 `* <br />`（#272）：
+ *    普通项用空值锚点序列化成裸标记，任务项用非空锚点保住 checkbox（#284）。
  *
  * 文档里没有这两种形态时原样返回**同一个** doc 实例（不做任何重建），
  * 避免给「每次保存/防抖序列化都要跑一遍」的路径增加无谓开销。
@@ -116,10 +132,7 @@ export function normalizeListPlaceholders(doc: PMNode): PMNode {
   let found = false;
   doc.descendants((node) => {
     if (found) return false;
-    if (
-      hasPlaceholderParagraph(node) ||
-      (htmlType && isEmptyListItem(node) && !isTaskListItem(node))
-    ) {
+    if (hasPlaceholderParagraph(node) || (htmlType && isEmptyListItem(node))) {
       found = true;
     }
     return !found;

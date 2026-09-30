@@ -312,4 +312,31 @@ test.describe("Smart Paste", () => {
     expect(md).toMatch(/^ {2}[-*] 子项$/m);
   });
 
+  test("SP14 空任务列表项：删空文本后保存为带锚点的勾选项，不出现字面 <br />（#284）", async ({ page }) => {
+    await focusDocEnd(page);
+    // issue #284 的复现路径是**编辑态删空**（不是粘贴）：先粘出带文本的任务项，再把文本删掉
+    expect(
+      await dispatchPaste(page, {
+        "text/html":
+          '<ul class="contains-task-list"><li class="task-list-item"><input type="checkbox">待办</li></ul>',
+        "text/plain": "待办",
+      }),
+    ).toBe(true);
+    const item = page.locator(`${PM} li[data-checked]`);
+    await expect(item).toHaveAttribute("data-checked", "false");
+    await expect(item).toContainText("待办");
+
+    // 删空文本（「待办」两字）
+    await item.click();
+    await page.keyboard.press("End");
+    await page.keyboard.press("Backspace");
+    await page.keyboard.press("Backspace");
+    await expect(item).toHaveText("");
+
+    // 保存路径：勾选项段落换成非空锚点，checkbox 不丢、源码里不出现字面 HTML 标签
+    const md = await sourceText(page);
+    expect(md).not.toContain("<br");
+    expect(md).toMatch(/^[-*] \[ \] <!-- -->$/m);
+  });
+
 });

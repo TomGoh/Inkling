@@ -1,15 +1,17 @@
-// 写盘前文档规整单测（#268 / #272）
+// 写盘前文档规整单测（#268 / #272 / #284）
 //
 // 覆盖对象：`normalizeListPlaceholders`——序列化前的列表项规整，两条规则：
 //   1. 剔除列表项首部的结构占位空段落（#268）；
-//   2. 空列表项改写成空值 html 锚点，序列化成裸标记（#272）。
+//   2. 空列表项改写成 html 锚点，序列化成裸标记（#272）；其中任务项用**非空**锚点
+//      保住 checkbox（#284）。
 // 文档用真实 Milkdown 解析器构造（占位段落是 parser + schema 共同补出来的，
 // 手工搭 PM 节点无法保证与生产同形），断言面为「规整后的节点形态 + 序列化文本」。
 //
-// 复现路径见 issue #268 / #272：
+// 复现路径见 issue #268 / #272 / #284：
 //   #268：`- - a`（首块是子列表）保存一次后变成 `"* <br />\n\n  * a\n"`；
-//   #272：`-`（空列表项）保存一次后变成 `"* <br />\n"`。
-//   两者都把字面 `<br />` 落进用户 Markdown 源文件。
+//   #272：`-`（空列表项）保存一次后变成 `"* <br />\n"`；
+//   #284：`- [ ] 待办` 删空文本后保存，变成 `"* [ ] <br />\n"`。
+//   三者都把字面 `<br />` 落进用户 Markdown 源文件。
 
 import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import type { Node as PMNode } from "@milkdown/kit/prose/model";
@@ -159,15 +161,6 @@ describe("normalizeListPlaceholders（#272 空列表项）", () => {
     expect(twice).toBe(once);
   });
 
-  it("任务列表项（checked 为布尔）不替换：checkbox 不丢、行为与规整前一致", () => {
-    // 空任务项来自「把任务项文本删空」；mdast 侧靠裸标记后的空格插入 `[ ] `，
-    // 换成空 html 锚点会让正则匹配不上、checkbox 直接丢失，因此刻意跳过
-    const doc = emptyFirstItem(h.parse("- [ ] 待办"));
-    expect(firstItem(doc).attrs.checked).toBe(false);
-    expect(normalizeListPlaceholders(doc)).toBe(doc);
-    expect(h.serialize(doc)).toBe("* [ ] <br />\n");
-  });
-
   it("非空列表项与其它块级节点不受影响", () => {
     for (const md of ["- a\n- b", "1. a", "- x\n  - a", "- [ ] 待办", "> 引用", "正文", ""]) {
       const doc = h.parse(md);
@@ -181,5 +174,36 @@ describe("normalizeListPlaceholders（#272 空列表项）", () => {
     const normalized = normalizeListPlaceholders(doc);
     expect(h.serialize(normalized)).toBe("* * a\n\n*\n");
     expect(h.serialize(normalized)).not.toContain("<br");
+  });
+});
+
+describe("normalizeListPlaceholders（#284 空任务列表项）", () => {
+  it("空任务项用非空锚点：序列化成 `* [ ] <!-- -->`，checkbox 不丢、无字面 <br />", () => {
+    // 空任务项来自「把任务项文本删空」；mdast 侧靠裸标记后的空格插入 `[ ] `，
+    // 空值锚点会让正则匹配不上、checkbox 直接丢失（实测 `* [ ] <br />` → `*`），故用 `<!-- -->`
+    const doc = emptyFirstItem(h.parse("- [ ] 待办"));
+    expect(firstItem(doc).attrs.checked).toBe(false);
+    expect(h.serialize(doc)).toBe("* [ ] <br />\n");
+
+    const normalized = normalizeListPlaceholders(doc);
+    expect(normalized).not.toBe(doc);
+    expect(h.serialize(normalized)).toBe("* [ ] <!-- -->\n");
+    expect(h.serialize(normalized)).not.toContain("<br");
+  });
+
+  it("已勾选（`[x]`）的空任务项同样保住勾选态，有序任务项保留起始编号", () => {
+    expect(h.serialize(normalizeListPlaceholders(emptyFirstItem(h.parse("- [x] 完成"))))).toBe(
+      "* [x] <!-- -->\n",
+    );
+    expect(h.serialize(normalizeListPlaceholders(emptyFirstItem(h.parse("1. [ ] 待办"))))).toBe(
+      "1. [ ] <!-- -->\n",
+    );
+  });
+
+  it("二次序列化幂等，且不再是同实例（确有重建）", () => {
+    const once = h.serialize(normalizeListPlaceholders(emptyFirstItem(h.parse("- [ ] 待办"))));
+    const twice = h.serialize(normalizeListPlaceholders(h.parse(once)));
+    expect(once).toBe("* [ ] <!-- -->\n");
+    expect(twice).toBe(once);
   });
 });
