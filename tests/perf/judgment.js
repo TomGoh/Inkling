@@ -245,6 +245,21 @@ export function effectiveAbsMin(entry, metric, statistic = "median") {
 }
 
 /**
+ * 「生效地板」是否**真的**被历史推导值抬高（报告披露口径，#274 / #285）。
+ *
+ * 判据是**严格大于登记常数**（#274）：推导值恰好等于登记常数时地板并没变，
+ * 列为「抬高」会让读者高估被收紧的行数。
+ *
+ * 没有登记常数时（`registeredAbsMin` 非数字）一律返回 false——那种指标的地板完全来自
+ * 历史散布，谈不上「登记常数不足以覆盖该指标自身的噪声」（#285）。若按 `?? 0` 兜底，
+ * `floorDerived > 0` 恒真，会把这类行配上与事实相反的措辞。当前 `COUNT_METRICS` 里的
+ * 指标都登记了 `absMin`，本分支不可达，但它决定了将来扩展 `COUNT_METRICS` 时的语义。
+ */
+export function isRaisedFloor(registeredAbsMin, floorDerived) {
+  return typeof registeredAbsMin === "number" && floorDerived > registeredAbsMin;
+}
+
+/**
  * 主指标：直接反映用户可感知的耗时，可以**单独**判定 FAIL。
  * 它们的量级大（数百毫秒级）且语义明确，CI 抖动的相对影响可控。
  */

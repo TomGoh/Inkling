@@ -72,6 +72,14 @@ export function effectiveAbsMin(
   statistic?: "median" | "p95",
 ): number | undefined;
 /**
+ * 「生效地板」是否真的被历史推导值抬高（严格大于登记常数；无登记常数则为 false）。
+ * 报告据此决定是否把该行列进「地板被抬高」的披露名单（#274 / #285）。
+ */
+export function isRaisedFloor(
+  registeredAbsMin: number | undefined,
+  floorDerived: number | undefined,
+): boolean;
+/**
  * noise 为 3σ 门槛；null/undefined 表示不启用噪声门槛（历史不足或绝对值型指标）。
  * absMin 为调用方算好的「生效地板」（effectiveAbsMin）；不传则用规则里登记的常数。
  */

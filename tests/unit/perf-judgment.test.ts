@@ -17,6 +17,7 @@ import {
   historyFloor,
   isOver,
   isPrimary,
+  isRaisedFloor,
   median,
   METRIC_RULES,
   NOISE_MIN_POINTS,
@@ -287,6 +288,31 @@ describe("小基数计数指标的历史推导地板（#270 方案 B）", () => 
     expect(historyFloor({ median: 0, history: [0, 0] }, "longFrameCount")).toBeUndefined();
     expect(historyFloor({ median: 0, history: [0, 0, 0] }, "longFrameCount")).toBeUndefined();
     expect(effectiveAbsMin({ median: 0, history: [0, 0, 0] }, "longFrameCount")).toBe(3);
+  });
+});
+
+// 「生效地板被抬高」的披露判据（#274 / #285）。报告只在**推导值严格大于登记常数**时
+// 把该行列进名单；无登记常数的指标不算「抬高」——否则会配上「登记常数不足」的措辞，
+// 而那种指标根本没有登记常数（#285）。
+describe("生效地板披露判据（#285）", () => {
+  it("仅严格大于登记常数才算「抬高」（相等或更小都不是）", () => {
+    expect(isRaisedFloor(3, 6)).toBe(true);
+    expect(isRaisedFloor(3, 3)).toBe(false); // 恰好相等：地板没变（#274）
+    expect(isRaisedFloor(3, 2)).toBe(false);
+  });
+
+  it("无登记常数时不列入：旧实现 `?? 0` 兜底会让 `floorDerived > 0` 恒真而误报", () => {
+    // 场景：将来往 COUNT_METRICS 加一个不带 absMin 的指标——其地板完全来自历史散布，
+    // 谈不上「登记常数不足以覆盖该指标自身的噪声」
+    expect(isRaisedFloor(undefined, 6)).toBe(false);
+    expect(isRaisedFloor(undefined, undefined)).toBe(false);
+    expect(isRaisedFloor(3, undefined)).toBe(false);
+  });
+
+  it("与线上数据一致：longFrameCount 的历史推导值确实构成「抬高」", () => {
+    // 与 #274 的端到端用例互补——这里断言线上实现本身，而非它的副本
+    const derived = historyFloor({ median: 3, history: [3, 3, 7] }, "longFrameCount");
+    expect(isRaisedFloor(METRIC_RULES.longFrameCount.absMin, derived)).toBe(true);
   });
 });
 
