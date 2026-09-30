@@ -116,15 +116,13 @@ function rebuild(node: PMNode, htmlType: NodeType | undefined): PMNode {
       // 任务项的首部空段落**不能**剔除（#286）：GFM 的 checkbox 前缀要求 listItem.children[0]
       // 是段落（mdast-util-gfm-task-list-item 的 checkable 判据），剔除后前缀整块丢失——
       // 实测 `* [ ] <br />\n  * 子项` 保存成 `* * 子项`，勾选项永久退化成普通列表。
-      // 改成给空段落填一个**非空**锚点：段落保留、标记有处依附，checkbox 不再丢。
-      // `<!-- -->` 在渲染侧不可见（html-view 白名单只保留文本与元素节点），与 #249 / #264 /
-      // #266 / #273 同款锚点，往返 parse → serialize 幂等。
+      // 改成给空段落填 TASK_ITEM_ANCHOR（非空）：段落保留、标记有处依附，checkbox 不再丢。
       if (htmlType && isTaskListItem(node)) {
         const paragraph = node.firstChild!;
         children.push(
           paragraph.type.create(
             paragraph.attrs,
-            Fragment.fromArray([htmlType.create({ value: "<!-- -->" })]),
+            Fragment.fromArray([htmlType.create({ value: TASK_ITEM_ANCHOR })]),
           ),
         );
         return;
