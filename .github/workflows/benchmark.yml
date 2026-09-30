@@ -45,6 +45,18 @@ on:
 permissions:
   contents: read
 
+# 串行化本工作流的**所有**运行（issue #291）：共享 runner 争用会让并发窗口内的首轮与复测
+# **双双**被拖慢（实测先例：同一份代码在并发窗口里 88% 的相对行同时变差），双超阈值直接穿透
+# #234 的独立 retest 防线，产出假 FAIL——2026-09-30 main 与 PR #289 各一例，换 runner 静默
+# 复跑全部证伪（-20.2% / +4.5%，均 PASS）。
+# group 用**静态名**（不含 ref）= 跨 PR / main / tag 全局串行；
+# cancel-in-progress=false = 排队而不取消——发版验证（tag）与播种运行绝不能被后续运行打断。
+# ⚠️ GitHub 语义：同一 group 最多「1 running + 1 pending」，新入队的运行会取代**排队中**的那个；
+# 因此 tag 运行不要在队列已有 pending 时触发（否则会被顶掉，需重跑一次）。
+concurrency:
+  group: benchmark
+  cancel-in-progress: false
+
 jobs:
   benchmark:
     runs-on: ubuntu-latest
