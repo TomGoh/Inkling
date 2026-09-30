@@ -112,7 +112,23 @@ function rebuild(node: PMNode, htmlType: NodeType | undefined): PMNode {
 
   const children: PMNode[] = [];
   node.forEach((child, _offset, index) => {
-    if (index === 0 && hasPlaceholderParagraph(node)) return;
+    if (index === 0 && hasPlaceholderParagraph(node)) {
+      // 任务项的首部空段落**不能**剔除（#286）：GFM 的 checkbox 前缀要求 listItem.children[0]
+      // 是段落（mdast-util-gfm-task-list-item 的 checkable 判据），剔除后前缀整块丢失——
+      // 实测 `* [ ] <br />\n  * 子项` 保存成 `* * 子项`，勾选项永久退化成普通列表。
+      // 改成给空段落填 TASK_ITEM_ANCHOR（非空）：段落保留、标记有处依附，checkbox 不再丢。
+      if (htmlType && isTaskListItem(node)) {
+        const paragraph = node.firstChild!;
+        children.push(
+          paragraph.type.create(
+            paragraph.attrs,
+            Fragment.fromArray([htmlType.create({ value: TASK_ITEM_ANCHOR })]),
+          ),
+        );
+        return;
+      }
+      return;
+    }
     children.push(rebuild(child, htmlType));
   });
   return node.copy(Fragment.fromArray(children));

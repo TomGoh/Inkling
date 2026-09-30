@@ -110,6 +110,58 @@ describe("normalizeListPlaceholders（#268 首块是子列表的占位空段落�
   });
 });
 
+// #286：任务项的**首部空段落**（文本被删空、但后面还有子列表）不能被当占位段落剔除——
+// GFM 的 checkbox 前缀要求 listItem.children[0] 是段落，剔除后前缀整块丢失（勾选项永久退化成普通列表）。
+describe("normalizeListPlaceholders（#286 空任务列表项 + 子列表）", () => {
+  /** 把第一个 list_item 的**首个段落**清空、保留其余块，构造「任务项首部空段落」形态 */
+  function emptyFirstParagraph(doc: PMNode): PMNode {
+    const item = firstItem(doc);
+    const paragraph = item.firstChild!;
+    const children: PMNode[] = [];
+    item.forEach((child, _offset, index) => {
+      children.push(index === 0 ? paragraph.type.create(paragraph.attrs, Fragment.empty) : child);
+    });
+    const emptied = item.copy(Fragment.fromArray(children));
+    return doc.copy(Fragment.fromArray([doc.firstChild!.copy(Fragment.fromArray([emptied]))]));
+  }
+
+  it("首部空段落保留并填非空锚点：checkbox 不丢、子列表仍在、无字面 <br />", () => {
+    const doc = emptyFirstParagraph(h.parse("- [ ] 待办\n  - 子项"));
+    expect(firstItem(doc).attrs.checked).toBe(false);
+    expect(firstItem(doc).childCount).toBe(2);
+    // 规整前：checkbox 在，但段落被写成字面 <br />
+    expect(h.serialize(doc)).toBe("* [ ] <br />\n  * 子项\n");
+
+    const normalized = normalizeListPlaceholders(doc);
+    expect(normalized).not.toBe(doc);
+    expect(h.serialize(normalized)).toBe("* [ ] <!-- -->\n  * 子项\n");
+    expect(h.serialize(normalized)).not.toContain("<br");
+  });
+
+  it("重新解析后仍是勾选项（checkbox 未退化），二次序列化幂等", () => {
+    const doc = emptyFirstParagraph(h.parse("- [ ] 待办\n  - 子项"));
+    const once = h.serialize(normalizeListPlaceholders(doc));
+    const doc2 = h.parse(once);
+    expect(firstItem(doc2).attrs.checked).toBe(false);
+    expect(firstItem(doc2).childCount).toBe(2);
+    expect(h.serialize(normalizeListPlaceholders(doc2))).toBe(once);
+  });
+
+  it("已勾选与有序任务项 + 子列表同样保住勾选态", () => {
+    expect(h.serialize(normalizeListPlaceholders(emptyFirstParagraph(h.parse("- [x] 待办\n  - 子项"))))).toBe(
+      "* [x] <!-- -->\n  * 子项\n",
+    );
+    expect(
+      h.serialize(normalizeListPlaceholders(emptyFirstParagraph(h.parse("1. [ ] 待办\n   1. 子项")))),
+    ).toBe("1. [ ] <!-- -->\n   1. 子项\n");
+  });
+
+  it("非任务项的占位空段落仍照 #268 剔除（不受本修复影响）", () => {
+    const stripped = normalizeListPlaceholders(h.parse("- - a"));
+    expect(h.serialize(stripped)).toBe("* * a\n");
+  });
+});
+
 describe("normalizeListPlaceholders（#272 空列表项）", () => {
   it("空列表项（裸标记 `-`）序列化成裸标记，不再出现字面 <br />", () => {
     const doc = h.parse("-");
