@@ -2,6 +2,92 @@
 
 本项目所有值得记录的变更都汇入本文件，格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本语义遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [3.4.0] - 2026-10-02
+
+> **智能粘贴（Smart Paste）交付 + Benchmark 判定改「第三个 runner 确认」**：Epic #217 的三个子项一并落地——#219（PR #244）网页/富文本 HTML 粘贴转为 Markdown 结构、#229（PR #245）粘贴 Markdown 源码自动解析为富文本、#220（PR #246）网页富文本里的远程图片落盘本地 `assets/` 并按内容哈希去重；随后 #248–#290 一整串「列表 / 任务项往返保真」修复把不可见的 `<!-- -->` 锚点收敛成统一方案。性能防线侧，#294（PR #295）把「同一场景两轮超阈值即 FAIL」改成**须由第三个 runner 上的会话确认**（#291 顺带把 Benchmark 流水线全局串行化），根治共享 runner 池并发争用产出的假 FAIL。自 v3.3.0 起 **80 个提交（含 36 个 merge）/ 123 个文件（+11147 / −1059，含 quick 与 full 档基线播种数据；不含本版发版文档提交）**。从网页、Word、GitHub README、VS Code 里复制的内容粘进来就是结构化富文本，图也跟着落到本地。
+
+### 智能粘贴 A：网页 / 富文本 HTML 粘贴转 Markdown（#219，PR #244）
+
+**两条输入、一条出口**：所有粘贴路径最终都汇到「Markdown 文本 → Milkdown parser → Slice」，写盘形态由 Milkdown serializer 统一生成——因此中间态转换的转义宁多勿少（`\_` 与 `_` 解析结果相同，不会泄漏进文件）。
+
+- **`html-to-markdown.ts`（纯函数、只读 DOM、可对 fixture 做快照）**：段落/换行、H1–H6、粗斜删/行内代码（含 Google Docs / Word 的 span 样式）、有序/无序/任务/嵌套列表、引用、链接/图片、代码块（识别 `language-x` / `lang-x` / `highlight-source-x`）、GFM 表格、水平线、HTML 实体。降级规则：`colspan`/`rowspan` 丢弃合并信息；嵌套 >6 层时更深的项提升为第 6 层兄弟项（内容不丢）；**布局表格**（单元格内嵌表格/标题/列表/代码块，或只有一个单元格）不转 GFM 表格而按块展开；识别 Word 的 `MsoListParagraph`。强调定界符按 CommonMark flanking 规则处理——先占位，拿到真实左右邻居字符后再决定落成 `**` / `*` / `~~`。
+- **`sanitizeHTML` 新增 `paste` 模式（复用白名单而非重写）**：危险标签（script/style/iframe/object/表单控件…）连同内容整棵丢弃；未知块级容器改写为 `div`、未知行内标签拆包保留子节点（即「无法映射的块级容器：递归取子节点」）；相对链接保留（与 Typora 一致）；粘贴内容不进渲染缓存；渲染模式行为不变。`isSafeUrl` 的相对路径判定先剔除 C0 控制字符与空白，堵住 `java\nscript:` 这类写法被当成相对路径放行。
+- **接线在 `transformPastedHTML` 阶段接管**：`sanitizeHTML` 清洗 → `htmlToMarkdown` → Milkdown parser → Slice。**必须在 ProseMirror 的 `readHTML`/`parseSlice` 之前接管**，否则「5,000 元素整体降级为纯文本」的主线程保护形同虚设。
+- **不转换的情形**：编辑器内部复制（`data-pm-slice`，默认路径能无损还原）、代码编辑器/IDE 的无结构着色 HTML、光标在代码块内、光标在表格内、源码模式、「粘贴为纯文本」。
+- **块边界语义**：只有首/尾块是段落时才「打开」该端与光标所在段落合并（行内粘贴的自然语义）；标题、列表、代码块、表格保持闭合、作为独立块插入——否则 `Slice.maxOpen` 会把首个标题的文字并进当前段落，标题语义丢失。**一次粘贴 = 一个撤销步**（事务前后 `closeHistory`，不与相邻输入合并成同一撤销组）。
+- **安全**：解析结果剥离 `javascript:` 等危险链接/图片地址；粘贴路径有专用用例（script / `on*` / 混淆的 `javascript:` / 非图片 `data:` / `expression()`）。
+- **新增可自定义快捷键「粘贴为纯文本」（`mod+shift+v`）**，进入 `SHORTCUT_DEFS` 自动获得自定义与冲突检测；原生就派发该组合的平台走事件，不派发的平台（macOS WKWebView）兜底读剪贴板并吞掉迟到的原生 paste 防重复粘贴。
+- **私有区字符去哨兵化（#244 review）**：转换器内部用 U+E000–U+E006 做硬换行与强调定界符占位，而图标字体 / Nerd Fonts 也用这段码位——粘贴内容自带这些字符时会被静默改写（`前\uE001后` → `前**后`）。现在所有来自页面的字符串（正文/标题/alt/title/链接地址/行内代码）进行内构建前先编码为字符引用、解析后还原（图标不丢失）；行内代码只能替换为 U+FFFD（CommonMark 不解码代码 span 内的字符引用），代码块不经过行内构建、原样保留。
+
+### 智能粘贴 B：Markdown 源码粘贴自动解析（#229，PR #245）
+
+- **`markdown-detect.ts`：至少命中 2 类独立信号才认定为 Markdown**（14 类：标题/围栏/无序/有序/任务/引用/带分隔行的表格/水平线/公式块/粗体/删除线/行内代码/链接/图片）。宁可漏判也不误判——误判会把用户的纯文本悄悄改写成富文本结构。任务列表单独成类（一行 `- [ ] x` 不会同时计入无序列表凑够两个信号）、`* * *` 不计为列表、图片的 `[alt](src)` 不再算一次链接；只扫描前 64KB（`SCAN_LIMIT`）。
+- **`clipboardTextParser` 覆盖**：判定成立时走与 HTML 路径**相同**的「Markdown → parser → Slice」出口，块边界语义一致；否则返回 `null` 交还 ProseMirror 默认纯文本行为。VS Code（`vscode-editor-data`）与其他代码编辑器的无结构着色 HTML：`text/plain` 是 Markdown 时按 Markdown 解析。
+- **主线程保护（#245 review）**：文本路径此前没有与 HTML 路径（5,000 元素）对等上限——实测 160KB Markdown 源码粘贴卡死约 6s、1.1MB 触发 OOM。新增 `MAX_MARKDOWN_PASTE_CHARS` 复用特征判定的 `SCAN_LIMIT`（64K 字符），**判定与解析同一上界**；超出按纯文本插入（与上游 main 的纯文本粘贴同量级）。仅在粘贴事件中解析——ProseMirror 的拖放也会调用 `clipboardTextParser`，此前会隐式改变拖放行为，现已保持原行为。
+
+### 智能粘贴 C：远程图片落盘 + 内容哈希去重（#220，PR #246）
+
+补 `image-upload` 的三个缺口：①剪贴板只有 `text/html` 的 `<img src>`、没有 `files`（macOS / 部分浏览器）时图片永不落盘；②网页富文本里的远程图片没有下载转存；③重复粘贴同一张图产生多份副本。
+
+- **Rust `download_remote_image`**：只接受 http/https；重定向 ≤5 次且只在 http/https 之间跳（reqwest 默认策略）；**不发送 Referer**（与 #162 的 `no-referrer` 一致，不向图床泄漏来源页）；单图 ≤10MB（**流式读取，超限立即中止**，不先把整个响应读进内存）、总超时 15s；按**魔数**识别位图格式，SVG 一律拒绝（可含脚本，落盘后在别的查看器里打开有 XSS 风险）、HTML 错误页等非图片内容拒绝；403 单独标记以便提示防盗链。reqwest 沿用 Tauri 已依赖的 0.13，TLS 取 rustls + ring + 系统信任库（不引入 aws-lc 的 cmake/NASM 构建链，也不依赖系统 OpenSSL）。
+- **Rust `find_asset_by_hash`**：先按大小过滤、再对同尺寸文件算 SHA-256；只看目录直接子文件、不跟随符号链接。
+- **`lib/assetStore.saveImageAsset`**：文件型粘贴/拖拽与远程下载共用的写入入口，落盘前查重命中即复用文件名。**查重是尽力而为**——查重失败（目录无权限 / IPC 异常）不阻断插入，多一份副本远好于图片插入失败。
+- **`remote-image` 插件**：图片先以远程 URL 即时插入（粘贴即时可见，不被网络阻塞），随后后台并发 3 下载并替换为 `assets/` 相对路径。位置记在插件 state 里随每个事务 mapping，**替换前再校验「该位置仍是 src 相同的图片节点」**（用户中途删改不会误伤其他内容）；src 替换事务 `addToHistory=false`，一次粘贴仍是一个撤销步；单次粘贴最多下载 30 张；失败/超时/超限/403 保留远程 URL（不产生空引用）并汇总提示一次（写盘失败与下载失败分开提示）；SVG、`data:`、相对路径、未保存草稿的图片都不下载。落盘后的相对路径渲染时经 `resolveImageSrc` 触发动态 `allow_asset_dir` ACL 放行。
+- **历史回放重新入队（#251，PR #258）**：撤销发生在下载完成前时，回放出的切片仍是远程 URL。用「计数差」找出相对上一状态**多出来**的远程图片重新入队（同一地址被多次粘贴、只回放其中一份时也正确），**文档自带的远程引用不会被误伤**。
+- 浏览器 mock 补齐 fetch 模拟下载与内存二进制表模拟落盘/查重，使 E2E 可覆盖。
+
+### 列表 / 任务项往返保真（#248–#290，统一用 `<!-- -->` 锚点）
+
+Smart Paste 落地后暴露的「parse → serialize → parse 不幂等」家族问题：中间态 Markdown 一旦出现 GFM 结构歧义或 schema 补出来的占位节点，写盘就会丢结构或写进字面 HTML。
+
+- **#248（PR #255）** 表格单元格内链接/图片的目标与标题不再拆裂 GFM 列结构；`alt` 中的 `|` 同样处理（PR #255 review）。
+- **#249（PR #256）** 相邻同型列表之间插入 `<!-- -->` 分隔，列表边界与编号保真——否则 CommonMark 会把两个列表并成一个。
+- **#264（PR #265）/ #266（PR #267）** 列表项内相邻同型子列表、「正文 + 不能打断段落的子列表」同样补分隔：列表项内各块的拼接此前绕开了顶层与引用块用的 `joinBlocks`。`<ol start="3">` 子列表会被吞成正文、空子列表项的 `-` 会成为 setext 下划线把父项正文变成 H2。统一为**紧凑**的 `\n<!-- -->\n`（不加空行——列表项内两块之间出现空行会让父列表变松散）。同时修正 `listBlockKind`：首项为空时输出裸标记 `-` / `3.`，原正则要求标记后有空格而漏判为非列表。
+- **#268（PR #269）** 首块是子列表的列表项保存后不再写出字面 `<br />`。**根因不在转换器**：`list_item` 的 schema 是 `paragraph block*`，列表项必须以段落开头，「首块是子列表」解析后必然带一个 schema 补出来的空段落，而 Milkdown 的 paragraph 序列化器把「非文档末尾的空段落」写成字面 `<br />`（并插入空行让该列表项重开变成松散项）。实测 issue 建议的 `- \n  - a` 换行形式无效——空段落来自 schema，任何 Markdown 形态都躲不掉，只能修序列化侧：新增 `markdown-serialize.ts` 在写盘前剔除「空段落 + 是 `list_item` 首个子节点 + 该列表项后面还有块」的结构占位段落（判据中的「后面还有块」不可省：唯一子节点是空段落时那是空列表项的内容，剔除会让 mdast-util-to-markdown 抛错）。
+- **#272（PR #278）** 空列表项保存后输出裸标记。空列表项的唯一子节点同样是 schema 补出来的空段落，而 #268 的「剔除」不能覆盖这一形态（删掉唯一段落会让 mdast 的 `node.children[0]` 直接抛 `Cannot read properties of undefined`）。改为「保留段落、换掉段落内容」：塞一个**空值** html 锚点，它在 mdast 里序列化成零长度，段落渲染为空、列表项只剩裸标记。
+- **#273（PR #279）** 任务列表项的块级首块不再与 `[ ]` 标记同行，子列表不再丢失。GFM 要求 `[ ] ` 后跟段落，块级结构与标记同行时整行会退化成正文（`- [ ] - 子项` 解析回来是「勾选项 + 正文」）。有 task 标记的列表项在首块是块级结构时，让标记独占一行并补空段落锚点（`- [ ] <!-- -->`）。引用 / 标题 / 分隔线 / 代码块 / 表格与子列表同病，一并修掉。
+- **#284（PR #287）** 空任务项改用**非空**锚点。mdast 侧任务项靠正则把 `[ ] ` 插到裸标记之后，空值锚点让列表项只剩裸标记 `*`、正则匹配不上 → **checkbox 整块丢失**（比保留 `<br />` 更糟）。改用 `<!-- -->` 后输出 `* [ ] <!-- -->`，checkbox 保住；普通空列表项继续用空值锚点。
+- **#286（PR #289）** 空任务项 + 子列表保存不再丢 checkbox：该形态此前命中 #268 的剔除规则，剔除后 mdast 的 `listItem.children[0]` 变成子列表，而 `mdast-util-gfm-task-list-item` 的 `checkable` 判据要求 `head.type === "paragraph"` → 不输出 `[ ] ` 前缀，勾选项**永久退化**成普通列表。改为任务项命中该分支时**不剔除**段落、改填非空锚点；锚点语义收敛到单一常量 `TASK_ITEM_ANCHOR`（#286 review）。
+- **#290（PR #292）** 同步 #286 落地后的两处导航性注释契约。
+
+### Benchmark 判定：假 FAIL 根治（#270 / #274 / #285 / #291 / #294）
+
+- **#270（PR #271）「派生指标的佐证」改用终判证据基础**：佐证此前只看首轮（`primaryOver`）且是**场景级**豁免，而终判用两轮证据——于是「首轮超、复测回落」已被判 WARN/抖动的主指标行仍能给全场景的派生指标发豁免券，产出「零主指标 FAIL 的场景却判 FAIL」。改为 `primaryReproduced = 本场景存在同样被判 FAIL 的主指标`；check 阶段的复测筛选仍按首轮（那时只有首轮数据，其语义只是「值不值得再跑一轮」，不参与结论）。另新增由同一份代码历史散布推导的地板 `effectiveAbsMin = max(登记常数, 1.5×历史极差)`——只对小基数（参考值 <10）计数指标生效、只收紧不放松，报告单独列出被抬高的行；参考值改用 `max(全历史中位数, 最近 4 点中位数)`，**只跟随「环境变慢」上抬、刻意不做下压**（实测下压会让 quick 档 46 行参考值下降、最多 −50%，把判定系统性推向偏严，本轮就曾把 `frameMs.p95` 从 WARN 翻成 FAIL）。
+- **#274 / #285（PR #280 / #288）生效地板披露的边界修正**：推导值恰好等于登记常数不算「抬高」；没有登记常数的指标不列入（它的地板完全来自历史散布）。判据抽到 `judgment.js` 的 `isRaisedFloor`，与 `effectiveAbsMin` / `historyFloor` 同处一地，便于单测直接断言线上实现本身。
+- **#291（PR #293）Benchmark 工作流全局串行化**：给 `benchmark.yml` 加 `concurrency: { group: benchmark（静态名、不含 ref）, queue: max, cancel-in-progress: false }`——共享 runner 争用会让并发窗口内的**首轮与复测双双被拖慢**，双超阈值直接穿透 #234 的独立 retest 防线（2026-09-30 main 与 PR #289 各一例，换 runner 静默复跑均 PASS）。静态组名让 PR / main / tag 跨运行串行；`queue: max` 保证排队中的运行不被新入队者顶掉（发版验证 / 播种绝不丢失）。CONTRIBUTING 的播种纪律说明同步改为「由流水线强制」。
+- **#294（PR #295）「双超即 FAIL」改成第三个 runner 确认**：
+  - `judgment.confirmVerdict(overRounds)`——参与判定的**每一轮**都超才确认，末轮回落即降 `WARN`。取「末轮仍超」而非「多数 ≥2/3」：3 例假 FAIL 的核验轮全部回落，2/3 会把其中 2 例继续判 FAIL。
+  - `report.mjs` 新增 `--phase=confirm`（产出 `retest2.json`，退出码恒 0，与 check 同性质：不构成结论）、三轮终判、`UNCONFIRMED` 集合、标定越界处置、表格「复测2」列与「判定轮次」披露行。**#270 的主指标佐证基准同步扩到三轮**（否则「末轮已回落」的主指标仍会发券）；**绝对行**（`frameMs.p95(绝对)` / `jankRatePct(绝对)`）同样纳入三轮——它此前也是「双超即判 FAIL」，只改相对行会让它成为假 FAIL 的漏网口。
+  - **标定越界只决定「要不要再验一轮」，不作 FAIL 抑制门禁**：实测它既非必要也非充分（范围内照样出假 FAIL、高偏差的核验会话照样正常），拿它抑制会连真回归一起放过。复测轮越界 → 该场景并入确认轮候选；确认轮越界 → 不确认 FAIL，落 `UNCONFIRMED`。
+  - 退出码沿用「更根本的结论优先」：`UNMEASURED` → exit 2；否则 `UNCONFIRMED` 且 `PERF_REQUIRE_COMPARISON=1` → exit 2；否则有确认 FAIL → exit 1；否则 exit 0。**确认轮整轮没测到（有候选但零采样）属链路故障，PR 与 tag 一律 exit 2**——它不是「结论不完整」，若按 UNCONFIRMED 让 PR 走 exit 0，读者会误以为「复测回落了」。
+  - 编排仍是纯函数（有单测锁语义）：`retest-plan.planConfirmPhases({splitRetest, candidates}) → handoff | finalize`，本地单进程不采纳 `handoff`（没有下一个 job，硬移交等于「有候选但不判结论」）。`benchmark.mjs` 新增 `PERF_RETEST2_ONLY` 与 `PERF_FORCE_SUSPECTS2`，并**按运行模式区分目录清空**：只清本轮会写的目录，上游产物（`raw` / `raw-retest` / `retest2.json` / 基线）一个都不能动——清错会把三轮 final 退化成两轮。`benchmark.yml` 新增 `retest2` job（`needs: retest`，`if suspects2 == 'true'`）。
+  - **补上真正的测试缺口**：编排层（`benchmark.mjs` 的 splitRetest / 清空矩阵）此前无任何入库回归测试——纯函数测试锁不住「调用方有没有传对参数」。首版评审的 P0（CI `retest` job 漏传 `PERF_SPLIT_RETEST=1`，确认轮永不移交、第三轮退化成与 R2 同 runner，**tag 发版验证以假 FAIL 收尾**）正是从这里漏出去的。新增 `tests/unit/perf-orchestration.test.ts`（17 例：9 例直接读 YAML 契约断言每个 job 的 env / needs / if / outputs，8 例用桩 Playwright 端到端真跑 measure → retest → retest2，断言上游产物不被误删、假 FAIL 被拦、真回归仍 FAIL）。
+  - CONTRIBUTING 新增「发版负责人核对清单」：`判定覆盖 N/M` 必须相等、`判定轮次` 要走到 `首轮 ✓ 复测 ✓ 确认 ✓`、`FAIL` 计数与成因（被噪声 3σ 或绝对地板挡下的不是回归）。
+
+### 其他修复
+
+- **#241（PR #261）** 搜索代次改由 Rust 侧分配（`SEARCH_GENERATION`），消除多窗口下「后开窗口被永久判过期」——与 v3.3.0 的索引代次同源修法。
+- **#247（PR #260）** L 档单测超时按档位放宽；单场景超时降级为「未测量」不再整轮作废。
+- **#257（PR #262）** 托管测试期定时器并在文件结束时清理，消除 milkdown 3s 超时导致的随机 `exit 1`。
+- **#259（PR #263）** 会话标定披露两轮偏差、订正「标定值在范围内不等于排除环境」的归因指引；基线参考值按 2 位小数渲染去掉浮点噪声。
+- **#252（PR #253）** PR 触发 Build 但只跑 test job，打包 job 在 PR 上显式跳过（打包成本高，且 fork PR 的产物无发布用途）。
+- **#250（PR #254）、#277（PR #283）** 订正 symlink 用例注释的回归暴露机制（是条目泄入而非无限递归）；删除无调用方的导出 `isOverIgnoringNoise`（诊断能力已由 `suppressionReason()` 承担）。
+- **#275 / #276（PR #281 / #282）** 术语订正（historyFloor 的「小数计数指标」→「小基数计数指标」）与 CONTRIBUTING 记录「会话标定基线参考与判定层同口径」。
+
+### 社区贡献
+
+- **@TomGoh（Haoze Wu）** 主导本版**智能粘贴整条特性线**——三个子项全部由他完成（#219 / PR #244、#229 / PR #245、#220 / PR #246），并修掉列表项内两类子列表分隔锚点缺失（#264 / #266，PR #265 / #267）：本版共 **5 个 PR / 13 个提交**（含 4 个分支合并提交）。
+
+### 质量门禁
+
+- Vitest **146 文件 / 1324 用例**（基线 130 文件 / 942 用例；新增 16 个文件，其中智能粘贴相关 9 个：`html-to-markdown` / `markdown-detect` / `markdown-serialize` / `remote-image` / `smart-paste` / `smart-paste-security` / `smart-paste-fixtures` / `assetStore` / `assetStoreBrowserMock`）。
+- Playwright E2E **196 用例**（基线 181；新增 `tests/e2e/smart-paste.spec.ts` SP1–SP15，含真实 Chromium 中脚本与事件处理器不执行、真实系统剪贴板 `Ctrl+V` / `Ctrl+Shift+V`、超长文本不卡死、远程图片落盘与去重、403 降级提示）。
+- Rust `cargo test` CI **ubuntu 103 / windows 107 全绿**（另 1 例 `#[ignore]` 的真实 HTTPS 下载用例；远程图片新增 17 例：本地 HTTP 服务覆盖 200/403/404/超限/流式超限/SVG/非图片/超时/重定向/非法协议/无 Referer，查重覆盖命中/未命中/目录不存在/子目录/隐藏文件/符号链接）。
+- `tsc --noEmit` 零错误；CI `build.yml` test(ubuntu / windows) 与 `benchmark.yml` 全绿。
+- 每个修复均带「先红后绿」验证（去掉修复后精确失败）：如 #268 还原 serialize 一行即红、#244 review 去掉修复后 14 例失败、#245 review 去掉上限后 4 个单测 + SP9 失败。
+- **#294 最有价值的证据来自真实测量**：PR #295 自身 CI（run [37005194469](https://github.com/zhkp/InklingMD/actions/runs/37005194469)）在**没有任何演练钩子**的情况下跑出真实三段路径——首轮真检出嫌疑 → `confirm` 相位真实算出候选并移交 → 第三个 runner 把 `searchMs.p95` 的 R1/R2 = 559.8/685.5 双超判为 `WARN（末轮回落）`（R3 = 505.4），FAIL 0、exit 0。即「双超假 FAIL 形态」在真实数据上复现并被正确拦下。
+- 详见 `docs/v3.4.0 设计文档.md`。
+
 ## [3.3.0] - 2026-09-25
 
 > **Quick Open 交付完成**：Epic #222 的两个子项一并落地——子项 1/2 #227（PR #240）把忽略规则收敛成唯一真值源并新增 Rust 工作区文件索引，子项 2/2 #228（PR #242）在其上做出键盘优先的快速打开面板；#243 补齐符号链接断言，闭合 #222 计划 §7.1 清单。自 v3.2.0 起 21 个提交（含 3 个 merge 提交）/ 41 个文件（+3707 / −213，不含本版发版文档提交）。`Ctrl/Cmd+P` → 输入几个字符 → 回车，打开文件不再需要鼠标逐层找目录。
