@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import {
   baseMetric,
+  confirmVerdict,
   COUNT_FLOOR_FACTOR,
   COUNT_METRICS,
   COUNT_SMALL_BASE,
@@ -364,5 +365,40 @@ describe("噪声门槛对判定的作用", () => {
     expect(suppressionReason("inputSyncMs", 1.5, 1.6, NOISE)).toBeNull(); // 改善
     expect(suppressionReason("ttiMs", 850, 800, 241)).toBeNull(); // +6% 未过 15%
     expect(suppressionReason("longTaskCount", 3, 0, null)).toBeNull(); // 基数为 0 走绝对增量
+  });
+});
+
+// 多轮聚合（#294）：FAIL 必须由**第三个独立 runner** 上的会话确认。
+//
+// 背景：#234 把复测拆到新 runner 挡住了「单会话慢」，但挡不住**两个会话同时被拖慢**
+// （共享 runner 池内跨工作流并发）。2026-09-30 实证 3 例 R1∧R2 双超 → 判 FAIL，
+// 换 runner 静默复跑全部证伪。所以判定从两轮扩到三轮，聚合规则是「末轮仍超才算确认」。
+describe("多轮聚合 confirmVerdict（#294）", () => {
+  it("三轮都超 → 确认 FAIL（本 issue 要保住的能力：真回归不许被降级）", () => {
+    expect(confirmVerdict([true, true, true])).toBe("fail");
+  });
+
+  it("末轮回落 → WARN（这正是 3 例假 FAIL 形态的拦截点）", () => {
+    expect(confirmVerdict([true, true, false])).toBe("warn");
+  });
+
+  it("复测就回落 → WARN（不进确认轮）", () => {
+    expect(confirmVerdict([true, false])).toBe("warn");
+  });
+
+  it("两轮都超也判 fail：纯函数的语义是「参与判定的每一轮都超」", () => {
+    // report.mjs 不会把两轮结果当成确认 FAIL（缺确认轮一律落 UNCONFIRMED），
+    // 但纯函数本身必须诚实：它只对**传入的轮次**负责，"没传"不等于"没超"。
+    // 锁住这一点是为了防止有人后来把「缺测」塞成 false 混进数组。
+    expect(confirmVerdict([true, true])).toBe("fail");
+  });
+
+  it("空数组 / 非数组 → pass（无任何轮次参与，无从谈起）", () => {
+    expect(confirmVerdict([])).toBe("pass");
+    expect(confirmVerdict(undefined as unknown as boolean[])).toBe("pass");
+  });
+
+  it("首轮未超 → 恒不为 fail（改善不可能被判回归）", () => {
+    expect(confirmVerdict([false, true, true])).toBe("warn");
   });
 });

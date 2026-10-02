@@ -41,6 +41,11 @@ on:
         required: false
         default: ""
         type: string
+      force_suspects2:
+        description: "调试用：强制把指定场景当作「确认轮候选」（逗号分隔），用于确定性演练第三个 retest2 job 与 -retest2 产物（需同时填 force_suspects 才会走到确认轮）"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -209,20 +214,28 @@ jobs:
             echo "⚠️ 未生成 .perf-output/report.md（benchmark 未跑完，属 infra 故障）" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  # 独立复测 job（issue #234）：在**新的 runner** 上重测疑似场景并做 final 判定。
+  # 独立复测 job（issue #234）：在**新的 runner** 上重测疑似场景。
   #
   # 为什么必须换 runner：首轮与复测在同一台 VM 上顺序执行时，「整台 runner 变慢」
   # （共享宿主机争用 / VM 放置差异）会让两轮同时超阈值，穿过「连续 2 次」判定——
   # 实测一次慢会话里 88% 的相对行同时变差、中位 Δ +18.7%，而同一份代码在安静时段完全正常。
-  # 换 runner 后两轮才统计独立：慢会话通常不会在两台不同 VM 上重现 → 正确落成 WARN「复测回落」。
+  # 换 runner 后两轮才统计独立：慢会话通常不会在两台不同 VM 上重现。
   #
   # 只在有疑似回归时运行：无嫌疑的常规运行仍只有 1 个 job（不额外付启动与安装成本）。
+  #
+  # #294：本 job 现在还要做 confirm 相位，并在有确认候选时**移交 retest2 job**
+  # （第三个 runner）而不自己出 final —— 两个会话仍可能被跨工作流并发同时拖慢。
   retest:
     needs: benchmark
     if: needs.benchmark.outputs.suspects == 'true'
     runs-on: ubuntu-latest
     # 与 benchmark job 同规则：PR 运行不阻断合并；tag 运行必须显式失败（否则红信号被绿勾掩盖）
     continue-on-error: ${{ github.ref_type != 'tag' }}
+    outputs:
+      # 有确认轮候选时把确认轮交给 retest2 job（第三个 runner），见 jobs.retest2 的说明
+      suspects2: ${{ steps.confirm.outputs.suspects2 }}
+      # 传下去给 retest2 job：它要用同一个 profile 跑第三轮与出报告
+      profile: ${{ needs.benchmark.outputs.profile }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -255,14 +268,24 @@ jobs:
         # sudo 会重置 PATH 导致找不到 pnpm，用 sudo env 透传（与 benchmark job 一致）
         run: sudo env "PATH=$PATH" pnpm exec playwright install-deps chromium
 
-      - name: 复测 + final 判定（本 job 的 runner 与首轮不同）
+      - name: 复测 + 判定是否需要确认轮（有确认候选时移交 retest2 job）
         env:
           PERF_PROFILE: ${{ needs.benchmark.outputs.profile }}
           CI: "true"
           PERF_ABSOLUTE: ${{ github.event.inputs.absolute == 'true' && '1' || '' }}
           PERF_REQUIRE_COMPARISON: ${{ github.ref_type == 'tag' && '1' || '' }}
           PERF_RETEST_ONLY: "1"
+          # ⚠️ 这一行**不可省**（#294 评审 P0）：它决定 `planConfirmPhases` 是否返回 handoff。
+          # 缺了它 splitRetest 恒为 false → 确认轮永不移交 → 第三轮跑在**与 R2 同一台 runner** 上
+          # （实测会打印「本地为单进程」指纹），于是：① tag 运行以「同 runner 三轮」的假 FAIL 收尾，
+          # 而 retest2 job 又因 retest job 非零被 skip —— 根治手段在 tag 路径上被整体旁路；
+          # ② 确认轮白跑两遍；③ Job Summary 走「已出 final」分支，提示取 `-retest` 而非 `-retest2`
+          # （播种时取错产物 = 静默丢失）。它同时是「基线取回哪个产物」叙事的单一事实来源，
+          # 故不改 benchmark.mjs 去把 retestOnly 当 split —— 那样两者会分叉。
+          PERF_SPLIT_RETEST: "1"
           PERF_FORCE_SUSPECTS: ${{ github.event.inputs.force_suspects }}
+          # 确定性演练三段路径用（#294）：不填则候选由 confirm 相位真实算出
+          PERF_FORCE_SUSPECTS2: ${{ github.event.inputs.force_suspects2 }}
         run: |
           if [ "${{ github.event.inputs.update_baseline }}" = "true" ]; then
             pnpm run benchmark -- --update-baseline=1
@@ -270,7 +293,23 @@ jobs:
             pnpm run benchmark
           fi
 
-      - name: Upload benchmark artifact（含复测轮与 final 报告）
+      # 判定是否需要第三个 job（#294）：retest2.json 有内容即为"有确认候选"。
+      # 写法与上面读 retest.json 的步骤同款（显式判数组，非数组时长度是 undefined，
+      # `[ "undefined" -gt 0 ]` 会让整步报错 → suspects2 为空 → 确认轮被静默跳过）。
+      - name: 判定是否需要确认轮
+        id: confirm
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          N=$(node -e "const p='.perf-output/retest2.json';let l=null;try{l=JSON.parse(require('fs').readFileSync(p,'utf8'))}catch{};console.log(Array.isArray(l)?l.length:0)")
+          echo "确认轮候选数=$N"
+          if [ "$N" -gt 0 ]; then
+            echo "suspects2=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "suspects2=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload benchmark artifact（含复测轮与确认轮清单）
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
@@ -292,13 +331,121 @@ jobs:
               echo ""
               cat .perf-output/report.md
               echo ""
-              # 播种场景下，基线更新（--update-baseline）发生在**本 job** 的 final 阶段，
+              # 播种场景下，基线更新（--update-baseline）发生在**跑到 final 的那个 job**，
               # 而操作者此刻看到的正是这个 Summary——必须就地下发取回目标，
-              # 否则会去取 job1 的 perf-benchmark-<profile>（旧基线）→ 本次播种静默丢失。
+              # 否则会去取上游 job 的产物（旧基线）→ 本次播种静默丢失。
               echo "> 📦 **取回产物（若本次是播种 \`update_baseline=true\`）**：基线已在**本 job** 更新，"
               echo "> 请取 **\`perf-benchmark-${{ needs.benchmark.outputs.profile }}-retest\`**；"
-              echo "> job1 的 \`perf-benchmark-${{ needs.benchmark.outputs.profile }}\` 里是**旧基线**（取错＝本次播种静默丢失）。"
+              echo "> 上游 \`perf-benchmark-${{ needs.benchmark.outputs.profile }}\` 里是**旧基线**（取错＝本次播种静默丢失）。"
+            } >> "$GITHUB_STEP_SUMMARY"
+          elif [ -f .perf-output/retest2.json ]; then
+            # 移交确认轮（#294）：本 job 只做「复测 + confirm」，final 在 retest2 job 里出
+            {
+              echo "## 性能 Benchmark · 独立复测（新 runner，issue #234）"
+              echo ""
+              echo "⏳ 复测后仍有 **R1∧R2 双超**或**复测标定越界**的场景，确认轮与 final 判定已移交 **retest2 job**（第三个 runner）——"
+              echo "两个会话可能被跨工作流并发同时拖慢，双超不足以确认 FAIL（#294）。"
+              echo ""
+              echo "**确认轮候选**："
+              echo ""
+              node -e "const l=JSON.parse(require('fs').readFileSync('.perf-output/retest2.json','utf8'));console.log(Array.isArray(l)&&l.length?l.map(x=>'- \`'+x+'\`').join('\n'):'- （空）')"
+              echo ""
+              echo "> ⚠️ 若本次是**播种**（\`update_baseline=true\`）：基线更新发生在 retest2 job，"
+              echo "> 请取回 \`perf-benchmark-${{ needs.benchmark.outputs.profile }}-retest2\` 产物提交——"
+              echo "> 本 job 的 \`perf-benchmark-${{ needs.benchmark.outputs.profile }}-retest\` 里仍是旧基线（取错＝本次播种静默丢失）。"
             } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "⚠️ 未生成 .perf-output/report.md（复测 job 未跑完，属 infra 故障）" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # 确认轮 job（issue #294）：在**第三个 runner** 上重测确认候选并出 final 判定。
+  #
+  # 为什么 #234 的两个 runner 还不够：共享 runner 池内的并发来源是**跨工作流**的
+  # （自家 Build 的 test job、main 打包、其他 Benchmark），#291/#293 的 workflow 级串行
+  # 管不到它们。2026-09-30 实证 3 例「首轮 + 复测双双超阈值」，换 runner 静默复跑全部证伪。
+  # 根治办法：FAIL 必须由第三个、独立 runner 上的会话确认，且该会话自身标定越界时
+  # **不允许**产出 FAIL（落 UNCONFIRMED，tag 运行 exit 2）。
+  #
+  # 只在有确认候选时运行：绝大多数 PR 的常规路径仍是 1~2 个 job，零额外开销。
+  retest2:
+    needs: retest
+    if: needs.retest.outputs.suspects2 == 'true'
+    runs-on: ubuntu-latest
+    # 与前两个 job 同规则：PR 运行不阻断合并；tag 运行必须显式失败
+    continue-on-error: ${{ github.ref_type != 'tag' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # 上游 retest job 的产物：首轮 + 复测两轮采样、确认轮候选清单、基线（判定全靠它）
+      - name: 下载复测产物
+        uses: actions/download-artifact@v7
+        with:
+          name: perf-benchmark-${{ needs.retest.outputs.profile }}-retest
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install chromium
+
+      - name: Install Playwright system deps
+        shell: bash
+        # sudo 会重置 PATH 导致找不到 pnpm，用 sudo env 透传（与 benchmark job 一致）
+        run: sudo env "PATH=$PATH" pnpm exec playwright install-deps chromium
+
+      - name: 确认轮 + final 判定（本 job 的 runner 与前两轮都不同）
+        env:
+          PERF_PROFILE: ${{ needs.retest.outputs.profile }}
+          CI: "true"
+          PERF_ABSOLUTE: ${{ github.event.inputs.absolute == 'true' && '1' || '' }}
+          PERF_REQUIRE_COMPARISON: ${{ github.ref_type == 'tag' && '1' || '' }}
+          PERF_RETEST2_ONLY: "1"
+        run: |
+          if [ "${{ github.event.inputs.update_baseline }}" = "true" ]; then
+            pnpm run benchmark -- --update-baseline=1
+          else
+            pnpm run benchmark
+          fi
+
+      - name: Upload benchmark artifact（含确认轮与三轮 final 报告）
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: perf-benchmark-${{ needs.retest.outputs.profile }}-retest2
+          path: |
+            .perf-output/
+            .perf-baseline/
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: 写入 Job Summary
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          if [ -f .perf-output/report.md ]; then
+            {
+              echo "## 性能 Benchmark · 确认轮（第三个 runner，issue #294）"
+              echo ""
+              cat .perf-output/report.md
+              echo ""
+              # 与上游 job 同理：基线在**跑到 final 的这个 job** 更新，取回目标必须写在这里
+              echo "> 📦 **取回产物（若本次是播种 \`update_baseline=true\`）**：基线已在**本 job** 更新，"
+              echo "> 请取 **\`perf-benchmark-${{ needs.retest.outputs.profile }}-retest2\`**；"
+              echo "> 上游两个产物里都是**旧基线**（取错＝本次播种静默丢失）。"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "⚠️ 未生成 .perf-output/report.md（确认轮 job 未跑完，属 infra 故障）" >> "$GITHUB_STEP_SUMMARY"
           fi

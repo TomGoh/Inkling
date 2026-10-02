@@ -8,7 +8,8 @@
 // 时，掉帧率超标却拿到绿灯。
 //
 // 之前没暴露的原因：人工构造验证时直接摆好了 raw-retest 文件，绕过了 check→复测这一环。
-// 所以这里用子进程真实调用 report.mjs 跑完整两阶段，断言"check 阶段必须列出该场景"。
+// 所以这里用子进程真实调用 report.mjs 跑完整三阶段（check / confirm / final，#294 起），
+// 断言"check 阶段必须列出该场景"。
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -30,7 +31,7 @@ const roots: string[] = [];
 let perf: PerfReportWorkspace;
 
 beforeEach(() => {
-  // 四个目录全隔离（含 BASELINE）——隔离标准见 perf-report-env.ts
+  // 五个目录全隔离（含 BASELINE 与 RETEST2，#294）——隔离标准见 perf-report-env.ts
   perf = createPerfReportWorkspace("perf-abs-");
   roots.push(perf.root);
 });
@@ -75,15 +76,17 @@ function rawFor(jankRatePct: number, absoluteEligible: boolean): Record<string, 
   };
 }
 
-function writeRaw(dir: "raw" | "raw-retest", jankRatePct: number, eligible = true): void {
-  writeFileSync(
-    join(dir === "raw" ? perf.rawDir : perf.retestDir, `${ID}.json`),
-    JSON.stringify(rawFor(jankRatePct, eligible), null, 2),
-    "utf8",
-  );
+function writeRaw(
+  dir: "raw" | "raw-retest" | "raw-retest2",
+  jankRatePct: number,
+  eligible = true,
+): void {
+  const target =
+    dir === "raw" ? perf.rawDir : dir === "raw-retest" ? perf.retestDir : perf.retest2Dir;
+  writeFileSync(join(target, `${ID}.json`), JSON.stringify(rawFor(jankRatePct, eligible), null, 2), "utf8");
 }
 
-/** 真实调用 report.mjs（两阶段之一），返回退出码与输出 */
+/** 真实调用 report.mjs（三个相位之一：`check` / `confirm` / `final`），返回退出码与输出 */
 function runReport(phase: "check" | "final"): RunResult {
   // 判定资格完全由 raw 里的 absoluteEligible 决定；继承来的 PERF_*（含 PERF_ABSOLUTE）
   // 已由 perf.env() 统一剥离，避免开发者 shell 的 export 改变被测行为
@@ -120,10 +123,13 @@ describe("绝对判定的失败路径", () => {
     expect(retestList()).toContain(ID);
   });
 
-  it("复测仍超阈值 → 绝对行 FAIL + 输出「绝对目标未达标」+ exit 1", () => {
+  it("三轮都超 → 绝对行 FAIL + 输出「绝对目标未达标」+ exit 1", () => {
     writeRaw("raw", 15);
     expect(runReport("check").status).toBe(0);
     writeRaw("raw-retest", 15); // 复测复现
+    // #294：FAIL 须由第三个独立 runner 确认（绝对行同样适用——它也是"双超即判"的行）
+    writeRaw("raw-retest2", 15);
+    perf.writeConfirmCandidates([ID]);
 
     const final = runReport("final");
 
@@ -132,7 +138,23 @@ describe("绝对判定的失败路径", () => {
     expect(final.stderr).not.toContain("相对回归确认");
     const table = reportTable();
     expect(table).toContain("jankRatePct(绝对)");
-    expect(table).toMatch(/jankRatePct\(绝对\)[^\n]*FAIL（复测仍超帧预算）/);
+    expect(table).toMatch(/jankRatePct\(绝对\)[^\n]*FAIL（复测仍超帧预算 \+ 末轮仍超）/);
+  });
+
+  it("绝对行的确认轮回落 → 降 WARN「末轮回落」，不判 FAIL（#294 在绝对判定上同样生效）", () => {
+    // 绝对行不参与主/派生分层，但它此前同样在双超时直接判 FAIL ——
+    // #294 的根治必须覆盖它，否则「绝对目标未达标」仍是假 FAIL 的漏网口。
+    writeRaw("raw", 15);
+    expect(runReport("check").status).toBe(0);
+    writeRaw("raw-retest", 15);
+    writeRaw("raw-retest2", 4); // 确认轮回落到阈值内
+    perf.writeConfirmCandidates([ID]);
+
+    const final = runReport("final");
+
+    expect(final.status).toBe(0);
+    expect(final.stderr).not.toContain("绝对目标未达标");
+    expect(reportTable()).toMatch(/jankRatePct\(绝对\)[^\n]*WARN（末轮回落（抖动））/);
   });
 
   it("复测回落 → 判为抖动（WARN）+ exit 0，不把单次波动当目标未达标", () => {

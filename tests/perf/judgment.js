@@ -353,6 +353,42 @@ export function isOver(metric, current, base, noise, absMin) {
 }
 
 /**
+ * 多轮聚合（issue #294）：把「哪几轮超阈值」折叠成一个终判。
+ *
+ * ## 为什么要第三个独立会话
+ *
+ * 修复前只有两轮（首轮 + 复测），而 `FAIL ⟺ R1 ∧ R2` 的防线有个盲区：
+ * **两个会话可以同时被拖慢**。共享 runner 池内跨工作流的并发（自家 Build/test、
+ * 打包、其他 Benchmark）会让同一次测量窗口里的两台 VM 一起变慢，此时
+ * 「连续 2 次复现」成立，但结论是错的——2026-09-30 实证 3 例（main 与两个 PR），
+ * 换 runner 静默复跑全部证伪。
+ *
+ * ## 规则：末轮仍超才算确认
+ *
+ * 只有**参与判定的最后一轮**仍超阈值、且此前各轮也都超，才算确认回归。
+ * 末轮回落即降 WARN（抖动）——真回归跨 runner 稳定复现，而环境争用会随轮次收敛。
+ *
+ * 取「末轮仍超」而不是「多数 ≥2/3」：实测 3 例假 FAIL 的核验轮**全部**回落，
+ * 2/3 多数会把其中 2 例继续判 FAIL。
+ *
+ * ## 调用方契约（report.mjs 负责，本函数不校验）
+ *
+ * `overRounds` 必须只包含**实际参与了本次判定**的轮次，且按轮次顺序排列：
+ * - 有确认轮 → `[R1是否超, R2是否超, R3是否超]`（三段）
+ * - 无确认轮 → `[R1是否超, R2是否超]`（两段；此时 report 还有一道门禁：
+ *   双超但确认轮缺失一律落 UNCONFIRMED，**不会**把两段结果当成确认 FAIL）
+ * - 没有复测轮 → `[R1是否超]`（一段，结果恒为 warn，符合「未复测 ≠ 没回归」）
+ *
+ * 「缺失」与「未超」必须由调用方区分后决定传不传：把缺失当成 `false` 塞进数组
+ * 会让 `every(Boolean)` 误判成「回落」。缺测场景由 report.mjs 单独走 UNCONFIRMED
+ * 分支，不经过本函数。
+ */
+export function confirmVerdict(overRounds) {
+  if (!Array.isArray(overRounds) || overRounds.length === 0) return "pass";
+  return overRounds.every(Boolean) ? "fail" : "warn";
+}
+
+/**
  * 一行"过了相对阈值、但被抑制"的原因；没有则返回 null。
  *
  * 为什么需要它：被抑制不等于"没变化"。若直接落成 PASS，读者会以为指标纹丝不动，
