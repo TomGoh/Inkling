@@ -42,3 +42,21 @@ export function planConfirmPhases(input: {
   splitRetest: boolean;
   candidates?: string[];
 }): ConfirmPlan;
+
+/** 本次运行扮演哪个 job（issue #294）：measure | retest | retest2 */
+export type RunMode = "measure" | "retest" | "retest2";
+
+/**
+ * 从环境变量解析运行模式（issue #294）。
+ * `PERF_RETEST2_ONLY=1` 优先于 `PERF_RETEST_ONLY=1`（同时为真时确认轮语义更具体）。
+ */
+export function resolveRunMode(env?: Record<string, string | undefined>): RunMode;
+
+/**
+ * 本次运行是否处在拆分编排里（决定要不要把 final 移交给下一个 job）。
+ *
+ * ⚠️ 三个 CI job 都**必须**由工作流显式传 `PERF_SPLIT_RETEST=1`：
+ * `retest` job 漏传会让确认轮永不移交（#294 评审 P0：第三轮退化成与 R2 同 runner，
+ * tag 运行以假 FAIL 收尾）。本地单进程不带该变量，返回 false。
+ */
+export function isSplitPipeline(env?: Record<string, string | undefined>): boolean;

@@ -634,18 +634,47 @@ function main() {
     //   ① R1 ∧ R2 双超阈值（口径与 check 一致：主指标用 actionableOver，派生指标需主指标佐证）
     //   ② R2 标定越界（环境不可信，不许就地确认）
     // R2 无标定数据时不触发 ②（缺失不判）。
+    const doubleOver = actionableOver.some((r) =>
+      Boolean(rows2.find((s) => s.metric === r.metric)?.over),
+    );
     if (phase === "confirm") {
-      const doubleOver = actionableOver.some((r) =>
-        Boolean(rows2.find((s) => s.metric === r.metric)?.over),
-      );
       if (doubleOver || retestBeyond) confirm.push(id);
     }
+
+    // 确认轮是否给出了**可信结论**（#294）。这是场景级判定，与「该场景有没有双超」**无关**：
+    // 编排把场景放进 retest2.json 就是在说「这个场景需要第三个 runner 给结论」，
+    // 编排没兑现就是链路故障（#294 评审 P1：先前只把 unconfirmed 挂在双超分支上，
+    // 于是「仅因 R2 标定越界进候选、但 R2 未超」的场景永远进不了 UNCONFIRMED，
+    // 报告会打出与事实相反的「均已给出可信结论」）。
+    //
+    // 三种「不可信」：确认轮没测到这一场景 / 确认轮自身标定越界 / 该场景在确认轮里没有任何指标行。
+    const confirmExpected = phase === "final" && confirmCandidates.includes(id);
+    let confirmTrusted = true;
+    let confirmMissingReason = null;
+    if (confirmExpected) {
+      if (!raw3) {
+        confirmMissingReason = "确认轮未测量";
+      } else if (confirmBeyond) {
+        confirmMissingReason = "确认轮环境不可信";
+      } else if (rows3.length === 0) {
+        confirmMissingReason = "确认轮缺该指标";
+      }
+      confirmTrusted = confirmMissingReason === null;
+    }
+    // 只有「本来会确认 FAIL、但确认轮没能给出可信结论」才叫 UNCONFIRMED。
+    // 非候选场景（压根不该进确认轮）不因此记 UNCONFIRMED——它们的 R2 回落结论是自洽的。
+    //
+    // ⚠️ 老产物（无 retest2.json）时 confirmExpected 恒为 false，但**双超场景仍然要记
+    // UNCONFIRMED**：它同样是「本来会确认 FAIL、却拿不到第三轮证据」，§7 要求落 WARN +
+    // 进 UNCONFIRMED 且绝不判 FAIL。若只按 confirmExpected 记账，老产物会退化成
+    // 「未确认列表为空」+ 报告打「均已给出可信结论」——与事实相反。
+    const legacyDoubleOver = doubleOver && !confirmExpected;
+    if (doubleOver && (!confirmTrusted || legacyDoubleOver)) unconfirmedIds.push(id);
 
     // 最终判定（#294 三轮）：R1∧R2 双超只是**候选**，必须由确认轮确认才判 FAIL；
     // 确认轮自身不可信/缺失/缺该指标时一律不确认 FAIL（落 UNCONFIRMED）。
     // 绝对行与相对行的结论文案必须分开：前者是"帧预算目标未达标"，后者才是"相对基线回归"
     const verdicts = [];
-    let unconfirmed = false;
     for (const row of rows1) {
       const second = rows2.find((r) => r.metric === row.metric);
       const third = rows3.find((r) => r.metric === row.metric);
@@ -704,33 +733,23 @@ function main() {
       // 双超不再等于 FAIL——两个会话可能**同时**被拖慢（共享 runner 池内跨工作流并发，
       // 2026-09-30 实证 3 例，换 runner 静默复跑全部证伪）。必须由第三个独立 runner 确认。
       const disclose = { ...row, retest: second.cur, retest2: third ? third.cur : null };
-      if (!raw3) {
-        // 确认轮没测到这一场景。老产物（无 retest2.json）或手工拼装产物会走到这里。
-        unconfirmed = true;
+      if (confirmMissingReason) {
+        // 确认轮没能给出可信结论（未测量 / 环境不可信 / 缺该指标）→ 不确认 FAIL。
+        // note 直接复用场景级判定的原因，保证逐行文案与「未确认」披露说的是同一件事。
+        verdicts.push({
+          ...disclose,
+          verdict: "WARN",
+          note: `未确认：${confirmMissingReason}`,
+        });
+        continue;
+      }
+      // 老产物 / 手工拼装产物：没有 retest2.json 时双超无从确认——同样不得判 FAIL。
+      // 这里不能靠 confirmMissingReason（它只在 confirmExpected 时才计算）。
+      if (!raw3 && !confirmExpected) {
         verdicts.push({
           ...disclose,
           verdict: "WARN",
           note: "未确认：确认轮未测量",
-        });
-        continue;
-      }
-      if (confirmBeyond) {
-        // 确认轮自己不可信 → 它给出的任何结论都不足以确认 FAIL（#294 D2）。
-        unconfirmed = true;
-        verdicts.push({
-          ...disclose,
-          verdict: "WARN",
-          note: "未确认：确认轮环境不可信",
-        });
-        continue;
-      }
-      if (!third) {
-        // 确认轮测到了这个场景、但没有该指标（如采样缺失）→ 同样不能确认。
-        unconfirmed = true;
-        verdicts.push({
-          ...disclose,
-          verdict: "WARN",
-          note: "未确认：确认轮缺该指标",
         });
         continue;
       }
@@ -748,8 +767,6 @@ function main() {
             : "末轮回落（抖动）",
       });
     }
-    if (unconfirmed && !unconfirmedIds.includes(id)) unconfirmedIds.push(id);
-
     // 更新 baseline：优先用该场景最新一轮的数据（确认轮 > 复测轮 > 首轮，#294）
     if (args["update-baseline"] === "1" || args["update-baseline"] === "true") {
       const source = raw3 ?? raw2 ?? raw;
@@ -795,10 +812,14 @@ function main() {
       sessionProbe: probe,
       // 该场景是否进入了确认轮（#294）：由 retest2.json 决定，不是「碰巧有第三轮数据」。
       // 二者的区别在披露上很关键——「本该确认却没测到」与「压根没进确认轮」是两种结论。
-      confirmExpected: confirmCandidates.includes(id),
+      confirmExpected,
       confirmMeasured: Boolean(raw3),
-      // UNCONFIRMED（#294）：本来会确认 FAIL、但确认轮没给出可信结论
-      unconfirmed,
+      // 确认轮是否给出了可信结论（#294）。false 时 confirmMissingReason 给出具体原因。
+      confirmTrusted,
+      confirmMissingReason,
+      // UNCONFIRMED（#294）：本来会确认 FAIL（双超）、但确认轮没给出可信结论。
+      // 非候选场景不记；老产物（无 retest2.json）下双超也算——它同样拿不到第三轮证据。
+      unconfirmed: doubleOver && (!confirmTrusted || legacyDoubleOver),
     });
   }
 
@@ -1108,18 +1129,36 @@ function main() {
         `范围内照样出假 FAIL、高偏差的核验会话照样正常），它只决定「要不要再验一轮」`,
     );
   }
-  if (unconfirmedIds.length > 0) {
+  // 编排说要确认的场景，逐个交代结果。**「没消息」不等于「已确认」**（#294 评审 P1）：
+  // 先前这里只按 unconfirmedIds 是否为空来印「均已给出可信结论」，于是
+  // 「仅因 R2 标定越界进候选、但确认轮没测到」的场景会被算成"已确认"——
+  // 报告同页上一行还写着「1 个场景进入 retest-2」，自相矛盾。
+  const candidateOutcomes = results
+    .filter((r) => r.confirmExpected)
+    .map((r) => ({ id: r.id, trusted: r.confirmTrusted, reason: r.confirmMissingReason }));
+  const untrustedCandidates = candidateOutcomes.filter((c) => !c.trusted);
+  if (untrustedCandidates.length > 0) {
     lines.push(
-      `- ⚠️ 未确认：${unconfirmedIds.length} 个场景（${unconfirmedIds.join(", ")}）——` +
-        `本来会确认 FAIL，但确认轮缺失 / 环境不可信 / 缺该指标，**结论不完整**。` +
-        `这些场景一律不判 FAIL，请换 runner 重跑` +
+      `- ⚠️ 确认轮未给出可信结论：${untrustedCandidates.length}/${candidateOutcomes.length} 个候选场景（` +
+        `${untrustedCandidates.map((c) => `${c.id}:${c.reason}`).join("，")}）——` +
+        `编排要求它们由第三个 runner 给结论，但没有拿到。相关场景一律不判 FAIL` +
         (process.env.PERF_REQUIRE_COMPARISON === "1"
           ? "（本次要求完整比较 → 以 exit 2 报出）"
           : "（PR 运行只披露，不阻断）"),
     );
-  } else if (confirmCandidates.length > 0) {
+  } else if (candidateOutcomes.length > 0) {
     lines.push(
-      `- 确认轮：全部 ${confirmCandidates.length} 个候选场景均已给出可信结论（无 UNCONFIRMED）`,
+      `- 确认轮：${candidateOutcomes.length} 个候选场景均已给出可信结论（无 UNCONFIRMED）`,
+    );
+  }
+  if (unconfirmedIds.length > 0) {
+    lines.push(
+      `- ⚠️ 未确认：${unconfirmedIds.length} 个场景（${unconfirmedIds.join(", ")}）——` +
+        `本来会确认 FAIL（首轮 + 复测双超），但确认轮缺失 / 环境不可信 / 缺该指标，**结论不完整**。` +
+        `这些场景一律不判 FAIL，请换 runner 重跑` +
+        (process.env.PERF_REQUIRE_COMPARISON === "1"
+          ? "（本次要求完整比较 → 以 exit 2 报出）"
+          : "（PR 运行只披露，不阻断）"),
     );
   }
   const absoluteCount = results.filter((r) => r.absoluteEnabled).length;
@@ -1241,10 +1280,10 @@ function main() {
 
   // 「整轮确认轮没测到」（#294）：retest2.json 有候选，但 raw-retest2/ 一份采样都没有。
   // 这不是"结论不完整"而是"确认环节根本没跑"——复用「未测量」语义，PR 与 tag 一律 exit 2。
-  // 必须放在 UNCONFIRMED 的常规处置**之前**：那批场景此时全是"确认轮未测量"，
-  // 若只走 UNCONFIRMED 分支，PR 运行会以 exit 0 收尾——而结论里明明有本该确认的候选。
-  const confirmRoundMissing =
-    confirmCandidates.length > 0 && run3.size === 0 && unconfirmedIds.length > 0;
+  // 判据只认「有候选 + 零采样」两件事，**不依赖 unconfirmedIds**（#294 评审 P1）：
+  // 候选可能只因 R2 标定越界进、而该行 R2 并未超，那样的场景永远不会进 unconfirmedIds，
+  // 挂上这个条件就会让「编排要求确认却一份采样都没有」静默以 exit 0 收尾。
+  const confirmRoundMissing = confirmCandidates.length > 0 && run3.size === 0;
 
   // 方向 2（issue #247）：未测量场景是「没测到」（单场景超时/失败、无采样落盘），
   // 与覆盖不足同属"结论不完整"——exit 2 优先于 exit 1（已测场景的 FAIL 照常列在表格里）。

@@ -53,3 +53,51 @@ export function planConfirmPhases({ splitRetest, candidates }) {
   if (splitRetest && count > 0) return { action: "handoff", candidates: count, handoff: true };
   return { action: "finalize", candidates: count, handoff: false };
 }
+
+/**
+ * 运行模式（issue #294）——从环境变量读出「本次扮演哪个 job」。
+ *
+ * ## 为什么要抽成纯函数
+ *
+ * #294 首版评审的 P0 是：工作流的 `retest` job 漏了 `PERF_SPLIT_RETEST=1`，
+ * 于是 `planConfirmPhases` 永远收到 `splitRetest=false` → 确认轮从不移交 →
+ * 第三轮跑在**与 R2 同一台 runner** 上。tag 运行因此以「同 runner 三轮」的假 FAIL 收尾，
+ * 而 retest2 job 又因上游非零被 skip——**根治手段在 tag 路径上被整体旁路**。
+ *
+ * 那个 bug 之所以能穿过全部关卡：`planConfirmPhases` 的单测是对的
+ * （它只断言「`splitRetest:true` 时会 handoff」），坏的是**没人断言工作流真的会传这个变量**。
+ * 把「环境 → 模式」也变成可单测的纯函数后，缺口就补上了：
+ * 本函数锁住「`PERF_RETEST_ONLY=1` 的 job 必须同时带 `PERF_SPLIT_RETEST=1` 才移交」，
+ * 而 benchmark.yml 那一行由 `perf-orchestration.test.ts` 直接读 YAML 断言。
+ *
+ * ## 三种模式互斥（优先级从高到低）
+ *
+ * | mode | 触发 | 含义 |
+ * |---|---|---|
+ * | `retest2` | `PERF_RETEST2_ONLY=1` | 确认轮 job：只做 R3 + final |
+ * | `retest` | `PERF_RETEST_ONLY=1` | 复测 job：R2 + confirm（+ 可能移交） |
+ * | `measure` | 其余 | 测量轮（或本地单进程）：R1 + check（+ 可能移交） |
+ *
+ * ⚠️ `retest2` 必须排在 `retest` 之前：两个变量同时为真时，
+ * 确认轮 job 的语义（只补第三轮）更具体，先匹配它。
+ */
+export function resolveRunMode(env = {}) {
+  if (env.PERF_RETEST2_ONLY === "1") return "retest2";
+  if (env.PERF_RETEST_ONLY === "1") return "retest";
+  return "measure";
+}
+
+/**
+ * 本次运行「处在拆分编排里吗」——决定要不要把 final 移交给下一个 job。
+ *
+ * 三个 job 都**必须**由工作流显式传 `PERF_SPLIT_RETEST=1`（P0 的教训）：
+ * - `measure` job：传了才会在有嫌疑时移交复测；
+ * - `retest` job：**传了才会在有确认候选时移交确认轮**（漏掉就是 P0）；
+ * - `retest2` job：已经是最后一个 job，此处返回 true 但不再有任何移交决策用到它。
+ *
+ * 本地单进程（`pnpm run benchmark`，不带任何 PERF_*_ONLY）返回 false，
+ * 三轮在同一进程内顺序跑完——与 D7 的既有口径一致（同 runner 限制照旧，只是本地便利通道）。
+ */
+export function isSplitPipeline(env = {}) {
+  return env.PERF_SPLIT_RETEST === "1";
+}

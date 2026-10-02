@@ -270,10 +270,21 @@ PERF_DOC_FILE=md_editor_stress_test.md pnpm run benchmark
     （范围内照样出假 FAIL 两例、高偏差的核验会话照样正常两例）。拿它当抑制门禁会把真回归一起放过。
   - **UNCONFIRMED** = 「本来会确认 FAIL、但确认轮没能给出可信结论」的场景集合。
     PR 运行：披露 + 逐行 WARN（不阻断）；tag 运行（`PERF_REQUIRE_COMPARISON=1`）：**exit 2**。
+    ⚠️ **它与「有没有双超」是两件事**：判据是「场景进了 `retest2.json`（编排要求确认）
+    却没拿到可信的第三轮」。仅因**复测标定越界**进候选、而该行 R2 并未超的场景，
+    同样算「确认轮未给出可信结论」——它也编排了、也被要求给结论。
+    报告因此分两行披露：`确认轮未给出可信结论`（编排层面）与 `未确认`（判定层面）。
   - **退出码 2 优先于 exit 1**：`UNMEASURED`（场景没测到）→ exit 2；否则 UNCONFIRMED 且要求完整比较
     → exit 2；否则有确认 FAIL → exit 1；否则 exit 0。**确认轮整轮没测到**（有候选但零采样）
-    属链路故障，PR 与 tag **一律** exit 2。
+    属链路故障，PR 与 tag **一律** exit 2——判据只认「有候选 + 零采样」，不看 UNCONFIRMED 列表。
   - 只在**有嫌疑 / 有确认候选**时才起对应 job；无嫌疑的常规运行仍只有 1 个 job（零额外开销）。
+  - ⚠️ **三个 job 都必须传 `PERF_SPLIT_RETEST=1`**（#294 评审 P0 的教训）：
+    复测 job 漏了它 → `planConfirmPhases` 永不 handoff → **确认轮跑在与 R2 同一台 runner 上**，
+    tag 运行因此以「同 runner 三轮」的假 FAIL 收尾、而 retest2 job 又因上游非零被 skip
+    （`needs.retest` 的 `if` 不带 `always()`）——**根治手段在 tag 路径上被整体旁路**。
+    指纹很好认：日志出现「⚠️ 本地为单进程，与 R1/R2 同 runner」，且 retest job 产物里
+    **出现了 `report.md`**（移交时本不该有）。`tests/unit/perf-orchestration.test.ts`
+    直接读 `benchmark.yml` 断言这一行存在，就是为挡住这个回归。
   - 手工甄别同样有效：命中 FAIL 后换 runner 重跑一次工作流即可——代码性回归不会因换 runner 消失。
   - 本地演练三段路径（不需要真实回归）：
     ```bash

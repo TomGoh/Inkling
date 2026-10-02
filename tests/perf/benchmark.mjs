@@ -28,7 +28,7 @@ import {
   parseArgs,
   unknownArgKeys,
 } from "./cli-env.js";
-import { planConfirmPhases, planRetestPhases } from "./retest-plan.js";
+import { planConfirmPhases, planRetestPhases, isSplitPipeline, resolveRunMode } from "./retest-plan.js";
 
 const OUT_DIR = resolve(".perf-output");
 const CONFIG = "tests/perf/playwright.perf.config.ts";
@@ -155,6 +155,18 @@ async function main() {
   // 具体该跑哪些阶段由 planRetestPhases / planConfirmPhases 纯函数决定（有单测锁语义）。
   const retestOnly = process.env.PERF_RETEST_ONLY === "1";
   const retest2Only = process.env.PERF_RETEST2_ONLY === "1";
+  // 运行模式与「是否处在拆分编排里」都走纯函数（retest-plan.js），单测直接断言它们：
+  // #294 首版的 P0 正是「工作流没传 PERF_SPLIT_RETEST」——把 env 读取抽出去，
+  // 缺口才能被 `perf-orchestration.test.ts` 读 YAML 断言 + `perf-retest-plan.test.ts` 双层锁住。
+  const runMode = resolveRunMode(process.env);
+  const splitRetest = isSplitPipeline(process.env);
+  // 不变量：模式与两个布尔必须一致（抽函数后仍留一道断言，防将来改 env 读取时漏改一处）
+  if ((runMode === "retest") !== retestOnly || (runMode === "retest2") !== retest2Only) {
+    console.error(
+      `[perf] 内部不一致：runMode=${runMode} retestOnly=${retestOnly} retest2Only=${retest2Only}`,
+    );
+    process.exit(2);
+  }
 
   // raw 目录的清空策略按运行模式区分（#294）——**清错目录会直接毁掉上游产物**：
   // - 本轮要写的目录：每轮都清。残留样本会让判定读到上一轮的数据；
@@ -163,14 +175,21 @@ async function main() {
   // - 本轮只读的目录（上游 job 的产物）：**绝不能清**。retest2 job 的 raw / raw-retest /
   //   retest2.json / 基线全部来自上游，清了就没得比了（final 会退化成两轮、把结论
   //   "假装成"已确认，或误报 UNCONFIRMED）。
+  // - **清单文件按「本轮会不会重新产出」清**，不能只看目录。`retest.json` 靠 check
+  //   相位每轮无条件覆写，所以从不需要清；`retest2.json` **不是**——本 PR 新增了
+  //   「无 suspects → 跳过 confirm」这条分支（复测清单为空时 confirm 无意义），
+  //   于是本地第 1 轮出候选、第 2 轮无嫌疑时会读到**上一轮的候选**，多跑一轮确认、
+  //   把 rounds.confirm 记成 true、报告写「确认 ✓」。测量轮必须一并清掉（#294 评审 P2-a）。
   if (retest2Only) {
-    // 确认轮 job：只清自己写的那一个目录，其余一律保留
+    // 确认轮 job：只清自己写的那一个目录，其余一律保留（retest2.json 是上游给的输入）
     rmSync(resolve(OUT_DIR, "raw-retest2"), { recursive: true, force: true });
   } else {
     rmSync(resolve(OUT_DIR, "raw-retest"), { recursive: true, force: true });
     if (!retestOnly) {
       // 测量轮会重跑全量，确认轮那一份残留同样要清（否则会被当成本次确认轮数据读进 final）
       rmSync(resolve(OUT_DIR, "raw-retest2"), { recursive: true, force: true });
+      // 以及上一轮的确认轮候选清单：本轮若跳过 confirm（无 suspects），它不会被覆写
+      rmSync(resolve(OUT_DIR, "retest2.json"), { force: true });
     }
   }
 
@@ -280,7 +299,7 @@ async function main() {
     writeFileSync(resolve(OUT_DIR, "retest.json"), JSON.stringify(suspects, null, 2), "utf8");
   }
   const plan = planRetestPhases({
-    splitRetest: process.env.PERF_SPLIT_RETEST === "1",
+    splitRetest,
     retestOnly,
     suspects,
   });
@@ -341,7 +360,7 @@ async function main() {
   }
   const confirmPlan = planConfirmPhases({
     // 拆分编排（CI 的 retest job）才移交；本地单进程没有下一个 job，硬移交等于不判了
-    splitRetest: process.env.PERF_SPLIT_RETEST === "1",
+    splitRetest,
     candidates,
   });
 

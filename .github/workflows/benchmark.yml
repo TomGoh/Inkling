@@ -275,6 +275,14 @@ jobs:
           PERF_ABSOLUTE: ${{ github.event.inputs.absolute == 'true' && '1' || '' }}
           PERF_REQUIRE_COMPARISON: ${{ github.ref_type == 'tag' && '1' || '' }}
           PERF_RETEST_ONLY: "1"
+          # ⚠️ 这一行**不可省**（#294 评审 P0）：它决定 `planConfirmPhases` 是否返回 handoff。
+          # 缺了它 splitRetest 恒为 false → 确认轮永不移交 → 第三轮跑在**与 R2 同一台 runner** 上
+          # （实测会打印「本地为单进程」指纹），于是：① tag 运行以「同 runner 三轮」的假 FAIL 收尾，
+          # 而 retest2 job 又因 retest job 非零被 skip —— 根治手段在 tag 路径上被整体旁路；
+          # ② 确认轮白跑两遍；③ Job Summary 走「已出 final」分支，提示取 `-retest` 而非 `-retest2`
+          # （播种时取错产物 = 静默丢失）。它同时是「基线取回哪个产物」叙事的单一事实来源，
+          # 故不改 benchmark.mjs 去把 retestOnly 当 split —— 那样两者会分叉。
+          PERF_SPLIT_RETEST: "1"
           PERF_FORCE_SUSPECTS: ${{ github.event.inputs.force_suspects }}
           # 确定性演练三段路径用（#294）：不填则候选由 confirm 相位真实算出
           PERF_FORCE_SUSPECTS2: ${{ github.event.inputs.force_suspects2 }}
