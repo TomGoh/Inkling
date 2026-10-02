@@ -584,8 +584,10 @@ describe(`端到端编排：测量 → 复测 → 确认轮${canNest ? "" : `（
     expect(has(root, "retest2.json"), "陈旧的确认轮候选没被清 → 本轮会误跑确认轮").toBe(false);
   });
 
-  it.skipIf(!canNest)("复测 job 保留上游 retest2.json（它是上游给的输入，不是本 job 的产物）", () => {
-    // 与上一条互为反证：清掉它 final 就读不到候选清单。
+  it.skipIf(!canNest)("确认轮 job 保留上游 retest2.json（它是上游给的输入，不是本 job 的产物）", () => {
+    // 与「测量轮清掉上一轮的 retest2.json」互为反证：确认轮 job 清掉它，final 就读不到候选清单。
+    // ⚠️ 用例名要说准是**确认轮 job**：它跑 `PERF_RETEST2_ONLY=1`，
+    // 读者若按「复测 job」去 benchmark.mjs 里找这个行为会找不到（复测 job 写、确认轮 job 读）。
     const job3 = twoJobsWithCandidate("e2e-h");
     runBenchmark(job3, {
       PERF_PROFILE: "quick",

@@ -61,9 +61,10 @@ import {
 import { expectedScenarioIds, parseScenarioId, unmeasuredScenarios } from "./pw-coverage.js";
 
 // 五个目录都可用环境变量覆盖。RAW_DIR 原本就支持（复测轮要写到独立目录，
-// 否则同名文件会覆盖首轮采样）；OUT_DIR / RETEST_DIR / BASELINE_DIR 一并开放，
-// 是为了让端到端测试能在临时目录里跑完整两阶段流转与基线累积，不污染真实产物。
-// RETEST2_DIR 是确认轮采样（#294），与 RETEST_DIR 同理——同名文件会覆盖复测轮。
+// 否则同名文件会覆盖首轮采样）；OUT_DIR / RETEST_DIR / RETEST2_DIR / BASELINE_DIR 一并开放，
+// 是为了让端到端测试能在临时目录里跑完整三阶段流转与基线累积，不污染真实产物。
+// RETEST2_DIR 是确认轮采样（#294），与 RETEST_DIR 同理——同名文件会覆盖复测轮；
+// 漏掉它，端到端测试里的确认轮就会写到真实 `.perf-output/` 上去。
 const OUT_DIR = resolve(process.env.PERF_OUT_DIR ?? ".perf-output");
 const RAW_DIR = resolve(process.env.PERF_RAW_DIR ?? ".perf-output/raw");
 const RETEST_DIR = resolve(process.env.PERF_RETEST_DIR ?? ".perf-output/raw-retest");

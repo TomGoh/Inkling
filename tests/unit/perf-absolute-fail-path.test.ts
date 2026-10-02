@@ -8,7 +8,8 @@
 // 时，掉帧率超标却拿到绿灯。
 //
 // 之前没暴露的原因：人工构造验证时直接摆好了 raw-retest 文件，绕过了 check→复测这一环。
-// 所以这里用子进程真实调用 report.mjs 跑完整两阶段，断言"check 阶段必须列出该场景"。
+// 所以这里用子进程真实调用 report.mjs 跑完整三阶段（check / confirm / final，#294 起），
+// 断言"check 阶段必须列出该场景"。
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -30,7 +31,7 @@ const roots: string[] = [];
 let perf: PerfReportWorkspace;
 
 beforeEach(() => {
-  // 四个目录全隔离（含 BASELINE）——隔离标准见 perf-report-env.ts
+  // 五个目录全隔离（含 BASELINE 与 RETEST2，#294）——隔离标准见 perf-report-env.ts
   perf = createPerfReportWorkspace("perf-abs-");
   roots.push(perf.root);
 });
@@ -85,7 +86,7 @@ function writeRaw(
   writeFileSync(join(target, `${ID}.json`), JSON.stringify(rawFor(jankRatePct, eligible), null, 2), "utf8");
 }
 
-/** 真实调用 report.mjs（两阶段之一），返回退出码与输出 */
+/** 真实调用 report.mjs（三个相位之一：`check` / `confirm` / `final`），返回退出码与输出 */
 function runReport(phase: "check" | "final"): RunResult {
   // 判定资格完全由 raw 里的 absoluteEligible 决定；继承来的 PERF_*（含 PERF_ABSOLUTE）
   // 已由 perf.env() 统一剥离，避免开发者 shell 的 export 改变被测行为
