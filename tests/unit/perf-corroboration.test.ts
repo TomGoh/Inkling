@@ -139,12 +139,10 @@ function rawFor({
   };
 }
 
-function writeRaw(dir: "raw" | "raw-retest", options: RawOptions): void {
-  writeFileSync(
-    join(dir === "raw" ? perf.rawDir : perf.retestDir, `${ID}.json`),
-    JSON.stringify(rawFor(options), null, 2),
-    "utf8",
-  );
+function writeRaw(dir: "raw" | "raw-retest" | "raw-retest2", options: RawOptions): void {
+  const target =
+    dir === "raw" ? perf.rawDir : dir === "raw-retest" ? perf.retestDir : perf.retest2Dir;
+  writeFileSync(join(target, `${ID}.json`), JSON.stringify(rawFor(options), null, 2), "utf8");
 }
 
 function runReport(phase: "check" | "final"): RunResult {
@@ -197,15 +195,34 @@ describe("派生指标的佐证基准（#270）", () => {
     expect(result.status).toBe(0);
   });
 
-  it("主指标两轮都超 → 派生指标照常判 FAIL，exit 1（护栏：真回归不许被降级）", () => {
+  it("主指标三轮都超 → 派生指标照常判 FAIL，exit 1（护栏：真回归不许被降级）", () => {
     writeRaw("raw", { frameP95: 31.2, longFrameCount: 8 });
     writeRaw("raw-retest", { frameP95: 30.5, longFrameCount: 8.5 });
+    // #294：FAIL 须由第三个独立 runner 确认，故"复现"用例必须补第三轮并登记候选。
+    // 佐证基准同步扩到三轮：主指标三轮都超才给派生指标发豁免券。
+    writeRaw("raw-retest2", { frameP95: 30.8, longFrameCount: 8.6 });
+    perf.writeConfirmCandidates([ID]);
 
     const result = runReport("final");
 
-    expect(row("frameMs.p95")).toContain("FAIL（复测仍超阈值）");
-    expect(row("longFrameCount")).toContain("FAIL（复测仍超阈值）");
+    expect(row("frameMs.p95")).toContain("FAIL（复测仍超阈值 + 末轮仍超）");
+    expect(row("longFrameCount")).toContain("FAIL（复测仍超阈值 + 末轮仍超）");
     expect(result.status).toBe(1);
+  });
+
+  it("佐证扩到三轮：主指标仅两轮超、确认轮回落 → 派生指标三轮都超也不得判 FAIL（#270 × #294）", () => {
+    // 这是本文件在 #294 之后最关键的一条：佐证基准若仍停在两轮，
+    // 一个"末轮已回落"的主指标仍会给派生指标发豁免券，在三段路径上重演 #270。
+    writeRaw("raw", { frameP95: 31.2, longFrameCount: 8 }); // 主指标超
+    writeRaw("raw-retest", { frameP95: 30.5, longFrameCount: 8.5 }); // 主指标超
+    writeRaw("raw-retest2", { frameP95: 23.0, longFrameCount: 8.6 }); // 主指标回落
+    perf.writeConfirmCandidates([ID]);
+
+    const result = runReport("final");
+
+    expect(row("frameMs.p95")).toContain("WARN（末轮回落（抖动））");
+    expect(row("longFrameCount")).toContain("WARN（派生指标无主指标佐证（疑似运行抖动））");
+    expect(result.status).toBe(0);
   });
 
   it("场景内没有主指标参与 → 派生指标只提示 WARN（与修复前一致）", () => {
@@ -223,20 +240,20 @@ describe("派生指标的佐证基准（#270）", () => {
   it("绝对行不受佐证约束：只有绝对行 FAIL 时照常 exit 1", () => {
     // 相对行全部不超（frameMs.p95 = 23.0），只有绝对行超：
     // 帧预算 16.7ms → 绝对 p95 门槛 2×16.7 = 33.4ms；掉帧率门槛 10%
-    writeRaw("raw", { frameP95: 23.0, longFrameCount: 8, jankRatePct: 20, absoluteEligible: true });
-    writeRaw("raw-retest", {
-      frameP95: 23.0,
-      longFrameCount: 8.5,
-      jankRatePct: 20,
-      absoluteEligible: true,
-    });
+    // #294：绝对行同样需要第三个 runner 确认——它此前也是「双超即判 FAIL」，
+    // 不补确认轮就会成为假 FAIL 的漏网口。
+    const absolute = { frameP95: 23.0, jankRatePct: 20, absoluteEligible: true };
+    writeRaw("raw", { ...absolute, longFrameCount: 8 });
+    writeRaw("raw-retest", { ...absolute, longFrameCount: 8.5 });
+    writeRaw("raw-retest2", { ...absolute, longFrameCount: 8.5 });
+    perf.writeConfirmCandidates([ID]);
 
     const result = runReport("final");
 
     // 相对派生行仍因「无主指标佐证」只提示 WARN（说明佐证守卫只作用于相对行）
     expect(row("longFrameCount")).toContain("WARN（派生指标无主指标佐证（疑似运行抖动））");
     // 绝对行自己照常判 FAIL（它是派生指标名，但不吃佐证规则）
-    expect(reportTable()).toMatch(/jankRatePct\(绝对\).*FAIL/);
+    expect(reportTable()).toMatch(/jankRatePct\(绝对\).*FAIL（复测仍超帧预算 \+ 末轮仍超）/);
     expect(result.status).toBe(1);
   });
 });

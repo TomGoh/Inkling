@@ -5,7 +5,7 @@
 // 编排分支一旦写错，后果是"没复测"被当成"没回归"——所以把决策抽成纯函数并在这里锁死。
 
 import { describe, expect, it } from "vitest";
-import { planRetestPhases } from "../perf/retest-plan.js";
+import { planConfirmPhases, planRetestPhases } from "../perf/retest-plan.js";
 
 describe("复测阶段编排（#234：复测必须换 runner）", () => {
   it("常规运行（未拆 job）：测 → check →（复测）→ final 都在同一 job 内", () => {
@@ -56,5 +56,51 @@ describe("复测阶段编排（#234：复测必须换 runner）", () => {
   it("suspects 缺省/非数组时不炸：按「无嫌疑」处理", () => {
     expect(planRetestPhases({ splitRetest: true, retestOnly: false }).action).toBe("all");
     expect(planRetestPhases({ splitRetest: true, retestOnly: false }).suspects).toBe(0);
+  });
+});
+
+// 确认轮（第三轮）编排（#294）：FAIL 必须由第三个独立 runner 确认。
+//
+// #234 把复测拆到新 runner 挡住了「单会话慢」，但挡不住**两个会话同时被拖慢**——
+// 共享 runner 池内跨工作流的并发（自家 Build/test、打包、其他 Benchmark）会让
+// 同一测量窗口里的两台 VM 一起变慢，双超阈值成立而结论是错的。
+// 编排分支写错的后果：要么「该确认却没确认」（假 FAIL 复发），要么「没候选也起 job」（白付成本）。
+describe("确认轮阶段编排（#294：FAIL 必须由第三个 runner 确认）", () => {
+  it("CI 复测 job + 有确认候选 → 移交独立 job 在第三个 runner 上跑", () => {
+    expect(planConfirmPhases({ splitRetest: true, candidates: ["scroll-M-rich"] })).toEqual({
+      action: "handoff",
+      candidates: 1,
+      handoff: true,
+    });
+  });
+
+  it("CI 复测 job + 无候选 → 就地出 final（常规路径零额外开销）", () => {
+    expect(planConfirmPhases({ splitRetest: true, candidates: [] })).toEqual({
+      action: "finalize",
+      candidates: 0,
+      handoff: false,
+    });
+  });
+
+  it("本地单进程 + 有候选 → 仍 finalize：本地没有下一个 job，硬移交等于不判结论", () => {
+    // 这一条最容易写错：本地流程固定是 R1→R2→R3→final，硬要 handoff 会让
+    // 「有候选」变成「永远不出结论」。
+    const plan = planConfirmPhases({ splitRetest: false, candidates: ["scroll-M-rich"] });
+    expect(plan.action).toBe("finalize");
+    expect(plan.candidates).toBe(1);
+    expect(plan.handoff).toBe(false);
+  });
+
+  it("本地单进程 + 无候选 → finalize（两轮直接出结论）", () => {
+    expect(planConfirmPhases({ splitRetest: false, candidates: [] })).toEqual({
+      action: "finalize",
+      candidates: 0,
+      handoff: false,
+    });
+  });
+
+  it("candidates 缺省/非数组时不炸：按「无候选」处理", () => {
+    expect(planConfirmPhases({ splitRetest: true }).action).toBe("finalize");
+    expect(planConfirmPhases({ splitRetest: true }).candidates).toBe(0);
   });
 });

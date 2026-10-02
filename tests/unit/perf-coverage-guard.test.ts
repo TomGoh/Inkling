@@ -61,7 +61,7 @@ function writeRaw(
   writeFileSync(join(perf.rawDir, `${id}.json`), JSON.stringify(raw, null, 2), "utf8");
 }
 
-/** 写一份复测轮 raw（raw-retest 目录）：结构与首轮一致，供"两轮对账"类用例使用 */
+/** 写一份复测轮 raw（raw-retest 目录）：结构与首轮一致，供"多轮对账"类用例使用 */
 function writeRetest(
   id = ID,
   frameMs = Array.from({ length: 120 }, (_, i) => 16.7 + (i % 3) * 0.1),
@@ -95,6 +95,49 @@ function writeRetest(
     },
   };
   writeFileSync(join(perf.retestDir, `${id}.json`), JSON.stringify(raw, null, 2), "utf8");
+}
+
+/**
+ * 写一份确认轮 raw（raw-retest2 目录，issue #294）。
+ *
+ * #294 起 FAIL 必须由**第三个独立 runner** 上的会话确认，所以「复现」类用例必须补上这一轮，
+ * 且必须在 `retest2.json` 里把该场景登记为确认候选（编排就是这么约定的）。
+ * 不写候选清单时，final 会把双超场景判成 UNCONFIRMED（老产物语义，见 perf-retest2-verdict）。
+ */
+function writeConfirm(
+  id = ID,
+  frameMs = Array.from({ length: 120 }, (_, i) => 16.7 + (i % 3) * 0.1),
+  extraScalars: Record<string, number> = {},
+): void {
+  const raw = {
+    id,
+    scenario: "scroll",
+    tier: "S",
+    kind: "rich",
+    env: "local",
+    profile: "quick",
+    rounds: 2,
+    warmups: 1,
+    mode: "headless",
+    absoluteEligible: false,
+    fixture: { version: 2, hash: "coverage0001", lines: 1000, source: "generated:rich" },
+    samples: { frameMs },
+    scalars: {
+      frameBudgetMs: 16.7,
+      jankFactor: 1.5,
+      step: 240,
+      jankCount: 0,
+      jankRatePct: 0,
+      longFrameCount: 0,
+      longTaskCount: 0,
+      longTaskMs: 0,
+      cls: 0,
+      heapDeltaMB: 0,
+      ...extraScalars,
+    },
+  };
+  writeFileSync(join(perf.retest2Dir, `${id}.json`), JSON.stringify(raw, null, 2), "utf8");
+  perf.writeConfirmCandidates([id]);
 }
 
 /** 明文超阈值的采样（对基线 16.8ms 约 +79%），用来造"复现的回归" */
@@ -261,7 +304,7 @@ describe("判定覆盖守卫（PERF_REQUIRE_COMPARISON）", () => {
   });
 
   it("覆盖不足优先于 exit 1：同时存在回归复现时，仍以 exit 2 报出「结论不完整」并列出 FAIL", () => {
-    // A 场景：可比基线 + 复测复现的回归（raw 与 raw-retest 均为同一份超阈值采样）
+    // A 场景：可比基线 + 三轮复现的回归（#294：FAIL 须由确认轮确认，故补第三轮）
     const A = "scroll-C-coverA";
     const B = "scroll-C-coverB";
     writeRaw(A);
@@ -269,6 +312,8 @@ describe("判定覆盖守卫（PERF_REQUIRE_COMPARISON）", () => {
     const regressed = Array.from({ length: 120 }, (_, i) => 30 + (i % 3) * 0.1); // 相对 +79%
     writeRaw(A, regressed);
     writeFileSync(join(perf.retestDir, `${A}.json`), readFileSync(join(perf.rawDir, `${A}.json`), "utf8"));
+    writeFileSync(join(perf.retest2Dir, `${A}.json`), readFileSync(join(perf.rawDir, `${A}.json`), "utf8"));
+    perf.writeConfirmCandidates([A]);
     // B 场景：完全没有基线 → 覆盖 1/2
     writeRaw(B);
 
@@ -373,7 +418,7 @@ describe("会话标定归因（#236）", () => {
     expect(report()).not.toContain("本次没有复测轮");
   });
 
-  it("两轮对账①：复测那台机器慢 → 提示 FAIL 可能被复测环境放大（评审 P2-1 后果 b）", () => {
+  it("两轮对账①：复测那台机器慢 → 提示双超未必成立，并强制进入确认轮（评审 P2-1 后果 b）", () => {
     // 只看首轮会写「环境正常」，恰好丢弃了唯一能识破这次假 FAIL 的证据（复测侧 probe）。
     writeBaseline(frameAndProbeBaseline);
     writeRaw(ID, REGRESSED_FRAME_MS, { probeMs: 100 }); // 首轮：机器正常，指标超阈值
@@ -382,21 +427,40 @@ describe("会话标定归因（#236）", () => {
     runReport("final");
 
     expect(report()).toContain("复测环境异常");
-    expect(report()).toContain("FAIL 未必成立");
-    expect(report()).not.toContain("回归在「两台 runner 上复现」");
+    // #294：复测越界的场景被**强制并入确认轮候选**，文案随之改写——
+    // 「FAIL 未必成立」在有确认轮的前提下已不准确（真正的问题变成「双超未必成立」）
+    expect(report()).toContain("双超未必成立");
+    expect(report()).toContain("强制进入确认轮");
+    expect(report()).not.toContain("回归在「多个 runner 上复现」");
   });
 
-  it("两轮对账②：首轮慢但复测（另一台 runner）仍复现 → 判「回归在两台 runner 上复现」（评审 P2-1 后果 a）", () => {
+  it("两轮对账②：首轮慢但复测（另一台 runner）仍复现、确认轮再复现 → 判「回归在多个 runner 上复现」（评审 P2-1 后果 a）", () => {
     // 旧实现只说首轮 → 会写「请换 runner 重跑确认」，而换 runner 恰恰已经做过了。
+    // #294 起是三个 runner：首轮慢、复测与确认轮都正常且都复现 → FAIL 不能归因于机器档位。
     writeBaseline(frameAndProbeBaseline);
     writeRaw(ID, REGRESSED_FRAME_MS, { probeMs: 140 }); // 首轮：机器慢 + 指标超阈值
-    writeRetest(ID, REGRESSED_FRAME_MS, { probeMs: 100 }); // 复测：机器正常，仍超阈值 → 复现
+    writeRetest(ID, REGRESSED_FRAME_MS, { probeMs: 100 }); // 复测：机器正常，仍超阈值
+    writeConfirm(ID, REGRESSED_FRAME_MS, { probeMs: 100 }); // 确认轮：第三台 runner，正常，仍复现
 
     const result = runReport("final");
 
-    expect(result.status).toBe(1); // FAIL 复现
-    expect(report()).toContain("回归在「两台 runner 上复现」");
+    expect(result.status).toBe(1); // 三轮复现 → FAIL
+    expect(report()).toContain("回归在「多个 runner 上复现」");
     expect(report()).not.toContain("请换 runner 重跑确认");
+  });
+
+  it("标定越界不 suppress FAIL：确认轮在范围内时三轮复现照常判 FAIL（#294 D2 的边界）", () => {
+    // 越界只决定「要不要再验一轮」，不决定「判不判 FAIL」——
+    // 否则就退化成 issue 明确否掉的「拿标定当抑制门禁」（实测越界既非必要也非充分）。
+    writeBaseline(frameAndProbeBaseline);
+    writeRaw(ID, REGRESSED_FRAME_MS, { probeMs: 100 });
+    writeRetest(ID, REGRESSED_FRAME_MS, { probeMs: 100 });
+    writeConfirm(ID, REGRESSED_FRAME_MS, { probeMs: 100 }); // 范围内（门槛 101×1.1=111.1）
+
+    const result = runReport("final");
+
+    expect(result.status).toBe(1);
+    expect(report()).toContain("FAIL");
   });
 
   it("标定负载正常 → 判「环境正常」，恶变不归因于机器", () => {
@@ -452,28 +516,34 @@ describe("范围内偏慢会话的归因披露（#259）", () => {
     probeMs: { median: 41.2, p95: 41.2, max: 41.2, n: 3, history: [30.95, 50.85, 41.2] },
   };
 
-  it("两轮都在范围内但均偏慢：两轮偏差都披露，且不再断言「机器档位不足以解释它」", () => {
+  it("两轮都在范围内但均偏慢：各轮偏差都披露，且不再断言「机器档位不足以解释它」", () => {
     writeBaseline(probe259Baseline);
     writeRaw(ID, REGRESSED_FRAME_MS, { probeMs: 44.4 }); // 首轮 +7.8%（实录 44.4 / 参考 41.2）
     writeRetest(ID, REGRESSED_FRAME_MS, { probeMs: 49.6 }); // 复测 +20.4%，两轮均未超历史范围
+    // #294：三轮都复现才判 FAIL。确认轮同样落在范围内且偏慢（+20.4% 量级），
+    // 于是「范围内偏慢的三轮会话仍能顶出 FAIL」这条边界在第三轮上继续成立。
+    writeConfirm(ID, REGRESSED_FRAME_MS, { probeMs: 49.6 });
 
     const result = runReport("final");
 
-    expect(result.status).toBe(1); // 判定语义不变：仍判 FAIL（本 issue 只订正归因披露）
+    expect(result.status).toBe(1); // 归因披露语义不变：三轮复现仍判 FAIL
     expect(report()).toContain("环境在历史范围内");
     expect(report()).toContain("基线参考 41.2ms"); // 展示值不带浮点噪声
     expect(report()).toContain("首轮比基线参考慢 7.8%");
     // 旧实现只报首轮，这条断言在旧文案下必红——复测那台更慢时漏掉的正是关键证据
     expect(report()).toContain("复测比基线参考慢 20.4%");
+    // #294 起是三轮对账，确认轮的偏差同样必须披露
+    expect(report()).toContain("确认比基线参考慢 20.4%");
     expect(report()).toContain("不能据此排除环境");
     expect(report()).toContain("换 runner 重跑");
     expect(report()).not.toContain("机器档位不足以解释它");
   });
 
-  it("首轮缺标定数据：不伪造首轮偏差，复测侧照常披露", () => {
+  it("首轮缺标定数据：不伪造首轮偏差，复测/确认侧照常披露", () => {
     writeBaseline(probe259Baseline);
     writeRaw(ID, REGRESSED_FRAME_MS); // 老产物：没有 probeMs
     writeRetest(ID, REGRESSED_FRAME_MS, { probeMs: 49.6 });
+    writeConfirm(ID, REGRESSED_FRAME_MS, { probeMs: 49.6 });
 
     expect(runReport("final").status).toBe(1);
     expect(report()).toContain("首轮无标定数据");

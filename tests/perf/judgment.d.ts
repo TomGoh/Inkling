@@ -98,6 +98,13 @@ export function resolutionPct(
   entry: MetricEntry | undefined | null,
   statistic?: "median" | "p95",
 ): number | null;
+/**
+ * 多轮聚合（issue #294）：`FAIL ⟺ 参与判定的每一轮都超阈值`（末轮仍超才算确认）。
+ *
+ * `overRounds` 只能包含**实际参与判定**的轮次、按轮次顺序排列，且必须由调用方
+ * 区分「未超」（false）与「缺失」（不应出现——缺失场景走 UNCONFIRMED 分支）。
+ */
+export function confirmVerdict(overRounds: boolean[]): "pass" | "warn" | "fail";
 /** 3σ 达到参考值这个百分比时，报告会显式列出该指标（默认 30） */
 export const RESOLUTION_WARN_PCT: number;
 /** 会话标定指标（进基线但不参与判定，issue #236） */

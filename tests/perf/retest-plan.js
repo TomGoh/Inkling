@@ -24,3 +24,32 @@ export function planRetestPhases({ splitRetest, retestOnly, suspects }) {
   if (splitRetest && count > 0) return { action: "measure", suspects: count, handoff: true };
   return { action: "all", suspects: count, handoff: false };
 }
+
+/**
+ * 确认轮（第三轮）编排（issue #294）——纯函数，供 benchmark.mjs 与单测共用。
+ *
+ * ## 为什么需要第三轮
+ *
+ * `planRetestPhases` 解决的是「两轮不同 runner」，但**两个会话可以同时被拖慢**：
+ * 共享 runner 池内跨工作流的并发（自家 Build/test、打包、其他 Benchmark）会让
+ * 同一次测量窗口里的两台 VM 一起变慢，于是 `FAIL ⟺ R1 ∧ R2` 成立而结论是错的
+ * （2026-09-30 实证 3 例，换 runner 静默复跑全部证伪）。
+ * 根治办法是：FAIL 必须由**第三个独立 runner** 上的会话确认。
+ *
+ * ## action 语义
+ *
+ * - `"handoff"`：有确认候选且本次运行处在拆分编排里 → 本 job 只做
+ *   （复测 + confirm），把「测确认轮 + final」移交下一个 job 在新 runner 上跑。
+ * - `"finalize"`：没有确认候选（或本地单进程）→ 本 job 自己跑完剩余阶段并出 final。
+ *
+ * ⚠️ `splitRetest: false`（本地单进程 `pnpm run benchmark`）时**不采纳** handoff：
+ * 本地没有下一个 job，硬要移交等于「有候选但不判出结论」。此时有候选就在
+ * **同一进程**里跑第三轮（与 R2 同样的同 runner 限制，D7 保持现状口径）。
+ */
+export function planConfirmPhases({ splitRetest, candidates }) {
+  const count = Array.isArray(candidates) ? candidates.length : 0;
+  // retest2Only（PERF_RETEST2_ONLY=1）本身就是「下一个 job」：候选必然非空，
+  // 交给上游决定是否起第三个 job，本函数不参与该分支。
+  if (splitRetest && count > 0) return { action: "handoff", candidates: count, handoff: true };
+  return { action: "finalize", candidates: count, handoff: false };
+}
