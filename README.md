@@ -188,6 +188,7 @@ pnpm run benchmark
 > 浏览器 `pnpm dev` 模式下会使用 mock 工作区，方便脱离 Tauri 环境调试 UI。
 > GitHub Action 每次 push/tag 会自动跑全部测试，测试失败阻断构建。
 > 性能 Benchmark 的判定规则（噪声门槛 3σ、判定分层、基线维护）见 [CONTRIBUTING.md](./CONTRIBUTING.md) 的「性能 Benchmark」章节。
+> 发版的五阶段流程与「发版检查清单」见 [docs/发布流程.md](./docs/发布流程.md)。
 
 ## 版本记录
 
