@@ -90,10 +90,15 @@ export function resolveRunMode(env = {}) {
 /**
  * 本次运行「处在拆分编排里吗」——决定要不要把 final 移交给下一个 job。
  *
- * 三个 job 都**必须**由工作流显式传 `PERF_SPLIT_RETEST=1`（P0 的教训）：
+ * ⚠️ 只有**前两个** job 由工作流传 `PERF_SPLIT_RETEST=1`（P0 的教训）：
  * - `measure` job：传了才会在有嫌疑时移交复测；
- * - `retest` job：**传了才会在有确认候选时移交确认轮**（漏掉就是 P0）；
- * - `retest2` job：已经是最后一个 job，此处返回 true 但不再有任何移交决策用到它。
+ * - `retest` job：**传了才会在有确认候选时移交确认轮**（漏掉就是 P0——
+ *   确认轮会退化成与 R2 同 runner，tag 发版验证以假 FAIL 收尾）。
+ *
+ * `retest2`（确认轮）是**最后一个 job**，在 `planRetestPhases` / `planConfirmPhases`
+ * 之前就 `process.exit` 了，**不参与任何移交决策**——工作流刻意**不传**该变量，
+ * `perf-orchestration.test.ts` 也断言它不设。别"顺手补上"：那既无作用，
+ * 又会让守卫测试当场变红（文档要求一个测试禁止的动作 = 陷阱）。
  *
  * 本地单进程（`pnpm run benchmark`，不带任何 PERF_*_ONLY）返回 false，
  * 三轮在同一进程内顺序跑完——与 D7 的既有口径一致（同 runner 限制照旧，只是本地便利通道）。

@@ -55,8 +55,10 @@ export function resolveRunMode(env?: Record<string, string | undefined>): RunMod
 /**
  * 本次运行是否处在拆分编排里（决定要不要把 final 移交给下一个 job）。
  *
- * ⚠️ 三个 CI job 都**必须**由工作流显式传 `PERF_SPLIT_RETEST=1`：
+ * ⚠️ 只有 `benchmark`（测量）与 `retest`（复测）两个 job 由工作流传 `PERF_SPLIT_RETEST=1`。
  * `retest` job 漏传会让确认轮永不移交（#294 评审 P0：第三轮退化成与 R2 同 runner，
- * tag 运行以假 FAIL 收尾）。本地单进程不带该变量，返回 false。
+ * tag 运行以假 FAIL 收尾）。
+ * `retest2`（确认轮）是最后一个 job，不参与移交决策，工作流**刻意不传**该变量。
+ * 本地单进程不带该变量，返回 false。
  */
 export function isSplitPipeline(env?: Record<string, string | undefined>): boolean;

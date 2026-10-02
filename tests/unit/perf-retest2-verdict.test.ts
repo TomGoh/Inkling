@@ -173,7 +173,17 @@ function report(): string {
 function latest(): {
   rounds: { measured: boolean; retest: boolean; confirm: boolean };
   unconfirmed: string[];
-  results: Array<{ id: string; metrics: Array<{ metric: string; verdict: string; retest2?: number }> }>;
+  results: Array<{
+    id: string;
+    metrics: Array<{ metric: string; verdict: string; retest2?: number }>;
+    /** #294 确认轮字段——下面那条「字段集一致」用例要逐项比对，故先在此声明 */
+    baselineState?: string;
+    confirmExpected?: boolean;
+    confirmMeasured?: boolean;
+    confirmTrusted?: boolean;
+    confirmMissingReason?: string | null;
+    unconfirmed?: boolean;
+  }>;
 } {
   return JSON.parse(readFileSync(join(perf.outDir, "latest.json"), "utf8"));
 }
@@ -479,5 +489,48 @@ describe("确认轮判定（#294：假 FAIL 根治）", () => {
     expect(report()).not.toContain("| FAIL");
     expect(result.status).toBe(0);
     expect(latest().rounds).toEqual({ measured: true, retest: false, confirm: false });
+  });
+
+  it("latest.json 的确认轮字段集在所有场景上一致（含合成对象，#294 R-2）", () => {
+    // 合成「未测量场景」对象时曾漏置 confirmTrusted / confirmMissingReason，
+    // 而注释写的是「新字段一律置空」——结果是同一份 schema 出现两种形状，
+    // 下游按 confirmTrusted 读会拿到 undefined 而非 false/true。
+    // 这里逐项比对**键的集合**，不比对值（值随场景而异）。
+    writeRound("raw", { searchMedian: 549.5, probeMs: PROBE_OK });
+    // 造一个 UNMEASURED 场景：playwright 报告（OUT_DIR/pw-report.json）由最终相位读取，
+    // 写一份声称含两个场景、而 raw 只有一份 → 另一个被合成为 UNMEASURED。
+    // ⚠️ 状态必须用 timedOut（不是 skipped）：`expectedScenarioIds` **故意排除 skipped**
+    // （复测过滤是合法跳过），用它合成不出来。
+    writeFileSync(
+      join(perf.outDir, "pw-report.json"),
+      JSON.stringify({
+        suites: [
+          { specs: [{ title: ID, tests: [{ results: [{ status: "passed" }] }] }] },
+          {
+            specs: [
+              { title: "search-S-missing", tests: [{ results: [{ status: "timedOut" }] }] },
+            ],
+          },
+        ],
+      }),
+      "utf8",
+    );
+
+    runReport("final");
+
+    const results = latest().results;
+    expect(results.length).toBeGreaterThan(1);
+    const keysOf = (r: (typeof results)[number]) => Object.keys(r).sort();
+    const normal = results.find((r) => r.id === ID)!;
+    const unmeasured = results.find((r) => r.baselineState?.startsWith("UNMEASURED"))!;
+    expect(unmeasured, "本用例需要至少一个合成出来的 UNMEASURED 场景").toBeDefined();
+    // 键集合必须逐一相同——这是「字段集一致」的真正判据
+    expect(keysOf(unmeasured)).toEqual(keysOf(normal));
+    // 且合成对象的确认轮字段必须显式为「不适用」，而不是缺省
+    expect(unmeasured.confirmExpected).toBe(false);
+    expect(unmeasured.confirmMeasured).toBe(false);
+    expect(unmeasured.confirmTrusted).toBe(true);
+    expect(unmeasured.confirmMissingReason).toBeNull();
+    expect(unmeasured.unconfirmed).toBe(false);
   });
 });

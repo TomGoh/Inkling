@@ -854,9 +854,13 @@ function main() {
           metrics: [],
           overMetrics: [],
           sessionProbe: null,
-          // 合成对象没进任何轮次，#294 的新字段一律置空（它不参与判定，也不该被披露成候选）
+          // 合成对象没进任何轮次，#294 的新字段一律置空（它不参与判定，也不该被披露成候选）。
+          // 字段集必须与正常场景**完全一致**——否则 latest.json 里同一份 schema
+          // 会出现两种形状，下游按 confirmTrusted 读会拿到 undefined 而非 false。
           confirmExpected: false,
           confirmMeasured: false,
+          confirmTrusted: true, // 没有候选即无可不信之处
+          confirmMissingReason: null,
           unconfirmed: false,
         });
         unmeasuredIds.push(id);

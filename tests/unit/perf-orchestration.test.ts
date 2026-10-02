@@ -203,12 +203,14 @@ describe("工作流契约：三个 job 的编排变量（#294 P0 的守卫）", 
     expect(envOfBenchmarkStep("benchmark").PERF_SPLIT_RETEST).toBe("1");
   });
 
-  it("retest2 job 传 PERF_RETEST2_ONLY=1 且不传 RETEST_ONLY", () => {
+  it("retest2 job 传 PERF_RETEST2_ONLY=1，且**刻意不传** PERF_SPLIT_RETEST", () => {
     const env = envOfBenchmarkStep("retest2");
     expect(env.PERF_RETEST2_ONLY).toBe("1");
     expect(env.PERF_RETEST_ONLY).toBeUndefined();
-    // 它是最后一个 job，split 语义不再驱动任何移交
-    expect(env.PERF_SPLIT_RETEST).toBeUndefined();
+    // retest2 是最后一个 job：在 planRetestPhases / planConfirmPhases 之前就 exit 了，
+    // splitRetest 不参与任何决策。所以工作流**不传**它——「顺手补上」既无作用，
+    // 又会让本断言变红。文档（CONTRIBUTING 与 isSplitPipeline 的注释）已与此处对齐。
+    expect(env.PERF_SPLIT_RETEST, "retest2 不该设 PERF_SPLIT_RETEST（无移交决策要用它）").toBeUndefined();
   });
 
   it("retest2 仅在 retest job 给出候选时才起（if 读 suspects2，且 retest 导出了它）", () => {
