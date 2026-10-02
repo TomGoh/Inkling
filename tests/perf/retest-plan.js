@@ -15,8 +15,11 @@
  *
  * 为什么要有"移交"这一档：首轮与复测在同一台 runner 上顺序执行时，
  * 「整台 runner 变慢」（共享宿主机争用 / VM 放置差异）会让两轮同时超阈值，
- * 穿过「连续 2 次」判定——实测一次慢会话里 88% 的相对行同时变差、中位 Δ +18.7%，
+ * 穿过当时的「连续 2 次」判定——实测一次慢会话里 88% 的相对行同时变差、中位 Δ +18.7%，
  * 而同一份代码在安静时段测得完全正常。换 runner 后两轮才统计独立。
+ *
+ * ⚠️ 换 runner 仍不彻底：#294 实证**两个**会话可以同时被拖慢（跨工作流并发），
+ * 所以确认轮必须再上一个独立 runner——那是 `planConfirmPhases` 的职责。
  */
 export function planRetestPhases({ splitRetest, retestOnly, suspects }) {
   const count = Array.isArray(suspects) ? suspects.length : 0;
