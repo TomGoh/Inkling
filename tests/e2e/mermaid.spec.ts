@@ -137,4 +137,56 @@ test.describe("Mermaid 流程图渲染", () => {
     await insertMermaid(page, "garbage @@@ not valid");
     await expect(page.locator(".mermaid-error").first()).toBeVisible({ timeout: 15_000 });
   });
+
+  // #311（#223 移出项 I1）：工具栏按钮底色曾引用**全仓未定义**的 `--bg` → 暗色下回退 #fff 白块。
+  // 修法：改用已登记的 `--bg-elevated`（light 恰为 #ffffff → 零视觉回归；dark 跟随面板）。
+  test("M9 工具栏按钮底色跟随主题（暗色无白块、浅色不回归）", async ({ page }) => {
+    await insertMermaid(page, "graph TD; A-->B");
+    const btn = page.locator(".mermaid-block").first().locator(".mermaid-toolbar button").first();
+    await expect(btn).toBeAttached();
+
+    /**
+     * 一次 evaluate 里同时取「按钮常态底色」「当前 `--bg-elevated` 解析值」「data-theme」并判定是否一致。
+     * 必须轮询：`data-theme` 属性是**同步**写的，主题 CSS 是**微任务注入** → 立刻读会拿到上一主题的中间态。
+     * 另把指针移开，避开 hover 态（那是 `--row-hover-bg`，另一回事）。
+     */
+    const snapshot = async () => {
+      await page.mouse.move(2, 2);
+      return btn.evaluate((el) => {
+        const parse = (s: string) => {
+          const m = /rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(s);
+          return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+        };
+        const hex = getComputedStyle(document.documentElement)
+          .getPropertyValue("--bg-elevated")
+          .trim()
+          .replace("#", "");
+        const full = hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex;
+        const n = parseInt(full, 16);
+        const button = parse(getComputedStyle(el).backgroundColor);
+        const token = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+        return {
+          mode: document.documentElement.getAttribute("data-theme") ?? "",
+          follows: button !== null && button.join(",") === token.join(","),
+          sum: (button ?? [255, 255, 255]).reduce((a, b) => a + b, 0),
+        };
+      });
+    };
+    const settle = (mode: "light" | "dark") => async () => {
+      const s = await snapshot();
+      // 暗色额外要求「明显不是白块」（白块 sum = 765）
+      return `${s.mode}|${s.follows}|${mode === "dark" ? s.sum < 240 : s.sum > 700}`;
+    };
+
+    // 不假设默认态：应用跟随系统 `prefers-color-scheme`（本机/CI 可能是暗色）→ 显式切到基线浅色
+    await page.getByTitle("主题").click();
+    await page.locator('[data-theme-option="builtin:light"]').click();
+    // 浅色：白底（= 原回退值 → light 不回归）且跟随 token
+    await expect.poll(settle("light"), { timeout: 8000 }).toBe("light|true|true");
+
+    // 暗色：不再是白块，且**恰好跟随**该主题的 `--bg-elevated`
+    await page.getByTitle("主题").click();
+    await page.locator('[data-theme-option="builtin:tech-dark"]').click();
+    await expect.poll(settle("dark"), { timeout: 8000 }).toBe("dark|true|true");
+  });
 });
