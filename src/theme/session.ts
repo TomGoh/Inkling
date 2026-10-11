@@ -194,6 +194,24 @@ export function applyTheme(theme: AppTheme, options: ApplyThemeOptions = {}): vo
     injectThemeCss(css);
     if (theme.hash) writeSnapshot(theme.id, theme.hash, css);
   }
+
+  // #226：主题变化的**单一广播点**。CSS 类跟随由 `data-theme` 自动完成，
+  // 但「自带配色/布局配置」的渲染组件（Mermaid）必须显式失效缓存并重渲染——
+  // 它们不订阅 React store（有的是 NodeView/纯模块），故用 DOM 事件做单向通知，避免反向依赖。
+  notifyThemeChanged(theme.id, theme.mode);
+}
+
+/** 主题变化事件名（#226）：`window` 上的 `CustomEvent`，`detail = { themeId, mode }` */
+export const THEME_CHANGED_EVENT = "inkling:theme-changed";
+
+/** 广播主题变化（无 DOM 环境/构造失败时静默忽略：主题本身已生效，通知失败不该影响它） */
+export function notifyThemeChanged(themeId: string, mode: ThemeMode): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent(THEME_CHANGED_EVENT, { detail: { themeId, mode } }));
+  } catch {
+    /* 事件不可用（极端环境）→ 忽略 */
+  }
 }
 
 /** 卸载主题（回到「无主题样式」状态）；`data-theme` 仍保持（由调用方决定） */
