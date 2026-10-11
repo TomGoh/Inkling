@@ -1,0 +1,96 @@
+# 第三方主题许可与署名（随安装包分发）
+
+本文件随安装包分发（`$RESOURCE/themes/NOTICE`），列出随包第三方主题的版权声明与许可全文。
+仓库内另有发版登记 `docs/theme-licenses.json`（含逐文件 sha256）与署名清单 `THIRD-PARTY.md`。
+
+## `bundled:drake`、`bundled:drake-dark`
+
+- 上游：https://github.com/liangjingkanji/DrakeTyporaTheme（版本 `2.9.6`，commit `93187ff893a51177fc33421d3810acd37a5a7890`）
+- Copyright (c) 2023 劉強東
+- 随包文件：drake.css、drake-dark.css
+- 未随包资源：上游 `drake/font.css`（字体声明文件，其内 `@font-face` 引用的字体文件亦未随包）
+
+```text
+MIT License
+
+Copyright (c) 2023 劉強東
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## `bundled:lapis`、`bundled:lapis-dark`
+
+- 上游：https://github.com/YiNNx/typora-theme-lapis（版本 `v1.2.1`，commit `697a9c4f53e6f3653bec0395b2a6da984e41a0c4`）
+- Copyright (c) 2024 YiNN
+- 随包文件：lapis.css、lapis-dark.css
+- 未随包资源：上游 4 个字体文件（`Cantarell-VF-fixed.otf` 0.1 MB、`JetBrainsMono-Regular.ttf` 0.3 MB、`SourceHanSerifCN-Medium.ttf` 13.4 MB、`SourceHanSerifCN-Bold.ttf` 13.5 MB，合计 28.5 MB）
+
+```text
+MIT License
+
+Copyright (c) 2024 YiNN
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## `bundled:notion`、`bundled:notion-dark`
+
+- 上游：https://github.com/adrian-fuertes/typora-notion-theme（版本 `v1.2.1`，commit `e3d9a50524378a401df7bde792773e71f2a90cd6`）
+- Copyright (c) 2022 adrian-fuertes
+- 随包文件：notion.css、notion-dark.css
+
+```text
+MIT License
+
+Copyright (c) 2022 adrian-fuertes
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
