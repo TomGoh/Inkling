@@ -1,7 +1,8 @@
 // 导出功能：HTML / PDF
-// HTML：取编辑器渲染后的 DOM + 内联基础样式，打包成独立可打开的 html 文件
+// HTML：取编辑器渲染后的 DOM + 内联**当前文档的样式表**（含当前主题），打包成独立可打开的 html 文件
 // PDF：在新窗口打开 HTML 并调用浏览器打印（用户选「另存为 PDF」）
 // 这样不依赖外部 Pandoc，绿色版开箱即用。
+// #226：独立文档的主题跟随与「打印不裁切」口径见 `./exportTheme.ts`。
 
 import type { Editor } from "@milkdown/kit/core";
 import { editorViewCtx } from "@milkdown/kit/core";
@@ -12,6 +13,11 @@ import { useWorkspace } from "../store/workspace";
 import { resolvePathFromDocument, writeBinaryFile } from "./fs";
 import { showMessage } from "./dialogs";
 import { parseOutline } from "./outline";
+import {
+  buildThemedStandaloneHTML,
+  collectDocumentCss,
+  currentThemeDescriptor,
+} from "./exportTheme";
 
 /** 从编辑器获取渲染后的 HTML 内容 */
 function getEditorHTML(getEditor: () => Editor | undefined): string {
@@ -36,54 +42,19 @@ function getBaseName(): string {
   return f.split(/[\\/]/).pop()!.replace(/\.md$/i, "") || "untitled";
 }
 
-/** 生成完整的独立 HTML 文档（含内联样式，无外部依赖） */
-function buildStandaloneHTML(bodyHTML: string, title: string): string {
-  return `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${escapeHTML(title)}</title>
-<style>
-:root { color-scheme: light; }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  font-size: 16px; line-height: 1.6; color: #1f2328; background: #fff;
-  max-width: 780px; margin: 2rem auto; padding: 0 1rem;
-  -webkit-font-smoothing: antialiased;
-}
-h1,h2,h3,h4,h5,h6 { font-weight: 600; line-height: 1.25; margin: 1.5em 0 0.6em; }
-h1 { font-size: 1.9em; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
-h2 { font-size: 1.5em; border-bottom: 1px solid #d0d7de; padding-bottom: 0.3em; }
-h3 { font-size: 1.25em; } h4 { font-size: 1em; }
-p { margin: 0 0 0.8em; }
-a { color: #0969da; text-decoration: none; } a:hover { text-decoration: underline; }
-img { max-width: 100%; }
-code { font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.88em;
-  background: rgba(175,184,193,0.2); padding: 0.2em 0.4em; border-radius: 4px; }
-pre { background: #f6f8fa; padding: 0.9em; border-radius: 6px; overflow: auto; margin: 0 0 1em; }
-pre code { background: none; padding: 0; font-size: 0.85em; }
-blockquote { margin: 0 0 1em; padding: 0 1em; color: #57606a;
-  border-left: 0.25em solid #d0d7de; }
-table { border-collapse: collapse; margin: 0 0 1em; display: block; overflow: auto; }
-th, td { padding: 6px 13px; border: 1px solid #d0d7de; }
-th { font-weight: 600; background: #f6f8fa; }
-hr { border: none; border-top: 1px solid #d0d7de; margin: 1.5em 0; }
-ul, ol { padding-left: 2em; margin: 0 0 1em; }
-.math-inline .katex { font-size: 1.05em; }
-.math-display { margin: 0.75em 0; text-align: center; overflow-x: auto; }
-.mermaid-block { text-align: center; margin: 1em 0; }
-.mermaid-block svg { max-width: 100%; }
-@media print {
-  body { max-width: none; margin: 0; padding: 0.5cm; }
-  a { color: #000; }
-}
-</style>
-</head>
-<body>
-${bodyHTML}
-</body>
-</html>`;
+/**
+ * 生成导出用的独立 HTML 文档（#226 §4.2）：
+ * - 内联**当前文档的样式表**（原样、保持顺序，含各表的 `@layer` 归属）→ 主题/自定义 CSS 一并跟随；
+ * - 层序声明与 `index.html` 同句；纸张骨架未分层且只写结构属性（不盖主题颜色）；
+ * - 正文包回 `.editor-scroll > .milkdown`，并在 `<html>` 上写 `data-theme` / `data-theme-id`。
+ */
+async function buildStandaloneHTML(bodyHTML: string, title: string): Promise<string> {
+  const { sheets, skipped } = await collectDocumentCss();
+  if (skipped.length > 0) {
+    // 不静默：取不到样式表时给出可排查线索（导出产物会少那部分样式）
+    console.warn(`[export] ${skipped.length} 个样式表未能内联：${skipped.join("; ")}`);
+  }
+  return buildThemedStandaloneHTML(bodyHTML, title, sheets, currentThemeDescriptor(), escapeHTML);
 }
 
 function escapeHTML(s: string): string {
@@ -98,7 +69,7 @@ export async function exportHTML(
   const bodyHTML = getEditorHTML(getEditor);
   if (!bodyHTML) return;
   const name = getBaseName();
-  const fullHTML = buildStandaloneHTML(bodyHTML, name);
+  const fullHTML = await buildStandaloneHTML(bodyHTML, name);
 
   if (isTauri()) {
     const path = await save({
@@ -121,7 +92,7 @@ export async function exportPDF(
   const bodyHTML = getEditorHTML(getEditor);
   if (!bodyHTML) return;
   const name = getBaseName();
-  const fullHTML = buildStandaloneHTML(bodyHTML, name);
+  const fullHTML = await buildStandaloneHTML(bodyHTML, name);
 
   // 新窗口打开并等待完全加载后打印，避免白屏
   const win = window.open("", "_blank");
@@ -278,6 +249,12 @@ export async function exportPNG(
   // 这样 Callout/代码块/Mermaid/表格等自定义块在导出图中保留边框与配色。
   const themeRoot = document.createElement("div");
   themeRoot.setAttribute("data-theme", currentTheme);
+  // #226：连同 `data-theme-id` 一起复刻（与真实编辑器 DOM 属性一致；它只是元数据锚点，
+  // 但少了它，将来任何按 `[data-theme-id=…]` 写的规则在导出图里都会静默失效 → 现在起对齐）。
+  // 注意：**不再注入第二份主题 CSS**（A-4 禁止）——离屏容器在同一文档内，
+  // `<head>` 里已有的 `#inkling-theme`（`.editor-scroll .milkdown …` 后代选择器）天然命中它。
+  const currentThemeId = document.documentElement.getAttribute("data-theme-id");
+  if (currentThemeId) themeRoot.setAttribute("data-theme-id", currentThemeId);
   themeRoot.style.cssText =
     "position:fixed;left:-99999px;top:0;width:820px;box-sizing:border-box;";
 

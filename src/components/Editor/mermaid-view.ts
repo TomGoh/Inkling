@@ -36,6 +36,7 @@ import type { EditorView as PMView } from "@milkdown/kit/prose/view";
 import { isTauri } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeBinaryFile } from "../../lib/fs";
+import { THEME_CHANGED_EVENT } from "../../theme/session";
 /**
  * 专为 Mermaid 渲染定制的 SVG 安全过滤：
  * 使用 DOMParser text/html 惰性解析以避免 innerHTML 赋值期的 script/img-onerror 活跃执行，
@@ -121,13 +122,42 @@ export const MERMAID_CONFIG = {
   },
 } as const;
 
+/**
+ * #226：Mermaid 自身主题随应用主题的**明暗**切换（`default` / `dark`）。
+ * 判定只看 `data-theme`（与 App.css 变量块同一开关），不看具体 themeId ——
+ * 第三方主题若要自带 Mermaid 色板，后续可在这里扩 `themeVariables`，
+ * **但不得覆盖 `themeVariables.fontSize`**（v2.0.1 修过的「多行节点文字被裁切」依赖它）。
+ */
+export function mermaidThemeFor(mode: string | null | undefined): "default" | "dark" {
+  return mode === "dark" ? "dark" : "default";
+}
+
+/** 当前文档对应的 Mermaid 主题 */
+export function currentMermaidTheme(doc: Document = document): "default" | "dark" {
+  return mermaidThemeFor(doc.documentElement.getAttribute("data-theme"));
+}
+
+/** 按主题产出初始化配置（只换 `theme`，保留 `fontSize` 等锁定值不变） */
+export function mermaidConfigFor(
+  theme: "default" | "dark",
+): Omit<typeof MERMAID_CONFIG, "theme"> & { theme: "default" | "dark" } {
+  return { ...MERMAID_CONFIG, theme };
+}
+
 let initialized = false;
-/** issue #168：加载模块并确保已初始化，返回 mermaid 实例 */
+/** 已初始化的主题：主题变了必须**重新 initialize**，否则 Mermaid 仍按旧配色渲染 */
+let initializedTheme: "default" | "dark" | null = null;
+
+/** issue #168：加载模块并确保已初始化（#226：主题变化时重新初始化并作废旧缓存） */
 async function ensureMermaid(): Promise<MermaidModule> {
   const mermaid = await loadMermaid();
-  if (!initialized) {
-    mermaid.initialize(MERMAID_CONFIG);
+  const theme = currentMermaidTheme();
+  if (!initialized || initializedTheme !== theme) {
+    mermaid.initialize(mermaidConfigFor(theme));
     initialized = true;
+    initializedTheme = theme;
+    // 旧 SVG 是旧配色的产物 → 必须作废（否则缓存命中会让图表「保持旧色」）
+    clearMermaidCache();
   }
   return mermaid;
 }
@@ -144,18 +174,35 @@ interface MermaidCacheEntry {
 }
 const svgCache = new Map<string, MermaidCacheEntry>();
 const SVG_CACHE_MAX = 32;
-function cacheGet(src: string): MermaidCacheEntry | undefined {
-  const hit = svgCache.get(src);
+
+/**
+ * #226：缓存 key 必须并入**主题身份**。只用源码做 key 时，换主题后命中旧缓存 →
+ * 图表保持旧配色（实测的硬约束）。
+ */
+export function mermaidCacheKey(src: string, theme: "default" | "dark" = currentMermaidTheme()): string {
+  return `${theme}::${src}`;
+}
+
+/** 清空渲染缓存（换主题时由 `ensureMermaid` / 主题变化通知调用） */
+export function clearMermaidCache(): void {
+  svgCache.clear();
+}
+
+/** 主题变化后强制重渲染用的哨兵：不等于任何真实源码，故 `render` 不会短路 */
+export const MERMAID_THEME_REFRESH_SENTINEL = "__inkling_theme_refresh__";
+
+function cacheGet(key: string): MermaidCacheEntry | undefined {
+  const hit = svgCache.get(key);
   if (hit) {
     // LRU 触碰：移到末尾，淘汰时从最旧端删除
-    svgCache.delete(src);
-    svgCache.set(src, hit);
+    svgCache.delete(key);
+    svgCache.set(key, hit);
   }
   return hit;
 }
-function cachePut(src: string, entry: MermaidCacheEntry): void {
-  if (svgCache.has(src)) svgCache.delete(src);
-  svgCache.set(src, entry);
+function cachePut(key: string, entry: MermaidCacheEntry): void {
+  if (svgCache.has(key)) svgCache.delete(key);
+  svgCache.set(key, entry);
   if (svgCache.size > SVG_CACHE_MAX) {
     const oldest = svgCache.keys().next().value;
     if (oldest !== undefined) svgCache.delete(oldest);
@@ -163,11 +210,43 @@ function cachePut(src: string, entry: MermaidCacheEntry): void {
 }
 
 /**
+ * #226：主题变化时需重渲染的活动图表登记表。
+ * Mermaid 的 NodeView 不是 React 组件（不订阅 store），故由 `session` 广播 DOM 事件驱动。
+ */
+const themeInvalidators = new Set<() => void>();
+let themeListenerBound = false;
+
+function ensureThemeListener(): void {
+  if (themeListenerBound || typeof window === "undefined") return;
+  themeListenerBound = true;
+  window.addEventListener(THEME_CHANGED_EVENT, () => {
+    // 先作废旧配色产物，再让每个活动图表重画
+    clearMermaidCache();
+    for (const invalidate of [...themeInvalidators]) {
+      try {
+        invalidate();
+      } catch (err) {
+        console.warn("mermaid theme refresh failed:", err);
+      }
+    }
+  });
+}
+
+/** 登记「主题变化 → 重渲染」回调；返回注销函数（视图销毁/断开后应注销） */
+export function registerMermaidInvalidator(invalidate: () => void): () => void {
+  ensureThemeListener();
+  themeInvalidators.add(invalidate);
+  return () => {
+    themeInvalidators.delete(invalidate);
+  };
+}
+
+/**
  * 创建时的占位高度：命中缓存用实测高度（跳变为 0），
  * 未见过的源码按行数粗估，仅为缩小首次渲染的布局位移。
  */
 function estimateRenderHeight(src: string): number {
-  const cached = cacheGet(src);
+  const cached = cacheGet(mermaidCacheKey(src));
   if (cached) return cached.height;
   const lines = src.split("\n").length;
   return Math.min(640, Math.max(96, lines * 44 + 56));
@@ -264,7 +343,7 @@ export async function renderMermaidWithSeq(
   getCurrentSeq: () => number,
 ): Promise<string | null> {
   // 缓存命中无需加载 mermaid 模块（issue #168）
-  const cached = cacheGet(code)?.svg;
+  const cached = cacheGet(mermaidCacheKey(code))?.svg;
   if (cached) {
     if (seq !== getCurrentSeq()) return null;
     return cached;
@@ -276,7 +355,7 @@ export async function renderMermaidWithSeq(
     const result = await mermaid.render(id, code);
     const svg = result.svg;
     if (svg) {
-      cachePut(code, { svg, height: estimateRenderHeight(code) });
+      cachePut(mermaidCacheKey(code), { svg, height: estimateRenderHeight(code) });
     }
     if (seq !== getCurrentSeq()) return null;
     return svg ?? null;
@@ -367,8 +446,20 @@ export function createMermaidView(
   };
 
   let renderSeq = 0;
+  // #226：主题变化 → 清缓存 + 重渲染本图表（`render` 在同作用域稍后定义，回调触发时必然已就绪）。
+  // 视图已断开（切文件/重渲染被销毁）时自行注销，避免长期持有失效容器。
+  let renderFn: ((value: string) => Promise<void>) | null = null;
+  const unregisterThemeRefresh = registerMermaidInvalidator(() => {
+    if (!container.isConnected) {
+      unregisterThemeRefresh();
+      return;
+    }
+    lastValue = MERMAID_THEME_REFRESH_SENTINEL;
+    if (renderFn) void renderFn(current.textContent);
+  });
 
   const render = async (value: string) => {
+    renderFn = render;
     if (value === lastValue) return;
     lastValue = value;
     const currentSeq = ++renderSeq;
@@ -407,7 +498,7 @@ export function createMermaidView(
       // 首渲染取 max(占位, 实测)：占位偏大时保持不缩，注入零跳变
       const reserved = firstRender ? estimateRenderHeight(value) : 0;
       const height = diagram.offsetHeight;
-      const hit = cacheGet(value);
+      const hit = cacheGet(mermaidCacheKey(value));
       if (hit) hit.height = height;
       const appliedHeight = firstRender ? Math.max(height, reserved) : height;
       firstRender = false;
@@ -637,6 +728,9 @@ export function createMermaidView(
     destroy: () => {
       // 标记自增以中断未完成的异步渲染
       renderSeq++;
+      // #226：显式注销「主题变化 → 重渲染」登记（复核记录项）：不留 detached 容器引用，
+      // 也不依赖「下次换主题时的 isConnected 自清」
+      unregisterThemeRefresh();
       // 断开视口观察，清理 window 上的拖动监听器，避免内存泄漏
       io?.disconnect();
       io = null;

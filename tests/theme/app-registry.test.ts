@@ -16,6 +16,7 @@ import {
   userThemeFromFileName,
   type AppTheme,
 } from "../../src/theme/registry";
+import { BUILTIN_SELF_THEMES } from "../../src/theme/builtin-themes";
 
 afterEach(() => {
   resetRegisteredThemes();
@@ -30,14 +31,16 @@ describe("#225 §3.1 themeId 身份", () => {
     expect(isBuiltinThemeId("user:vue")).toBe(false);
   });
 
-  it("清单恒含两套内置基线且顺序稳定（其余按 id 排序）", () => {
+  it("清单恒含内置主题（基线 + 自研）且顺序稳定（其余按 id 排序）", () => {
     registerThemes([
       { id: "user:zebra", name: "Zebra", mode: "light", source: "user" },
       { id: "bundled:night", name: "Night", mode: "dark", source: "bundled" },
     ]);
+    // #226：内置 = 两套基线 + ≥4 套自研（自研顺序 = BUILTIN_SELF_THEMES 声明顺序，即菜单成对相邻）
     expect(listThemes().map((t) => t.id)).toEqual([
       BUILTIN_LIGHT_ID,
       BUILTIN_DARK_ID,
+      ...BUILTIN_SELF_THEMES.map((t) => t.id),
       "bundled:night",
       "user:zebra",
     ]);
@@ -107,11 +110,24 @@ describe("#225 G9 P2-4：快照适用性", () => {
   });
 });
 
-describe("#225：内置主题的 CSS 载体是契约化事实", () => {
-  it("builtin:light/dark 声明 css.kind = none（样式由 App.css 变量块 + data-theme 提供）", () => {
-    for (const t of listThemes().filter((x: AppTheme) => isBuiltinThemeId(x.id))) {
+describe("#225 / #226：内置主题的 CSS 载体是契约化事实", () => {
+  it("基线两套声明 css.kind = none（样式由 App.css 变量块 + data-theme 提供）", () => {
+    for (const id of [BUILTIN_LIGHT_ID, BUILTIN_DARK_ID]) {
+      const t = listThemes().find((x: AppTheme) => x.id === id)!;
       expect(t.css).toEqual({ kind: "none" });
       expect(t.source).toBe("builtin-base");
+    }
+  });
+
+  it("#226 自研主题声明 css.kind = text 且 source = builtin（构建期文本 → 同步注入、零闪烁）", () => {
+    expect(BUILTIN_SELF_THEMES.length).toBeGreaterThanOrEqual(4);
+    for (const self of BUILTIN_SELF_THEMES) {
+      const t = listThemes().find((x: AppTheme) => x.id === self.id)!;
+      expect(t.css?.kind).toBe("text");
+      expect(t.source).toBe("builtin");
+      // 内置身份：不可被注册覆盖、不走快照（快照只服务磁盘主题）
+      expect(isBuiltinThemeId(t.id)).toBe(true);
+      expect(isSnapshotEligible(t.id)).toBe(false);
     }
   });
 });

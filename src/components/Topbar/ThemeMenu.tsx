@@ -44,10 +44,12 @@ export function ThemeMenu({ open, onOpenChange }: ThemeMenuProps) {
   const customCSSPath = useTheme((s) => s.customCSSPath);
 
   const visible = themes.filter((t) => !hiddenBundled.includes(t.id));
-  const builtin = visible.filter((t) => t.source === "builtin-base");
-  const imported = visible.filter((t) => t.source !== "builtin-base");
+  // #226：内置 = 基线（builtin-base）+ 自研（builtin）；「已导入」只放第三方（bundled/user）
+  const builtin = visible.filter((t) => t.source === "builtin-base" || t.source === "builtin");
+  const imported = visible.filter((t) => t.source !== "builtin-base" && t.source !== "builtin");
   const current = themes.find((t) => t.id === themeId);
   const variant = current?.variantOf ? themes.find((t) => t.id === current.variantOf) : undefined;
+  // 内置主题（含自研）由应用管理：不提供「移除」，也不走第三方主题的「复制为我的主题」路径
   const currentIsEditable = current && current.source !== "builtin-base" && current.source !== "builtin";
 
   const modeIcon = (m: string) => (m === "dark" ? <IconMoon size={14} /> : <IconSun size={14} />);

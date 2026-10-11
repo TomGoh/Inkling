@@ -13,6 +13,8 @@ import {
   type ThemeDescriptor as TyporaDescriptor,
   type ThemeMode,
 } from "./typora/metadata";
+// #226 自研内置主题（值导入；本模块与 builtin-themes 之间只有**类型**反向依赖，无运行时环）
+import { BUILTIN_SELF_THEMES } from "./builtin-themes";
 
 /** 主题来源：决定可覆盖的 token 层（G4）与优先级（G6 §4.1） */
 export type AppThemeSource = "builtin-base" | "builtin" | "bundled" | "user";
@@ -54,6 +56,8 @@ export const DEFAULT_THEME_ID = BUILTIN_LIGHT_ID;
 export const BUILTIN_THEMES: readonly AppTheme[] = [
   { id: BUILTIN_LIGHT_ID, name: "浅色", mode: "light", source: "builtin-base", css: { kind: "none" } },
   { id: BUILTIN_DARK_ID, name: "深色", mode: "dark", source: "builtin-base", css: { kind: "none" } },
+  // #226：自研内置主题（≥4，只做 token 覆盖、构建期同步可得 → 零闪烁）
+  ...BUILTIN_SELF_THEMES,
 ];
 
 const BUILTIN_IDS = new Set(BUILTIN_THEMES.map((t) => t.id));
