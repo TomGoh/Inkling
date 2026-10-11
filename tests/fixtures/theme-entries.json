@@ -18,10 +18,8 @@
   "sourceScanFiles": [
     "src/components/Sidebar/DeletedSnapshots.tsx"
   ],
-  "//referencedUndefinedAllowlist": "S1 允许的「引用但全仓未定义」token；每条必须写明出处（评审：#223 只允许 I1 的 --bg）",
-  "referencedUndefinedAllowlist": [
-    { "token": "--bg", "reason": "issue-i1（#311）：Mermaid 工具栏按钮暗色白块，按 #223 裁决移出本批" }
-  ],
+  "//referencedUndefinedAllowlist": "S1 允许的「引用但全仓未定义」token 白名单。#311 修复后为空：任何 var(--x) 引用都必须有定义（新增条目须写明出处，且随对应 issue 收口时删除）。",
+  "referencedUndefinedAllowlist": [],
   "linkDialogClasses": [
     "link-dialog-modal",
     "link-dialog-close",
@@ -80,7 +78,8 @@
     "themeStyleElementId": "inkling-theme",
     "userStyleElementId": "inkling-custom-theme"
   },
-  "s9AllowMarkers": ["issue-i1"],
+  "//s9AllowMarkers": "允许出现的 s9-allow 豁免标记。#311 修复后为空 → 任何 s9-allow 标记都会让 S9 失败（硬编码色必须改成 token，而不是新开豁免）。",
+  "s9AllowMarkers": [],
   "//runtimeStyleSources": "S13 运行时口径（#310 评审阻塞项 1）：未分层规则只允许来自这些「无法入层」的第三方运行时注入源；应用自身 18 入口必须 100% 在层内。detect 由 theme-layers.spec.ts 实现。",
   "runtimeStyleSources": [
     {

@@ -21,7 +21,9 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
     }
   });
 
-  it("s9-allow 豁免标记只能引用清单登记的 marker（issue-i1 存量 --bg 白块）", () => {
+  // #311 收口：`s9AllowMarkers` 现已为空 → 任何 `s9-allow: <marker>` 都未登记，直接失败。
+  // （标记判定按**原文**匹配、不剥注释：注释里出现字面量也会被算作一次使用，故注释不能写该字面量。）
+  it("s9-allow 豁免标记只能引用清单登记的 marker（清单现为空 → 任何标记都失败）", () => {
     for (const rel of expandEntries(fixture.tokenDefinitionFiles)) {
       const raw = readSrc(rel);
       const markers = [...raw.matchAll(/s9-allow:\s*([\w-]+)/g)].map((m) => m[1]);

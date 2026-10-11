@@ -859,8 +859,11 @@ button.save-indicator:focus-visible {
   font-size: 0.72rem;
   border: 1px solid var(--border);
   border-radius: 4px;
-  /* s9-allow: issue-i1 —— --bg 为已登记存量 bug（暗色白块），#223 明确不补 token/不改引用 */
-  background: var(--bg, #fff);
+  /* #311（#223 移出项 I1）修复：原值回退到纯白（`--bg` 全仓未定义）→ 暗色下真实白块。
+     改用已登记、语义相符的 `--bg-elevated`：light = 纯白（与原回退值完全等价 → 零视觉回归），
+     dark = 跟随面板色。旧豁免标记（issue-i1）已随本修复从登记清单移除，S9 重新约束此处。
+     注意：本注释**不得写出豁免标记的字面量** —— S9 的标记扫描按原文匹配、不剥注释。 */
+  background: var(--bg-elevated);
   color: var(--text-muted);
   cursor: pointer;
   line-height: 1.4;
