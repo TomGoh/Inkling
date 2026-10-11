@@ -99,19 +99,24 @@ describe("#226 自研内置主题：只做 token 覆盖，不漏覆盖、不出�
         /^\d+(\.\d+)?(px|rem|em|s|ms)$/i.test(value) ||
         // 字体栈（`--editor-font` 一类）
         /^[\w\s"',-]+,\s*(serif|sans-serif|monospace)$/i.test(value) ||
-        // 阴影/聚焦环：以长度或颜色开头的多段值
-        /^-?[\d.]+px/.test(value);
+        // 阴影/聚焦环等**多段值**：以长度开头（含无单位的 0），如 `0 0 0 3px #0033cc`
+        /^-?[\d.]+(px|rem|em|%|s|ms)?(\s|$)/.test(value);
       expect(ok, `${theme.id} 的 ${prop}: ${value} 形态可疑`).toBe(true);
     }
   });
 });
 
 describe("#226 自研内置主题：注入落在 @layer theme（层序与优先级不变）", () => {
-  it("applyTheme 后产物包在 @layer theme 内，且 data-theme = 该主题的 mode", () => {
+  /** 注入是**微任务派发**（`#225` 的写样式范式）→ 断言前让出一轮，避免读到尚未写入的空内容 */
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("applyTheme 后产物包在 @layer theme 内，且 data-theme = 该主题的 mode", async () => {
     const theme = getTheme("builtin:tech-dark")!;
     applyTheme(theme, { persist: false });
+    // 属性是同步写的（反 FOUC 依赖这一点），CSS 文本是微任务派发
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     expect(document.documentElement.getAttribute("data-theme-id")).toBe("builtin:tech-dark");
+    await flush();
     const injected = currentInjectedThemeCss() ?? "";
     expect(injected).toContain("@layer theme");
     // 自研主题是受信内容：直接注入（不经 #306 选择器收敛），故 `:root` 变量保留原样
@@ -120,6 +125,7 @@ describe("#226 自研内置主题：注入落在 @layer theme（层序与优先�
 
     // 回到基线：内置基线 css.kind = none → 卸载主题样式
     applyTheme(getTheme("builtin:light")!, { persist: false });
+    await flush();
     expect(currentInjectedThemeCss()).toBe(null);
     expect(document.documentElement.getAttribute("data-theme-id")).toBe("builtin:light");
   });
