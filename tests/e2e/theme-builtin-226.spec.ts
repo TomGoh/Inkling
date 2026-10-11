@@ -44,6 +44,8 @@ async function probe(page: Page) {
       editorFontVar: rootCs.getPropertyValue("--editor-font").trim(),
       editorBgVar: rootCs.getPropertyValue("--editor-bg").trim(),
       accentVar: rootCs.getPropertyValue("--accent").trim(),
+      // 阅读视图正文的**渲染字体**（不是 token 文本 —— 复核要求断言落在渲染结果上）
+      contentFont: cs?.fontFamily ?? "",
     };
   });
 }
@@ -99,21 +101,31 @@ test.describe("#226 自研内置主题与跟随", () => {
     expect(dark.contentColor).not.toBe(light.contentColor);
   });
 
-  test("暖色阅读主题：纸感底色 + 衬线正文（token 覆盖真的生效）", async ({ page }) => {
+  test("暖色阅读主题：纸感底色 + **渲染出来的**衬线正文（且源码模式字体不动）", async ({ page }) => {
     await openMockWorkspace(page);
     await openFile(page, "readme.md");
+
+    // 基线（内置浅色）：先取阅读视图正文的**计算字体**做对照
+    await openThemeMenu(page);
+    await page.locator('[data-theme-option="builtin:light"]').click();
+    await expect.poll(async () => (await probe(page)).themeId, { timeout: 5000 }).toBe("builtin:light");
+    const base = await probe(page);
+
     await openThemeMenu(page);
     await page.locator('[data-theme-option="builtin:sepia"]').click();
     await expect.poll(async () => (await probe(page)).themeId, { timeout: 5000 }).toBe("builtin:sepia");
 
     const s = await probe(page);
     expect(s.mode).toBe("light");
-    expect(s.injected).toContain("--editor-bg: #fdf6e9");
     // 纸感底色真的生效（token 解析值，非仅文本出现）
     expect(s.editorBgVar).toBe("#fdf6e9");
-    // 正文衬线栈生效（`--editor-font` 属基础层，自研主题允许覆盖）
-    expect(s.injected).toContain("Georgia");
-    expect(s.editorFontVar).toContain("Georgia");
+    // 衬线落在**渲染结果**上：`.editor-scroll .milkdown` 的计算字体含 Georgia，且与基线不同
+    // （只断言 token 文本/`getPropertyValue` 会在「正文其实没变」时照样通过 —— 这正是上一轮被复核查出的问题）
+    expect(s.contentFont).toContain("Georgia");
+    expect(s.contentFont).not.toBe(base.contentFont);
+    // 源码模式字体**不动**（`--editor-font` 的语义是源码模式，sepia 不覆盖它）
+    expect(s.editorFontVar).toContain("PingFang SC");
+    expect(s.editorFontVar).not.toContain("Georgia");
   });
 
   test("主题层的 token 覆盖真的赢过基线（暗色技术风的强调色解析值）", async ({ page }) => {

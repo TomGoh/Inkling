@@ -76,7 +76,13 @@ const TECH_DARK_CSS = `:root {
   --radius-lg: 6px;
 }`;
 
-/** 暖色阅读风：米色纸感 + 棕墨文字 + 衬线正文 */
+/**
+ * 暖色阅读风：米色纸感 + 棕墨文字 + 衬线**正文**。
+ *
+ * ⚠️ 正文衬线必须走 `--content-font`（消费点 = `.editor-scroll .milkdown` 的 `font-family`），
+ * **不能**用 `--editor-font`：后者的语义是**源码模式（CodeMirror host）字体**（S17 口径），
+ * 改它只会让源码模式变衬线、阅读视图字形不变（#226 复核阻塞项）。
+ */
 const SEPIA_CSS = `:root {
   --bg-subtle: #f3ece0;
   --bg-elevated: #fffaf1;
@@ -99,7 +105,7 @@ const SEPIA_CSS = `:root {
   --content-quote-bg: #f6efe0;
   --content-table-head-bg: rgba(162, 84, 42, 0.08);
   --shell-scrollbar-thumb: rgba(109, 92, 72, 0.3);
-  --editor-font: Georgia, "Songti SC", "Noto Serif SC", "Source Han Serif SC", serif;
+  --content-font: Georgia, "Songti SC", "Noto Serif SC", "Source Han Serif SC", serif;
 }`;
 
 /** 高对比（a11y）：纯黑文字 / 纯白底 / 2px 级对比边框，聚焦环加强 */

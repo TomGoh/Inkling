@@ -48,6 +48,8 @@
 - **纸张骨架不得含颜色/字体声明**：它未分层（优先级最高），若写颜色会盖掉主题层；
 - **骨架不放进任何层**，且在 `@layer` 声明之后 → 稳定覆盖应用的结构性声明，同时不参与主题竞争。
 
+**#322 修复（多表拼接与 `@import`）**：多张样式表拼进同一个 `<style>` 后，只有**第一张表**的表首 `@import` 仍合法，其余表的会落到「表中间」被浏览器**静默忽略**（应用侧却认可用户自定义 CSS 的表首 `@import` → 同一份 CSS「应用里生效、导出里失效」）。现在 `buildExportCss` 对**每张表**复用 `splitLeadingImports`（`#315`/`#320` 的同一份表首判定），把各表的 `@import` 连同其前置 trivia 统一提到产物最前（保持相对顺序；`@layer base, theme, user;` 是 `@layer` **语句**，按 Cascade 5 允许位于 `@import` 之前）。单测补了「非首表带 `@import`」与「多表各自带 `@import` 保持相对顺序」两条。
+
 `tests/lib/export-theme.test.ts`（12 条）：层序声明在最前、三表内联且顺序正确、取不到的样式表计入 `skipped` 而不静默丢、正文两层包裹、`data-theme`/`data-theme-id` 就位、标题转义、骨架无颜色声明、打印块放开 `.editor-scroll` 裁切。
 
 **未覆盖/待实测**：`asset.localhost` 背景图在 `html2canvas`（`useCORS: true`、未开 `allowTaint`）下是否被 CORS 跳过 → 需要带 `url(asset://…)` 背景的真实主题 + 真机导出（见 §7 登记）。
@@ -72,6 +74,16 @@ Mermaid 的 NodeView 不是 React 组件（不订阅 store），故用 DOM 事�
 - 现有 `--content-math` 在明暗两块都定义为 `var(--text)`（`App.css`），KaTeX 官方样式多为 `currentColor` 继承 → 公式颜色自动随 `--text` 翻转；
 - 自研/第三方主题可覆盖 `--content-math` 做更精细的配色，无需改应用代码；
 - **证据**：E2E 断言「同一公式在明 vs 技术（暗）下的**计算颜色不同**」（`tests/e2e/theme-builtin-226.spec.ts`）。
+
+### 5.4 正文字体：新增 `--content-font`（复核阻塞项修复）
+
+**问题**：`--editor-font` 的真实语义是**源码模式（CodeMirror host）字体**（唯一消费点 `src/lib/codemirror-shared.ts`，S17 已把这条口径断言化），阅读视图的字形来自 `App.css` 的 `:root { font-family: … }`（未 token 化）→ 自研主题**改不动阅读区字形**，`builtin:sepia` 的「衬线正文」名不副实；而那条 E2E 断言的是 **token 文本**，正文是衬线还是无衬线都会通过。
+
+**修法（对齐设计意图：暖色阅读风要真的衬线）**：
+1. 新增 **content 级 token `--content-font`**（进白名单 `content` 层；`--content-` 前缀本就允许）；
+2. `App.css` 两块基线**同值**定义（取原 `:root { font-family }` 同一栈 → **零视觉变化**），并由 `.editor-scroll .milkdown { font-family: var(--content-font) }` 消费（主题层覆盖自定义属性，优先级链不变）；
+3. `builtin:sepia` 改为覆盖 `--content-font`（衬线栈），**不再动 `--editor-font`**（源码模式保持等宽/无衬线，语义分离）；
+4. **断言改成落在渲染结果上**（这是复核的核心诉求）：E2E 取 `.editor-scroll .milkdown` 的**计算 `font-family`** → 含 `Georgia` 且与 `builtin:light` 基线**不同**；同时断言 `--editor-font` 解析值仍为系统栈、**不含 Georgia**（源码模式不动）。
 
 ### 5.3 代码块（G1）
 

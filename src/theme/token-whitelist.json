@@ -19,7 +19,8 @@
       "--editor-bg",
       "--callout-bg",
       "--callout-accent",
-      "--editor-font"
+      "--editor-font",
+      "--content-font"
     ]
   },
   "base": [
@@ -111,6 +112,7 @@
     "--content-body",
     "--content-drop-indicator",
     "--content-drop-indicator-shadow",
+    "--content-font",
     "--content-frontmatter-gutter-border",
     "--content-frontmatter-label-bg",
     "--content-heading",

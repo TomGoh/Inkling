@@ -66,6 +66,31 @@ describe("#226 导出：独立文档的样式与结构", () => {
     expect(css.indexOf("#eee")).toBeLessThan(css.indexOf("#f00"));
   });
 
+  // #322：多张表拼进同一个 <style> 后，只有**首表**的表首 @import 合法 → 各表的 @import 必须统一提到最前
+  it("非首表的表首 @import 被提到产物最前（不再落到「表中间」被静默忽略）", () => {
+    const css = buildExportCss([
+      "@layer base { .editor-scroll .milkdown { color: #111 } }",
+      '@import "SearchPanel.css";\n@layer user { .x { color: #a2542a } }',
+    ]);
+    const at = css.indexOf("@import");
+    expect(at).toBeGreaterThan(-1);
+    // 前面只有层序声明（`@layer` 语句允许在 @import 之前，见 Cascade 5）
+    expect(css.slice(0, at).trim()).toBe(LAYER_STATEMENT);
+    // 且在所有规则（含骨架）之前
+    expect(at).toBeLessThan(css.indexOf(".editor-scroll .milkdown"));
+    expect(at).toBeLessThan(css.indexOf(".x {"));
+    expect(css).toContain('@import "SearchPanel.css";');
+    // 其余内容不丢
+    expect(css).toContain("@layer user { .x { color: #a2542a } }");
+  });
+
+  it("多表各带 @import 时保持相对顺序（层叠语义不被打乱）", () => {
+    const css = buildExportCss(['@import "a.css";\n.a{color:#111}', '@import "b.css";\n.b{color:#222}']);
+    expect(css.indexOf('"a.css"')).toBeLessThan(css.indexOf('"b.css"'));
+    expect(css.indexOf('"b.css"')).toBeLessThan(css.indexOf(".a{color:#111}"));
+    expect(css.indexOf('"b.css"')).toBeLessThan(css.indexOf(".b{color:#222}"));
+  });
+
   it("取不到的样式表（link 拉取失败）不静默：计入 skipped 但不影响产物", async () => {
     // 用**假文档**而不是真实 DOM：把 `link[rel=stylesheet]` 挂进真实文档会让 happy-dom 自行去拉这个 url
     // （CI 上表现为真实的 DNS 请求 → `getaddrinfo ENOTFOUND` 未处理错误，单元步骤整个失败）。

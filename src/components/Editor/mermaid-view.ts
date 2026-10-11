@@ -728,6 +728,9 @@ export function createMermaidView(
     destroy: () => {
       // 标记自增以中断未完成的异步渲染
       renderSeq++;
+      // #226：显式注销「主题变化 → 重渲染」登记（复核记录项）：不留 detached 容器引用，
+      // 也不依赖「下次换主题时的 isConnected 自清」
+      unregisterThemeRefresh();
       // 断开视口观察，清理 window 上的拖动监听器，避免内存泄漏
       io?.disconnect();
       io = null;

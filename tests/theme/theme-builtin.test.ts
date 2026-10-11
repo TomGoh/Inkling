@@ -97,7 +97,7 @@ describe("#226 自研内置主题：只做 token 覆盖，不漏覆盖、不出�
         /^rgba?\([\d\s.,%]+\)$/i.test(value) ||
         /^var\(--[\w-]+\)$/i.test(value) ||
         /^\d+(\.\d+)?(px|rem|em|s|ms)$/i.test(value) ||
-        // 字体栈（`--editor-font` 一类）
+        // 字体栈（`--content-font` / `--editor-font` 一类）
         /^[\w\s"',-]+,\s*(serif|sans-serif|monospace)$/i.test(value) ||
         // 阴影/聚焦环等**多段值**：以长度开头（含无单位的 0），如 `0 0 0 3px #0033cc`
         /^-?[\d.]+(px|rem|em|%|s|ms)?(\s|$)/.test(value);

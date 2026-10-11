@@ -15,6 +15,7 @@
  * 声明；但它**只允许写结构属性**（宽度/外边距/高度/溢出），不得写颜色/字体 —— 否则会盖掉主题层
  * （测试里对此有断言，防止以后漂移）。
  */
+import { splitLeadingImports } from "../theme/inject";
 import { BUILTIN_LIGHT_ID, DEFAULT_THEME_ID } from "../theme/registry";
 
 export interface ExportThemeDescriptor {
@@ -82,9 +83,26 @@ export async function collectDocumentCss(
   return { sheets, skipped };
 }
 
-/** 独立文档的完整 `<style>` 内容：层序声明 → 纸张骨架（未分层） → 原样内联的文档样式表 */
+/**
+ * 独立文档的完整 `<style>` 内容：层序声明 → **各表外提的 `@import`** → 纸张骨架（未分层） → 各表其余内容。
+ *
+ * #322：多张表拼进同一个 `<style>` 后，只有**第一张表**的表首 `@import` 仍合法，其余表的 `@import`
+ * 会落到「表中间」→ 浏览器**静默忽略**（不报错、不进 `skipped`）。而应用侧认可用户自定义 CSS 的
+ * 表首 `@import`（`#315`/`#320` 专门做外提）→ 同一份 CSS「应用里生效、导出里失效」。故这里对**每张表**
+ * 复用同一份表首判定（`splitLeadingImports`）并把结果统一提到拼接产物最前。
+ *
+ * 位置合法性：`@import` 之前只允许 `@charset` / `@layer` **语句**，而 `LAYER_STATEMENT` 正是 `@layer` 语句；
+ * 若某表的表首 trivia 里带 `@charset`，它会在产物里退到非首位而被忽略 —— 产物是 UTF-8 文档，无实际影响。
+ */
 export function buildExportCss(sheets: readonly string[]): string {
-  return [LAYER_STATEMENT, EXPORT_FRAMING_CSS, ...sheets].join("\n").trim();
+  const imports: string[] = [];
+  const bodies: string[] = [];
+  for (const sheet of sheets) {
+    const { imports: sheetImports, rest } = splitLeadingImports(sheet);
+    imports.push(...sheetImports);
+    if (rest.trim()) bodies.push(rest);
+  }
+  return [LAYER_STATEMENT, ...imports, EXPORT_FRAMING_CSS, ...bodies].join("\n").trim();
 }
 
 /**
