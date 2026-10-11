@@ -145,10 +145,14 @@ if (registry && manifest) {
   } else {
     for (const [i, t] of themes.entries()) {
       const where = `themes[${i}]${t?.slug ? `(${t.slug})` : ""}`;
-      if (!t?.upstream || !notice.includes(t.upstream)) {
-        fail(`${where} 的上游地址未出现在随包 NOTICE 中`);
+      // 判据必须是**边界匹配**而不是子串包含（#318：`bundled:lapis` 作为 `bundled:lapisX` 的子串仍能骗过 includes）
+      const boundary = (text) => new RegExp(`${escapeRegExp(text)}(?![\\w.:/-])`);
+      if (!t?.upstream || !boundary(t.upstream).test(notice)) {
+        fail(`${where} 的上游地址未以**完整形式**出现在随包 NOTICE 中（子串不算）`);
       }
-      if (!t?.id || !notice.includes(t.id)) fail(`${where} 的 themeId 未出现在随包 NOTICE 中`);
+      if (!t?.id || !boundary(t.id).test(notice)) {
+        fail(`${where} 的 themeId 未以**完整形式**出现在随包 NOTICE 中（子串不算）`);
+      }
       if (typeof t?.licenseFile === "string" && existsSync(join(ROOT, t.licenseFile))) {
         // 许可全文必须**逐字节**出现在 NOTICE 内（不是「提了一句」，而是真正的副本）
         const text = readFileSync(join(ROOT, t.licenseFile), "utf8").trimEnd();
