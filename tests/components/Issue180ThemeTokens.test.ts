@@ -18,7 +18,8 @@ describe("Issue #180 theme contracts（#224 S1/S2/S5）", () => {
   const allowedUndefined = new Set(fixture.referencedUndefinedAllowlist.map((e) => e.token));
 
   // S1 覆盖清单全量：tokenDefinitionFiles（CSS）+ sourceScanFiles（TSX），
-  // 不再只覆盖历史 3 个文件；`--bg` 等按 referencedUndefinedAllowlist 显式豁免。
+  // 不再只覆盖历史 3 个文件；豁免清单（referencedUndefinedAllowlist）**现为空**（#311 已收口）
+  // → 任何「引用但全仓未定义」的 var(--x) 都会被判失败。
   const s1Files = [
     ...expandEntries(fixture.tokenDefinitionFiles),
     ...fixture.sourceScanFiles,
