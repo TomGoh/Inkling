@@ -64,6 +64,34 @@ test.describe("S17 CM 宿主外观取自应用 token（#310 阻塞项 1）", () 
     expect(r!.editorBg, "编辑器底色必须来自 --code-block-bg").toBe(r!.expectedEditorBg);
   });
 
+  // #313：编辑器文字色的权威必须仍在应用 token 上。
+  // 手法更贴近真实可达路径（#225 的主题就是「覆盖元素级 token」）：在宿主上直接覆写 token，
+  // 断言编辑器文字色跟着变 —— 修复前（`color` 留在 `&`，0-1-0）oneDark 的 `&{color:#abb2bf}`
+  // 同特异性后挂载胜出，这里会读回 rgb(171, 178, 191)。
+  test("S17d 代码块：编辑器文字色跟随 --code-block-text（不被高亮主题夺权）", async ({ page }) => {
+    await openFile(page, "readme.md");
+    await insertCodeBlock(page);
+    await expect(page.locator(".code-block-cm .cm-editor")).toBeVisible({ timeout: 10_000 });
+
+    const r = await page.evaluate(() => {
+      const block = document.querySelector(".code-block") as HTMLElement | null;
+      const editor = block?.querySelector(".cm-editor") as HTMLElement | null;
+      if (!block || !editor) return null;
+      const before = getComputedStyle(editor).color;
+      // 模拟主题覆盖：宿主上覆写元素级 token
+      block.style.setProperty("--code-block-text", "rgb(18, 52, 86)");
+      const after = getComputedStyle(editor).color;
+      block.style.removeProperty("--code-block-text");
+      return { before, after, codeTheme: block.dataset.codeTheme ?? null };
+    });
+    expect(r, "代码块 CM 宿主未挂载").not.toBeNull();
+
+    // 有高亮主题时才有区分力（其 `&` 规则正是竞争者）
+    expect(r!.codeTheme, "默认代码高亮主题应为 oneDark").toBe("oneDark");
+    expect(r!.after, "编辑器文字色必须跟随 --code-block-text").toBe("rgb(18, 52, 86)");
+    expect(r!.after, "断言必须有区分力（token 覆写后取值应变化）").not.toBe(r!.before);
+  });
+
   test("S17b 源码模式：字体来自 --editor-font、编辑器撑满宿主高度", async ({ page }) => {
     await openFile(page, "readme.md");
     await page.keyboard.press(`${MOD}+Alt+KeyS`);

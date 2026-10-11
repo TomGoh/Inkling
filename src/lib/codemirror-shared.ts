@@ -50,7 +50,11 @@ export const MONO_FONT_FAMILY =
  * 先后由**数组位置**决定；代码块宿主的扩展数组把高亮主题放在最前，于是高亮主题
  * （oneDark 等）反而比宿主主题后挂载、优先级更高（`.cm-gutters { color: #7d8799 }`
  * 会压掉应用的 `--code-block-muted: #5c6370`）。App.css 时代这些属性靠优先级胜出，
- * 迁进主题后必须显式提升到 0-3-0 才能与迁移前逐项一致，而不是依赖挂载顺序。
+ * 迁进主题后必须显式提升到**高于竞争规则**的特异性，而不是依赖挂载顺序：
+ * - 行号栏那组：竞争者是高亮主题的 `.cm-gutters`（0-1-0）⇒ `&.cm-editor .cm-gutters`（0-3-0）；
+ * - **编辑器文字色（#313）**：竞争者是高亮主题的 `&`（0-1-0，oneDark 的 `#abb2bf`）⇒
+ *   放 `&.cm-editor`（0-2-0）即可 —— 留在 `&` 上会因同特异性 + 后挂载而被高亮主题压过，
+ *   token 静默失权威（今天三态取值恰好相同，故不可见）。
  * 仅「原由 App.css 覆盖」的属性做提升；`.cm-activeLine` / 光标 / 内边距等保持默认
  * 特异性，继续让高亮主题按原有关系覆盖。
  *
@@ -65,15 +69,16 @@ function cmHostTheme(
     "&": {
       fontSize: "0.85rem",
       backgroundColor: "transparent",
-      // 双宿主复用：代码块内有 --code-block-* 元素级作用域；源代码模式下无，
-      // 回退到全局 --text（故最内层 hex 已随 #223 回退值清理移除）
-      color: "var(--code-block-text, var(--text))",
       ...rootExtra,
     },
     // 代码块容器底色（App.css `.code-block` 提供 --code-block-bg）；
     // 无该 token 的宿主（源代码模式）保持透明
     "&.cm-editor": {
       backgroundColor: "var(--code-block-bg, transparent)",
+      // 编辑器文字色（#313）：必须与底色同在 0-2-0 —— 见上方注释。
+      // 双宿主复用：代码块内有 --code-block-* 元素级作用域；源代码模式下无，
+      // 回退到全局 --text（故最内层 hex 已随 #223 回退值清理移除）
+      color: "var(--code-block-text, var(--text))",
     },
     "&.cm-editor .cm-scroller": {
       fontFamily,
