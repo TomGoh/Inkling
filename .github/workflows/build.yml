@@ -52,6 +52,8 @@ jobs:
         run: |
           pnpm check:theme-licenses
           pnpm check:theme-manifest
+          # 生成物必须与提交一致（#318）：手改随包 NOTICE / THIRD-PARTY.md 也会在这里被拦下
+          pnpm check:theme-notice-drift
 
       # Rust 单测：commands 与 lib 的 #[cfg(test)] 模块（#47/#48 新增覆盖）
       # 平台无关，随 test job 矩阵在 Windows + Linux 双平台跑

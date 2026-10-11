@@ -19,7 +19,8 @@
     "check:build-layers": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && vite build && node scripts/check-theme-build-assets.mjs",
     "check:theme-manifest": "node scripts/check-theme-manifest.mjs",
     "check:theme-licenses": "node scripts/check-theme-licenses.mjs",
-    "gen:theme-notice": "node scripts/gen-bundled-notice.mjs"
+    "gen:theme-notice": "node scripts/gen-bundled-notice.mjs",
+    "check:theme-notice-drift": "node scripts/gen-bundled-notice.mjs && git diff --exit-code -- src-tauri/resources/themes/NOTICE THIRD-PARTY.md"
   },
   "dependencies": {
     "@codemirror/commands": "^6.10.4",

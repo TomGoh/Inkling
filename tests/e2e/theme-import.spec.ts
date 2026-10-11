@@ -130,6 +130,19 @@ test.describe("#307 主题目录 → 列表 → 生效 → 持久化", () => {
       .poll(async () => (await currentState(page)).themeId, { timeout: 5000 })
       .toBe("user:probe");
 
+    // 前置条件（#319）：本用例断言的是「**快照命中 → 零闪烁**」这条路径，
+    // 而快照是异步落盘的（切换 → 读盘 → 改写 → applyTheme 才 writeSnapshot）。
+    // 不等它落盘就 reload，重载后首帧会按 G3-③ 回落内置基线（合法降级路径）→ 断言假失败。
+    await expect
+      .poll(
+        async () =>
+          (await currentState(page)).snapshotKeys.some((k) =>
+            k.startsWith("inkling-theme-snapshot:user:probe:"),
+          ),
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+
     // 模拟重启：同源重载（localStorage 保留，主题目录依旧由 mock 播种）
     await page.reload({ waitUntil: "domcontentloaded" });
     // 等「应用内容首次出现那一帧」的记录（重载后 initScript 会重新采集）
