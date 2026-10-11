@@ -22,6 +22,8 @@
 - **许可全文归档**：`docs/licenses/<slug>-LICENSE`（三份 MIT 全文，逐字节来自上游对应 tag）。
 - **署名**：`THIRD-PARTY.md`（与项目贡献者名单**分列**），逐款给上游、版本/commit、许可、Copyright、随包文件与 sha256、修改说明、未随包资源。
 - **与运行时清单分列**（`07` 新-2）：许可字段**不进** `src-tauri/resources/themes/manifest.json`（那边只有 `{slug,css,dir?,name,mode,hiddenByDefault?}`）；两份清单**唯一共享字段是 `slug`**，由脚本校验集合一致。
+- **随分发副本附带许可文本**（评审阻塞 1 → 已闭环）：`src-tauri/resources/themes/NOTICE` 随 `bundle.resources` 进安装包（与主题同级），逐款给出上游/版本·commit/随包文件（是否改名）/版权行 + **许可全文逐字节**；门禁新增断言「随包 NOTICE 存在、含各主题 upstream+themeId、且每份归档许可全文**逐字节**出现其中」——只校验仓库自洽不再够（负例：删 NOTICE → exit 1；改动 NOTICE 内许可原文一个字 → exit 1）。
+- 生成器与校验分离：`npm run gen:theme-notice`（`scripts/gen-bundled-notice.mjs`，不联网、输入全部来自仓库内登记与归档）生成 `NOTICE` 与 `THIRD-PARTY.md`（后者按「随包文件」逐条写准：`drake.css`/`notion.css` 为「仅重命名」，其余四份为「上游同名、内容未改动」），`npm run check:theme-licenses` 负责核对。
 - **门禁**：`npm run check:theme-licenses`（`scripts/check-theme-licenses.mjs`，**引入第一款第三方主题之前就先落地**）：
   1. `licenseFile` 存在；2. `license` ∈ 白名单（MIT / Apache-2.0 / BSD-2·3 / ISC / CC0 / CC-BY(-SA) / Unlicense）；3. `upstream`(https) + `version` + 40 位 `commit` 完整；
   4. `THIRD-PARTY.md` 的署名锚点存在（明暗变体指向同一上游小节）；5. **两侧 slug 集合一致**（注册没打包 / 打包没注册都拦）；

@@ -136,6 +136,30 @@ if (registry && manifest) {
     }
   }
 
+  // ⑧ **随包许可文本**（评审阻塞 1）：MIT 要求「分发的副本」附带版权与许可全文 ——
+  // 只校验仓库自洽是不够的，必须校验**安装包里那份**（`$RESOURCE/themes/NOTICE`，由 bundle.resources 带入）。
+  const noticePath = join(THEMES_DIR, "NOTICE");
+  const notice = existsSync(noticePath) ? readFileSync(noticePath, "utf8") : "";
+  if (!notice) {
+    fail("随包目录缺少 NOTICE（第三方许可与署名文本必须随安装包分发，见 07 §3.2/§7）");
+  } else {
+    for (const [i, t] of themes.entries()) {
+      const where = `themes[${i}]${t?.slug ? `(${t.slug})` : ""}`;
+      if (!t?.upstream || !notice.includes(t.upstream)) {
+        fail(`${where} 的上游地址未出现在随包 NOTICE 中`);
+      }
+      if (!t?.id || !notice.includes(t.id)) fail(`${where} 的 themeId 未出现在随包 NOTICE 中`);
+      if (typeof t?.licenseFile === "string" && existsSync(join(ROOT, t.licenseFile))) {
+        // 许可全文必须**逐字节**出现在 NOTICE 内（不是「提了一句」，而是真正的副本）
+        const text = readFileSync(join(ROOT, t.licenseFile), "utf8").trimEnd();
+        if (!notice.includes(text)) {
+          fail(`${where} 的许可全文未逐字节出现在随包 NOTICE 中（应随分发副本附带许可文本）`);
+        }
+      }
+    }
+    notes.push("随包 NOTICE 已包含各主题的上游/themeId 与许可全文（逐字节比对）");
+  }
+
   // ⑤ 两侧 slug 集合一致
   const manifestSlugs = new Set((manifest.themes ?? []).map((m) => m?.slug).filter(Boolean));
   for (const slug of slugs) {
