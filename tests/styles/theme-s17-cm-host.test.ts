@@ -27,7 +27,11 @@ describe("S17 CM 宿主外观只能由 EditorView.theme 交付", () => {
       maskComments(readSrc(rel))
         .split("\n")
         .forEach((line, i) => {
-          if (/\.cm-[a-z]/.test(line)) offenders.push(`${rel}:${i + 1} ${line.trim()}`);
+          // 类选择器 `.cm-x`，以及**属性选择器**写法（`[class~="cm-content"]` / `[class*="cm-"]`）——
+          // 后者同样能命中 CodeMirror 的生成类/文档类名，但逃过 `/\.cm-[a-z]/`（#313 附带项）。
+          if (/\.cm-[a-z]/.test(line) || /\[class[^\]]*cm-[a-z]/.test(line)) {
+            offenders.push(`${rel}:${i + 1} ${line.trim()}`);
+          }
         });
     }
     expect(
