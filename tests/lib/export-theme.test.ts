@@ -66,16 +66,19 @@ describe("#226 导出：独立文档的样式与结构", () => {
     expect(css.indexOf("#eee")).toBeLessThan(css.indexOf("#f00"));
   });
 
-  it("取不到的样式表（link 跨域/失败）不静默：计入 skipped 但不影响产物", async () => {
-    const doc = document.implementation.createHTMLDocument("t");
-    const link = doc.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://example.invalid/x.css";
-    doc.head.appendChild(link);
+  it("取不到的样式表（link 拉取失败）不静默：计入 skipped 但不影响产物", async () => {
+    // 用**假文档**而不是真实 DOM：把 `link[rel=stylesheet]` 挂进真实文档会让 happy-dom 自行去拉这个 url
+    // （CI 上表现为真实的 DNS 请求 → `getaddrinfo ENOTFOUND` 未处理错误，单元步骤整个失败）。
+    const fakeDoc = {
+      querySelectorAll: () =>
+        [
+          { tagName: "LINK", href: "https://example.invalid/x.css" },
+        ] as unknown as (HTMLStyleElement | HTMLLinkElement)[],
+    } as unknown as Document;
     const failing = (async () => {
       throw new Error("boom");
     }) as unknown as typeof fetch;
-    const { sheets, skipped } = await collectDocumentCss(doc, failing);
+    const { sheets, skipped } = await collectDocumentCss(fakeDoc, failing);
     expect(sheets).toEqual([]);
     expect(skipped[0]).toContain("example.invalid/x.css");
     expect(skipped[0]).toContain("boom");
