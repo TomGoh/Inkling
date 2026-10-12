@@ -2,6 +2,7 @@
 // 真实调用在 scripts/check-docs-updated.mjs（CI release-guard 步骤）。
 import { describe, expect, it } from "vitest";
 import {
+  chooseBase,
   classifyBaseRef,
   pickPreviousTag,
   runGit,
@@ -85,6 +86,52 @@ describe("#302 复核阻塞项：上一个 tag 由脚本自选（判据不再落
     expect(pickPreviousTag(["v3.5.0"], "c35", commitOfTag)).toBeNull();
     expect(pickPreviousTag(["v9.9.9"], "cDEV", commitOfTag)).toBeNull();
     expect(pickPreviousTag([], "cDEV", commitOfTag)).toBeNull();
+  });
+});
+
+describe("#331 发版触发形态：首个发布（tag 就是 HEAD）必须**跳过**，不能误判 fail", () => {
+  const firstRelease: Record<string, string> = { "v1.0.0": "c1" };
+  const withPrev: Record<string, string> = { "v1.1.0": "c2", "v1.0.0": "c1" };
+
+  it("chooseBase：全部 tag 指向 HEAD → base=null 且 allAtHead=true", () => {
+    expect(chooseBase(["v1.0.0"], "c1", (t: string) => firstRelease[t] ?? null)).toEqual({
+      base: null,
+      allAtHead: true,
+    });
+  });
+
+  it("chooseBase：存在更早的 tag → base=它，allAtHead=false", () => {
+    expect(chooseBase(["v1.1.0", "v1.0.0"], "c2", (t: string) => withPrev[t] ?? null)).toEqual({
+      base: "v1.0.0",
+      allAtHead: false,
+    });
+  });
+
+  it("chooseBase：一个 tag 都没有 → base=null、allAtHead=false（交给浅克隆判据）", () => {
+    expect(chooseBase([], "c1", () => null)).toEqual({ base: null, allAtHead: false });
+  });
+
+  it("classifyBaseRef：有 tag 且 allTagsAtHead → skip-no-history，原因写明是「首个发布」", () => {
+    const v = classifyBaseRef({
+      revParse: { ok: false, stdout: "", stderr: "没有可用的 base tag" },
+      tagList: { ok: true, stdout: "v1.0.0", stderr: "" },
+      shallow: { ok: true, stdout: "false", stderr: "" },
+      allTagsAtHead: true,
+    });
+    expect(v.action).toBe("skip-no-history");
+    expect(v.reason).toContain("首个发布");
+  });
+
+  it("classifyBaseRef：有 tag 但**不是**全指向 HEAD → 仍 fail（提示不再把真因说成首个版本）", () => {
+    const v = classifyBaseRef({
+      revParse: { ok: false, stdout: "", stderr: "unknown revision" },
+      tagList: { ok: true, stdout: "v1.0.0\nv1.1.0", stderr: "" },
+      shallow: { ok: true, stdout: "false", stderr: "" },
+      allTagsAtHead: false,
+    });
+    expect(v.action).toBe("fail");
+    expect(v.reason).toContain("fetch-depth");
+    expect(v.reason).toContain("2 个 tag");
   });
 });
 
