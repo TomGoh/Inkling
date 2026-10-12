@@ -5,6 +5,7 @@ import {
   readFixture,
   expandEntries,
   readSrc,
+  s9AllowViolations,
   s9Offenders,
 } from "../helpers/theme-css";
 
@@ -21,16 +22,80 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
     }
   });
 
-  // #311 收口：`s9AllowMarkers` 现已为空 → 任何 `s9-allow: <marker>` 都未登记，直接失败。
-  // （标记判定按**原文**匹配、不剥注释：注释里出现字面量也会被算作一次使用，故注释不能写该字面量。）
-  it("s9-allow 豁免标记只能引用清单登记的 marker（清单现为空 → 任何标记都失败）", () => {
-    for (const rel of expandEntries(fixture.tokenDefinitionFiles)) {
-      const raw = readSrc(rel);
-      const markers = [...raw.matchAll(/s9-allow:\s*([\w-]+)/g)].map((m) => m[1]);
-      for (const m of markers) {
-        expect(fixture.s9AllowMarkers, `${rel} 使用了未登记的 s9-allow 标记：${m}`).toContain(m);
-      }
-    }
+  // #312 项 1：豁免从「只登记 marker 名」升级为**点级**（marker + 文件 + 次数），
+  // 对齐 S15 `innerHTMLAllowlist`。旧形态下「抄一行 `/* s9-allow: x *\/`」即可静默通过。
+  // 标记判定按**原文**匹配、不剥注释：注释里出现字面量也算一次使用（故注释不能写该字面量）。
+  it("s9-allow 豁免为点级（marker+文件+次数）且与磁盘实际一致：新增一处即失败", () => {
+    const scanned = expandEntries(fixture.tokenDefinitionFiles).map((rel) => ({
+      rel,
+      raw: readSrc(rel),
+    }));
+    expect(s9AllowViolations(scanned, fixture.s9AllowMarkers)).toEqual([]);
+  });
+
+  // 负例（#312 验收：故意构造违规输入必须失败）—— 走与上面同一条判据
+  describe("s9AllowViolations 点级对账的负例", () => {
+    const REG = [{ marker: "issue-x9", file: "src/App.css", count: 1 }];
+
+    it("标了但没登记 → 失败", () => {
+      const v = s9AllowViolations([{ rel: "src/App.css", raw: "/* s9-allow: issue-x9 */" }], []);
+      expect(v.length).toBe(1);
+      expect(v[0]).toContain("未登记豁免");
+    });
+
+    it("次数不符（新增一处）→ 失败", () => {
+      const raw = "/* s9-allow: issue-x9 */\n/* s9-allow: issue-x9 */";
+      const v = s9AllowViolations([{ rel: "src/App.css", raw }], REG);
+      expect(v[0]).toContain("实际 2 次、登记 1 次");
+    });
+
+    it("次数不符（删掉一处）→ 同样失败（豁免不得多挂）", () => {
+      const v = s9AllowViolations([{ rel: "src/App.css", raw: "a{}" }], REG);
+      expect(v[0]).toContain("已过期");
+    });
+
+    it("同 marker 换文件 → 失败（点级绑定文件）", () => {
+      const v = s9AllowViolations(
+        [{ rel: "src/components/Sidebar/Sidebar.css", raw: "/* s9-allow: issue-x9 */" }],
+        REG,
+      );
+      expect(v[0]).toContain("未登记豁免");
+    });
+
+    it("完全一致 → 通过", () => {
+      expect(
+        s9AllowViolations([{ rel: "src/App.css", raw: "/* s9-allow: issue-x9 */" }], REG),
+      ).toEqual([]);
+    });
+  });
+
+  // #312 项 2：色值正则盲区补齐的负例（hsl / 命名色 / color-mix / oklch 都必须被拦下）
+  describe("S9 色值形态覆盖（#312 项 2 负例）", () => {
+    it.each([
+      "a { color: hsl(210 50% 50%) }",
+      "a { color: hsla(210, 50%, 50%, 0.5) }",
+      "a { color: color-mix(in srgb, red 50%, blue) }",
+      "a { color: oklch(0.7 0.1 200) }",
+      "a { color: lab(50% 40 59.5) }",
+      "a { color: lch(52.2% 72.2 50) }",
+      "a { color: color(display-p3 1 0 0) }",
+      "a { color: orange }",
+      "a { background: rebeccapurple }",
+    ])("拦截非 token 行上的色值：%s", (css) => {
+      expect(s9Offenders(css).length).toBe(1);
+    });
+
+    it.each([
+      "a { color: var(--text) }",
+      "a { background: transparent }",
+      "a { border-color: currentColor }",
+      "a { color: inherit }",
+      "a { background: none }",
+      "a { color: var(--gold-token) }", // 自定义属性名里带颜色词 → 不得误判
+      "  --gold: #ffd700;", // token 定义行 → 放行
+    ])("不误报：%s", (css) => {
+      expect(s9Offenders(css)).toEqual([]);
+    });
   });
 
   it("未登记守卫：src 下所有 .css 必须被 tokenDefinitionFiles 覆盖（新增样式入口须登记）", () => {

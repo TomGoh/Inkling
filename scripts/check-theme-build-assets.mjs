@@ -18,6 +18,11 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import postcss from "postcss";
+import {
+  isMinifiedSingleLine,
+  readThemeEntries,
+  reconcileBuildAssets,
+} from "./lib/theme-build-assets.mjs";
 
 const dist = resolve(process.cwd(), "dist");
 if (!existsSync(dist)) {
@@ -30,15 +35,9 @@ const fail = (msg) => failures.push(msg);
 
 const cssFiles = readdirSync(resolve(dist, "assets")).filter((f) => f.endsWith(".css"));
 
-// ① 数量
-if (cssFiles.length !== 3) {
-  fail(`CSS 资产数应为 3（index/vendor_milkdown/vendor_katex），实际 ${cssFiles.length}：${cssFiles.join(", ")}`);
-}
-for (const chunk of ["index", "vendor_milkdown", "vendor_katex"]) {
-  if (!cssFiles.some((f) => f.startsWith(`${chunk}-`) && f.endsWith(".css"))) {
-    fail(`缺少 ${chunk} CSS 资产`);
-  }
-}
+// ① 数量 / 必需 chunk：**全部取自清单**（#312 项 3，清单是唯一真值源；此处不再硬编码 3 与 chunk 名）
+const manifest = readThemeEntries().buildAssets;
+for (const msg of reconcileBuildAssets(cssFiles, manifest)) fail(msg);
 
 for (const file of cssFiles) {
   const css = readFileSync(resolve(dist, "assets", file), "utf8");
@@ -57,9 +56,11 @@ for (const file of cssFiles) {
     // ③ 残留 @charset / @import
     ast.walkAtRules("charset", () => fail(`${file} 残留 @charset`));
     ast.walkAtRules("import", (r) => fail(`${file} 残留未内联 @import：${r.params}`));
-    // ⑥ 压缩形态：整体不应含多行未压缩缩进（允许 sourcemap 外无换行）
-    if ((css.match(/\n/g) ?? []).length > 2) {
-      fail(`${file} 看起来不是压缩产物（${css.length} 字节却含多行），压缩可能被关闭/改写`);
+    // ⑥ 压缩形态（#312 项 3：口径与「压缩 = 单行」直接对应，旧版「换行 > 2」两头不严）
+    if (!isMinifiedSingleLine(css)) {
+      fail(
+        `${file} 不是压缩单行产物（${css.trimEnd().split("\n").length} 行 / ${css.length} 字节），压缩可能被关闭/改写`,
+      );
     }
   }
 }
