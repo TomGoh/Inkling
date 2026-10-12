@@ -174,9 +174,65 @@ const NAMED_COLORS = new Set(
 );
 
 /**
- * 值里是否含命名颜色（返回命中的词，便于报错）。**只看标识符本身**：
- * 用 `(?<![-\w])` 排除 `var(--gold)` / `--bg-gold` 这类自定义属性名里的同名词，
- * 避免把「token 名里带颜色词」误判成硬编码色。
+ * 色值函数族（#327：**显式列举**，不再依赖 `lab(`/`lch(` 是 `oklab(`/`oklch(` 的子串这种隐性覆盖）。
+ * 来源：CSS Color 4/5 + 常见厂商函数。
+ */
+export const COLOR_FUNCTIONS = [
+  "rgb",
+  "rgba",
+  "hsl",
+  "hsla",
+  "hwb",
+  "lab",
+  "lch",
+  "oklab",
+  "oklch",
+  "color",
+  "color-mix",
+  "color-contrast",
+  "contrast-color",
+  "light-dark",
+  "device-cmyk",
+];
+
+/** 行内是否出现色值函数调用（返回函数名，便于报错）。 */
+export function colorFunctionIn(line: string): string | null {
+  for (const fn of COLOR_FUNCTIONS) {
+    if (new RegExp(`(^|[^\\w-])${fn}\\s*\\(`).test(line)) return fn;
+  }
+  return null;
+}
+
+/** 颜色类属性（#327：命名色判据只在**这些属性**上启用，避免字体栈/动画名/`content` 里的颜色词误报）。 */
+const COLOR_PROP_RE =
+  /^(color|background|background-color|background-image|border|border-color|border-(top|right|bottom|left)(-color)?|outline|outline-color|fill|stroke|box-shadow|text-shadow|caret-color|accent-color|text-decoration-color|column-rule|column-rule-color|scrollbar-color|stop-color|flood-color|lighting-color|--.*)$/;
+
+/** 去掉引号内字符串（`content: "gold"` 这类不该被当成硬编码色） */
+function stripStrings(s: string): string {
+  return s.replace(/"[^"]*"|'[^']*'/g, "");
+}
+
+/**
+ * 从一行里取出「属性 + 值」候选（按 `;` 分段，每段取**最后一个** `:` —— 这样
+ * `a:hover { color: gold }` 也能正确取到 `color`）。返回 null 表示这行不是声明形态。
+ */
+function declCandidates(line: string): { prop: string; value: string }[] {
+  const out: { prop: string; value: string }[] = [];
+  for (const seg of line.split(";")) {
+    const i = seg.lastIndexOf(":");
+    if (i < 0) continue;
+    const m = /([-\w]+)\s*$/.exec(seg.slice(0, i));
+    if (!m) continue;
+    out.push({ prop: m[1].toLowerCase(), value: stripStrings(seg.slice(i + 1)) });
+  }
+  return out;
+}
+
+/**
+ * 值里是否含命名颜色（返回命中的词，便于报错）。两道收口（#327）：
+ * ① 只扫**去掉引号字符串后**的值（`content: "gold"` 不再误报）；
+ * ② 只在**颜色类属性**上判（`font-family: Linen, serif` / `animation: snow 2s` 不再误报）。
+ * 另用 `(?<![-\w])` 排除 `var(--gold)` / `--bg-gold` 这类自定义属性名里的同名词。
  */
 export function namedColorIn(value: string): string | null {
   for (const m of value.matchAll(/(?<![-\w])[a-zA-Z][\w-]*/g)) {
@@ -192,10 +248,13 @@ export function namedColorIn(value: string): string | null {
  * 多行 token 声明（--x: … ; 跨行）按声明状态机整体放行；
  * s9-allow 标记：独立注释行豁免其下一条非空行，行内标记豁免本行。
  *
- * 色值覆盖（#312 补齐盲区，旧版只有 `#hex` 与 `rgb()/rgba()`）：
- * `#hex` / `rgb(a)()` / `hsl(a)()` / `color-mix()` / `oklch()` / `lab()` / `lch()` / `color()`，
- * 以及**命名颜色**（白名单见 `NAMED_COLOR_ALLOW`）。命名颜色只看**首个冒号之后**的值部分，
- * 避免误伤 `.orange-badge { … }` 这种选择器里带颜色词的行。
+ * 色值覆盖（#312 补盲区，#327 补两侧边界）：
+ * - `#hex`；
+ * - **色值函数族**（`COLOR_FUNCTIONS` 显式列举：`rgb(a)` / `hsl(a)` / `hwb` / `lab` / `lch` /
+ *   `oklab` / `oklch` / `color` / `color-mix` / `color-contrast` / `light-dark` / `device-cmyk` …）
+ *   —— 不再依赖「`lab(` 是 `oklab(` 子串」这类隐性覆盖；
+ * - **命名颜色**（白名单见 `NAMED_COLOR_ALLOW`）：只扫**颜色类属性**的值、且先剥引号字符串，
+ *   于是 `font-family: Linen, serif` / `animation: snow 2s` / `content: "gold"` 不再误报。
  */
 export function s9Offenders(raw: string): { line: number; text: string }[] {
   const masked = maskComments(raw);
@@ -212,24 +271,24 @@ export function s9Offenders(raw: string): { line: number; text: string }[] {
       }
     }
   });
-  const colorRe =
-    /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(|color-mix\(|oklch\(|lab\(|lch\(|color\(/g;
+  const hexRe = /#[0-9a-fA-F]{3,8}\b/g;
   const out: { line: number; text: string }[] = [];
   let inTokenDecl = false;
   lines.forEach((line, i) => {
     if (/^\s*--[\w-]+\s*:/.test(line)) inTokenDecl = true;
-    colorRe.lastIndex = 0;
     if (inTokenDecl || exempt.has(i)) {
       // 放行行：仍需推进多行 token 声明状态机
       if (inTokenDecl && line.includes(";")) inTokenDecl = false;
       return;
     }
-    const colon = line.indexOf(":");
-    const value = colon >= 0 ? line.slice(colon + 1) : "";
-    if (colorRe.test(line) || namedColorIn(value) !== null) {
+    hexRe.lastIndex = 0;
+    const hasFunction = colorFunctionIn(line) !== null;
+    const hasNamed = declCandidates(line).some(
+      ({ prop, value }) => COLOR_PROP_RE.test(prop) && namedColorIn(value) !== null,
+    );
+    if (hexRe.test(line) || hasFunction || hasNamed) {
       out.push({ line: i + 1, text: rawLines[i].trim() });
     }
-    if (inTokenDecl && line.includes(";")) inTokenDecl = false;
   });
   return out;
 }

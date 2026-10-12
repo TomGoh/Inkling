@@ -76,11 +76,17 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       "a { color: hsla(210, 50%, 50%, 0.5) }",
       "a { color: color-mix(in srgb, red 50%, blue) }",
       "a { color: oklch(0.7 0.1 200) }",
+      "a { color: oklab(0.7 0.1 200) }",
       "a { color: lab(50% 40 59.5) }",
       "a { color: lch(52.2% 72.2 50) }",
       "a { color: color(display-p3 1 0 0) }",
       "a { color: orange }",
       "a { background: rebeccapurple }",
+      // #327 补漏：Color 4/5 与其它函数族（此前全部逃逸）
+      "a { color: hwb(210 0% 0%) }",
+      "a { color: device-cmyk(0 1 0 0) }",
+      "a { color: color-contrast(var(--x) vs red, blue) }",
+      "a { color: light-dark(white, black) }",
     ])("拦截非 token 行上的色值：%s", (css) => {
       expect(s9Offenders(css).length).toBe(1);
     });
@@ -93,6 +99,12 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       "a { background: none }",
       "a { color: var(--gold-token) }", // 自定义属性名里带颜色词 → 不得误判
       "  --gold: #ffd700;", // token 定义行 → 放行
+      // #327 收误报：颜色词出现在**字符串 / 非颜色属性**里，都不是硬编码色
+      '.p::after { content: "gold"; }',
+      ".p { font-family: Linen, serif; }",
+      ".p { animation: snow 2s; }",
+      ".p { width: calc(tan(1rad) * 10px); }",
+      ".p { transition-duration: 2s; color: var(--text); }",
     ])("不误报：%s", (css) => {
       expect(s9Offenders(css)).toEqual([]);
     });
