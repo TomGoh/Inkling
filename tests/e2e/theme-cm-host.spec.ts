@@ -92,6 +92,45 @@ test.describe("S17 CM 宿主外观取自应用 token（#310 阻塞项 1）", () 
     expect(r!.after, "断言必须有区分力（token 覆写后取值应变化）").not.toBe(r!.before);
   });
 
+  // #325：同一 token 在 CM 宿主里「一半生效、一半静默无效」的收口。
+  // 光标：提升到 0-3-0 后必须跟随 token；caret：明示归 CodeMirror（只读态 `!important`，特异性赢不了），
+  // 故断言**不跟随** —— 两条都写成断言，归属才不会再漂。
+  test("S17e 代码块：光标边框跟随 --code-block-focus；caret 明确归 CodeMirror", async ({ page }) => {
+    await openFile(page, "readme.md");
+    await insertCodeBlock(page);
+    await expect(page.locator(".code-block-cm .cm-editor")).toBeVisible({ timeout: 10_000 });
+
+    const r = await page.evaluate(() => {
+      const block = document.querySelector(".code-block") as HTMLElement | null;
+      const cursor = block?.querySelector(".cm-cursor, .cm-dropCursor") as HTMLElement | null;
+      const content = block?.querySelector(".cm-content") as HTMLElement | null;
+      if (!block || !cursor || !content) return null;
+      const before = getComputedStyle(cursor).borderLeftColor;
+      const beforeCaret = getComputedStyle(content).caretColor;
+      block.style.setProperty("--code-block-focus", "rgb(255, 0, 255)");
+      const after = getComputedStyle(cursor).borderLeftColor;
+      const afterCaret = getComputedStyle(content).caretColor;
+      block.style.removeProperty("--code-block-focus");
+      return {
+        before,
+        after,
+        beforeCaret,
+        afterCaret,
+        codeTheme: block.dataset.codeTheme ?? null,
+      };
+    });
+    expect(r, "代码块 CM 宿主未挂载").not.toBeNull();
+    expect(r!.codeTheme, "默认代码高亮主题应为 oneDark").toBe("oneDark");
+
+    // 光标边框：跟随 token。修复前 oneDark 的 `.cm-cursor{borderLeftColor:cursor}`（0-1-0、后挂载）胜出，
+    // 覆写 token 后这里会读回 rgb(82, 139, 255) 不变 —— 有区分力。
+    expect(r!.after, "光标边框色必须跟随 --code-block-focus").toBe("rgb(255, 0, 255)");
+    expect(r!.after, "断言必须有区分力（token 覆写后取值应变化）").not.toBe(r!.before);
+
+    // caret：归 CodeMirror（只读态 `caretColor: transparent !important`）→ 覆写 token 后读数不变
+    expect(r!.afterCaret, "caret 由 CodeMirror 拥有，不应随 token 变化").toBe(r!.beforeCaret);
+  });
+
   test("S17b 源码模式：字体来自 --editor-font、编辑器撑满宿主高度", async ({ page }) => {
     await openFile(page, "readme.md");
     await page.keyboard.press(`${MOD}+Alt+KeyS`);
