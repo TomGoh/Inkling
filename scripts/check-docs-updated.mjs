@@ -81,11 +81,12 @@ if (!base) {
 // 显式 --base（或上面选出的 base）解析失败时的分类
 const revParse = runGit(["rev-parse", "--verify", `${base}^{commit}`]);
 if (!revParse.ok) {
-  const tagList = runGit(["tag", "--list"]);
+  const tagList = runGit(["tag", "--sort=-v:refname", "--list", "v*"]);
   const shallow = runGit(["rev-parse", "--is-shallow-repository"]);
   const verdict = classifyBaseRef({ revParse, tagList, shallow });
   if (verdict.action === "skip-no-history") {
-    console.log("仓库尚无任何 tag（完整克隆，确系首个版本）→ 跳过文档同步校验");
+    // 用判据给出的原因（不再硬编码）：#331 的一半问题就是「提示与真因不符」
+    console.log(`${verdict.reason} → 跳过文档同步校验（确实没有可比对象，不是「没校验」被吞）`);
     process.exit(0);
   }
   failNoCheck(verdict.reason, revParse.stderr ? `git rev-parse stderr: ${revParse.stderr}` : "");

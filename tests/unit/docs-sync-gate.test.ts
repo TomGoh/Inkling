@@ -111,7 +111,7 @@ describe("#331 发版触发形态：首个发布（tag 就是 HEAD）必须**跳
     expect(chooseBase([], "c1", () => null)).toEqual({ base: null, allAtHead: false });
   });
 
-  it("classifyBaseRef：有 tag 且 allTagsAtHead → skip-no-history，原因写明是「首个发布」", () => {
+  it("classifyBaseRef：完整克隆 + allTagsAtHead → skip-no-history，原因写明是「首个发布」", () => {
     const v = classifyBaseRef({
       revParse: { ok: false, stdout: "", stderr: "没有可用的 base tag" },
       tagList: { ok: true, stdout: "v1.0.0", stderr: "" },
@@ -120,6 +120,32 @@ describe("#331 发版触发形态：首个发布（tag 就是 HEAD）必须**跳
     });
     expect(v.action).toBe("skip-no-history");
     expect(v.reason).toContain("首个发布");
+    expect(v.reason).toContain("完整克隆");
+  });
+
+  // 复核阻塞项：浅克隆下 tag 列表不可信（checkout 只建触发 tag），不能按「首个发布」跳过，
+  // 否则会吞掉真实的文档违规（同一 HEAD 在完整克隆里会 exit 1）。
+  it("classifyBaseRef：**浅克隆** + allTagsAtHead → fail（tag 列表不可信，不许跳过）", () => {
+    const v = classifyBaseRef({
+      revParse: { ok: false, stdout: "", stderr: "没有可用的 base tag" },
+      tagList: { ok: true, stdout: "v2.0.0", stderr: "" },
+      shallow: { ok: true, stdout: "true", stderr: "" },
+      allTagsAtHead: true,
+    });
+    expect(v.action).toBe("fail");
+    expect(v.reason).toContain("不是完整克隆");
+    expect(v.reason).toContain("fetch-depth");
+  });
+
+  it("classifyBaseRef：无法判断是否浅克隆 + allTagsAtHead → fail（分不清就不跳过）", () => {
+    const v = classifyBaseRef({
+      revParse: { ok: false, stdout: "", stderr: "没有可用的 base tag" },
+      tagList: { ok: true, stdout: "v2.0.0", stderr: "" },
+      shallow: { ok: false, stdout: "", stderr: "boom" },
+      allTagsAtHead: true,
+    });
+    expect(v.action).toBe("fail");
+    expect(v.reason).toContain("未知");
   });
 
   it("classifyBaseRef：有 tag 但**不是**全指向 HEAD → 仍 fail（提示不再把真因说成首个版本）", () => {

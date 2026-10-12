@@ -82,11 +82,25 @@ export function classifyBaseRef({ revParse, tagList, shallow, allTagsAtHead = fa
 
   const tags = tagList.stdout.split("\n").filter(Boolean);
 
-  // #331：发版触发形态下的首个发布 —— 唯一的 tag 就指向 HEAD，没有更早的发布可比
+  // #331：发版触发形态下的首个发布 —— 唯一的 tag 就指向 HEAD，没有更早的发布可比。
+  // ⚠️ 复核阻塞项：这只在**完整克隆**里才可信。浅克隆（`fetch-depth` 被改小）+ tag push 时，
+  // checkout 只会把**触发 tag** 在本地建出来 ⇒ `tag --list` 同样只剩 HEAD 那一个，而上游其实
+  // 还有更早的发布 ⇒ 会把**真实的文档违规**吞成 exit 0（同一个 HEAD，浅克隆「跳过」/ 完整克隆「报违规」，
+  // 两个相反结论）。故必须与「0 个 tag」走**同一道**前置。
   if (tags.length > 0 && allTagsAtHead) {
+    const complete = shallow && shallow.ok && shallow.stdout === "false";
+    if (!complete) {
+      return {
+        action: "fail",
+        reason:
+          `仓库里 ${tags.length} 个 tag 全部指向 HEAD，但不是完整克隆` +
+          `（is-shallow-repository=${shallow && shallow.ok ? shallow.stdout : "未知"}）` +
+          " ⇒ tag 列表不可信，不能按「首个发布」跳过（浅克隆请设 fetch-depth: 0）",
+      };
+    }
     return {
       action: "skip-no-history",
-      reason: `仓库里 ${tags.length} 个 tag 全部指向 HEAD（${tags.slice(0, 3).join(", ")}）→ 本次是首个发布，没有更早的发布可比`,
+      reason: `仓库里 ${tags.length} 个 tag 全部指向 HEAD（${tags.slice(0, 3).join(", ")}）→ 本次是首个发布（完整克隆，tag 列表可信），没有更早的发布可比`,
     };
   }
 
