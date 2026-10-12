@@ -261,15 +261,12 @@ jobs:
         run: node scripts/check-version.mjs --tag=${{ github.ref_name }}
 
       # 校验自上一个 tag 以来的变更：有代码变更则 CHANGELOG/README/docs 至少一处已更新
+      # #302（PR #329 复核阻塞项）：「上一个 tag」的判定与「是否允许跳过」全在脚本里 ——
+      # workflow 不再用 bash 分支（旧的 `|| true` + `[ -z "$PREV_TAG" ] → exit 0` 会把
+      # 「tag 没 fetch 到」也当成「首个版本」静默跳过）。脚本内部用 --is-shallow-repository
+      # 区分「浅克隆没 tag」与「完整克隆真无 tag」。
       - name: Check docs updated since last release
-        run: |
-          PREV_TAG=$(git tag --sort=-v:refname --list 'v*' | grep -v "^${{ github.ref_name }}$" | head -n 1 || true)
-          if [ -z "$PREV_TAG" ]; then
-            echo "无历史 tag，跳过文档同步校验"
-          else
-            echo "上一个 tag：$PREV_TAG"
-            node scripts/check-docs-updated.mjs --base="$PREV_TAG" --head=HEAD
-          fi
+        run: node scripts/check-docs-updated.mjs --head=HEAD
 
   # 发布：tag 推送时下载 Windows + Linux 全部产物，附加到同一个 GitHub Release
   # 独立 job 避免两个 build job 并发创建 Release 的竞争
