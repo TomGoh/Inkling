@@ -8,7 +8,7 @@
 //   node scripts/check-docs-updated.mjs --base=v2.3.6 --head=v2.3.7
 // base 缺失或不可解析时跳过（如首次发版）。
 
-import { execFileSync } from "node:child_process";
+import { classifyBaseRef, runGit } from "./lib/docs-sync.mjs";
 
 const args = process.argv.slice(2);
 const get = (name) =>
@@ -18,25 +18,37 @@ const base = get("base");
 const head = get("head") || "HEAD";
 
 if (!base) {
-  console.log("未指定 --base，跳过文档同步校验");
+  // #302：这条「跳过」必须**写明没校验**（CI 始终会传 --base；看到这行说明调用方漏传了）
+  console.log("未指定 --base → **跳过（本次没有做任何校验）**；CI 请勿省略 --base");
   process.exit(0);
 }
 
-function git(...a) {
-  return execFileSync("git", a, { encoding: "utf8" }).trim();
-}
+// #302：区分「git 不可用」与「ref 不存在」。只有「仓库一个 tag 都没有」才是合法跳过，
+// 其余（子进程起不来 / 有 tag 但 ref 不存在）一律显式失败，不让门禁静默通过。
+const revParse = runGit(["rev-parse", "--verify", `${base}^{commit}`]);
+const tagList = revParse.ok ? { ok: true, stdout: "", stderr: "" } : runGit(["tag", "--list"]);
+const verdict = classifyBaseRef({ revParse, tagList });
 
-// base ref 不存在（如首个 tag 前无历史）时跳过
-try {
-  git("rev-parse", "--verify", `${base}^{commit}`);
-} catch {
-  console.log(`base ${base} 不可解析，跳过文档同步校验`);
+if (verdict.action === "skip-no-history") {
+  console.log(`仓库尚无任何 tag（首个版本）→ 跳过文档同步校验`);
   process.exit(0);
 }
+if (verdict.action === "fail") {
+  console.error("");
+  console.error("✗ 文档同步校验**没有执行**（这不等于通过）：");
+  console.error(`  ${verdict.reason}`);
+  if (revParse.stderr) console.error(`  git rev-parse stderr: ${revParse.stderr}`);
+  process.exit(1);
+}
 
-const files = git("diff", "--name-only", `${base}...${head}`)
-  .split("\n")
-  .filter(Boolean);
+const diff = runGit(["diff", "--name-only", `${base}...${head}`]);
+if (!diff.ok) {
+  console.error("");
+  console.error("✗ 文档同步校验失败：无法取得变更文件清单");
+  console.error(`  git diff stderr: ${diff.stderr || "（无）"}`);
+  process.exit(1);
+}
+const files = diff.stdout.split("\n").filter(Boolean);
 
 const codeChanged = files.filter(
   (f) => f.startsWith("src/") || f.startsWith("src-tauri/"),
