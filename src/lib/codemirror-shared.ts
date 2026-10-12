@@ -101,9 +101,15 @@ function cmHostTheme(
     },
     ".cm-content": {
       padding: "0.4rem 0",
-      caretColor: "var(--code-block-focus, #528bff)",
+      // caret（文本插入符）**有意不在此声明**（#325）：CodeMirror 的 base theme 在只读/非编辑态
+      // 给 `.cm-content { caretColor: transparent !important }`（`& :focus` 另给 `initial !important`），
+      // 靠特异性赢不了 `!important` —— 保留一条永不生效的声明比删掉更误导。caret 归 CodeMirror 自己。
     },
-    ".cm-cursor, .cm-dropCursor": {
+    // 光标边框（#325）：与编辑器文字色（#313）同一竞争关系 —— oneDark 自带
+    // `.cm-cursor, .cm-dropCursor { borderLeftColor: cursor }`（0-1-0）且按挂载顺序在后，
+    // 留在 0-1-0 会被压过（覆写 `--code-block-focus` 读不回）。提升到 `&.cm-editor …`（0-3-0）
+    // 之后 token 才真正权威；同一 token 在 App.css 的 `.code-block-lang:focus` 上早已生效。
+    "&.cm-editor .cm-cursor, &.cm-editor .cm-dropCursor": {
       borderLeftColor: "var(--code-block-focus, #528bff)",
     },
   });
