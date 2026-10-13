@@ -16,7 +16,7 @@
 // - **「0 个 tag」不等于「首个版本」**：浅克隆（tag 未 fetch / fetch-depth 被改小）同样列不出
 //   tag，故用 `rev-parse --is-shallow-repository` 区分，只有**完整克隆且确实无 tag** 才允许跳过。
 
-import { classifyBaseRef, pickPreviousTag, runGit } from "./lib/docs-sync.mjs";
+import { chooseBase, classifyBaseRef, runGit } from "./lib/docs-sync.mjs";
 
 const args = process.argv.slice(2);
 const get = (name) =>
@@ -41,16 +41,21 @@ if (!base) {
   if (!headCommit.ok) failNoCheck(`无法解析 HEAD（${head}）`, `git rev-parse stderr: ${headCommit.stderr}`);
 
   let picked = null;
+  let allTagsAtHead = false;
   if (tagList.ok) {
     const tags = tagList.stdout.split("\n").filter(Boolean);
-    picked = pickPreviousTag(tags, headCommit.stdout, (tag) => {
+    const commitOfTag = (tag) => {
       const r = runGit(["rev-parse", "--verify", `${tag}^{commit}`]);
       return r.ok ? r.stdout : null;
-    });
+    };
+    const choice = chooseBase(tags, headCommit.stdout, commitOfTag);
+    picked = choice.base;
+    allTagsAtHead = choice.allAtHead; // #331：所有 tag 都指向 HEAD = 首个发布
   }
 
   if (!picked) {
-    // 没有可用 base：要么是真正的首个版本（完整克隆、无 tag），要么是 git/tag 的问题
+    // 没有可用 base：可能是「没有更早的发布」（首个版本 / 首个 tag 就是 HEAD）、浅克隆没拉到 tag、
+    // 或 git 本身有问题 —— 由分类器裁决，只有前者的第一种才算合法跳过。
     const shallow = runGit(["rev-parse", "--is-shallow-repository"]);
     const verdict = classifyBaseRef({
       revParse: {
@@ -60,9 +65,10 @@ if (!base) {
       },
       tagList,
       shallow,
+      allTagsAtHead,
     });
     if (verdict.action === "skip-no-history") {
-      console.log("仓库尚无任何 tag（完整克隆，确系首个版本）→ 跳过文档同步校验");
+      console.log(`${verdict.reason} → 跳过文档同步校验（确实没有可比对象，不是「没校验」被吞）`);
       process.exit(0);
     }
     failNoCheck(verdict.reason);
@@ -75,11 +81,12 @@ if (!base) {
 // 显式 --base（或上面选出的 base）解析失败时的分类
 const revParse = runGit(["rev-parse", "--verify", `${base}^{commit}`]);
 if (!revParse.ok) {
-  const tagList = runGit(["tag", "--list"]);
+  const tagList = runGit(["tag", "--sort=-v:refname", "--list", "v*"]);
   const shallow = runGit(["rev-parse", "--is-shallow-repository"]);
   const verdict = classifyBaseRef({ revParse, tagList, shallow });
   if (verdict.action === "skip-no-history") {
-    console.log("仓库尚无任何 tag（完整克隆，确系首个版本）→ 跳过文档同步校验");
+    // 用判据给出的原因（不再硬编码）：#331 的一半问题就是「提示与真因不符」
+    console.log(`${verdict.reason} → 跳过文档同步校验（确实没有可比对象，不是「没校验」被吞）`);
     process.exit(0);
   }
   failNoCheck(verdict.reason, revParse.stderr ? `git rev-parse stderr: ${revParse.stderr}` : "");
