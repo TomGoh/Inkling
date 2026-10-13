@@ -172,6 +172,19 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       expect(s9Offenders("@supports (display: grid) {")).toEqual([]);
     });
 
+    // Codex 第七轮 P2：at-rule 前置里也可能是**选择器**（上一轮「@ 一律整行判」的反噬）
+    it.each([
+      "@scope (.item:not(.red)) {",
+      "@scope (.a) to (.b:is(.gold)) {",
+      "@supports selector(.item:not(.red)) {",
+      "a { color-scheme: red }",
+      "a { color-scheme: dark red }",
+      "@counter-style x { system: extends red; fallback: gold }",
+      "@counter-style x { speak-as: linen }",
+    ])("选择器型前置 / custom-ident 描述符不误报：%s", (css) => {
+      expect(s9Offenders(css)).toEqual([]);
+    });
+
     // 后缀兜底不得把它该管的东西也放掉：`-name/-class/-scope` 之外的属性照旧要判
     it("后缀兜底不越界：这些看起来像但不属于该族的属性仍要判", () => {
       expect(s9Offenders("a { color: red }").length).toBe(1);
