@@ -87,6 +87,15 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       "a { color: device-cmyk(0 1 0 0) }",
       "a { color: color-contrast(var(--x) vs red, blue) }",
       "a { color: light-dark(white, black) }",
+      // #332 补漏：属性白名单外的命名色（判据反转后**默认全判**，不再逐个列颜色属性）
+      "a { -webkit-text-fill-color: gold }",
+      "a { -webkit-text-stroke-color: red }",
+      "a { -webkit-tap-highlight-color: red }",
+      "a { text-decoration: underline gold }",
+      "a { text-emphasis-color: red }",
+      "a { border-inline-start-color: red }",
+      "a { border-block-end: 1px solid gold }",
+      "a { caret: red }",
     ])("拦截非 token 行上的色值：%s", (css) => {
       expect(s9Offenders(css).length).toBe(1);
     });
@@ -105,6 +114,12 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       ".p { animation: snow 2s; }",
       ".p { width: calc(tan(1rad) * 10px); }",
       ".p { transition-duration: 2s; color: var(--text); }",
+      // #332 收误报：色值**写在引号字符串或 url() 里**（三条判据统一剥掉后不该报）
+      'a { content: "rgb(1, 2, 3)"; }',
+      'a { content: "#fff"; }',
+      'a { background: url("data:image/svg+xml,<svg fill=\'rgb(1,2,3)\'/>") }',
+      "a { background: url(icon.svg#fff) }",
+      "a { background-image: url(theme/gold.png) }",
     ])("不误报：%s", (css) => {
       expect(s9Offenders(css)).toEqual([]);
     });

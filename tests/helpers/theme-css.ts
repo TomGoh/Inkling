@@ -203,13 +203,51 @@ export function colorFunctionIn(line: string): string | null {
   return null;
 }
 
-/** 颜色类属性（#327：命名色判据只在**这些属性**上启用，避免字体栈/动画名/`content` 里的颜色词误报）。 */
-const COLOR_PROP_RE =
-  /^(color|background|background-color|background-image|border|border-color|border-(top|right|bottom|left)(-color)?|outline|outline-color|fill|stroke|box-shadow|text-shadow|caret-color|accent-color|text-decoration-color|column-rule|column-rule-color|scrollbar-color|stop-color|flood-color|lighting-color|--.*)$/;
+/**
+ * **非颜色**属性（#332：判据反转）。命名色判据只在这些属性上**不**判。
+ *
+ * 为什么反转：枚举「颜色属性」永远会漏 —— `-webkit-text-fill-color` / `-webkit-text-stroke-color` /
+ * `text-emphasis-color` / `border-inline-start-color` / `caret` / `text-decoration` …，而且新属性会继续出现
+ * （其中若干本仓库**正在使用**）。反过来枚举「值里合法出现颜色词的属性」是一份**封闭且短**的清单
+ * （字体名 / 内容 / 动画名 / 计数器名 / 光标关键字…），**新增颜色属性时不需要维护**。
+ */
+export const NON_COLOR_PROPS = new Set([
+  "font",
+  "font-family",
+  "font-feature-settings",
+  "font-variation-settings",
+  "font-synthesis",
+  "content",
+  "quotes",
+  "counter-reset",
+  "counter-increment",
+  "counter-set",
+  "animation",
+  "animation-name",
+  "transition",
+  "transition-property",
+  "will-change",
+  "cursor",
+  "src",
+  "list-style-type",
+  "list-style-image",
+  "grid-template-areas",
+  "grid-template-columns",
+  "grid-template-rows",
+  "grid-area",
+  "grid-column",
+  "grid-row",
+  "background-clip",
+  "-webkit-background-clip",
+]);
 
-/** 去掉引号内字符串（`content: "gold"` 这类不该被当成硬编码色） */
-function stripStrings(s: string): string {
-  return s.replace(/"[^"]*"|'[^']*'/g, "");
+/**
+ * 去掉「不透明值」（#332）：引号内字符串 + `url(...)` 的内容。
+ * 它们里面的色值/颜色词都不该被当成硬编码色（`content: "gold"`、`content: "rgb(1,2,3)"`、
+ * `url("data:image/svg+xml,…rgb(…)…")`、`url(icon.svg#fff)`）。先剥 `url()` 再剥引号（url 体内可能带引号）。
+ */
+export function stripOpaque(s: string): string {
+  return s.replace(/url\([^)]*\)/gi, "url()").replace(/"[^"]*"|'[^']*'/g, "");
 }
 
 /**
@@ -223,19 +261,22 @@ function declCandidates(line: string): { prop: string; value: string }[] {
     if (i < 0) continue;
     const m = /([-\w]+)\s*$/.exec(seg.slice(0, i));
     if (!m) continue;
-    out.push({ prop: m[1].toLowerCase(), value: stripStrings(seg.slice(i + 1)) });
+    out.push({ prop: m[1].toLowerCase(), value: stripOpaque(seg.slice(i + 1)) });
   }
   return out;
 }
 
 /**
- * 值里是否含命名颜色（返回命中的词，便于报错）。两道收口（#327）：
- * ① 只扫**去掉引号字符串后**的值（`content: "gold"` 不再误报）；
- * ② 只在**颜色类属性**上判（`font-family: Linen, serif` / `animation: snow 2s` 不再误报）。
+ * 值里是否含命名颜色（返回命中的词，便于报错）。三道收口：
+ * ① 只扫**去掉引号字符串与 `url()` 内容后**的值（#332；`content: "gold"` 不再误报）；
+ * ② **函数调用**里的词不算颜色（#332；`calc(tan(1rad) * 10px)` 里的 `tan` 不是 Tan 色）；
+ * ③ 由调用方按**非颜色属性白名单**（`NON_COLOR_PROPS`）决定是否启用（#332 判据反转）。
  * 另用 `(?<![-\w])` 排除 `var(--gold)` / `--bg-gold` 这类自定义属性名里的同名词。
  */
 export function namedColorIn(value: string): string | null {
   for (const m of value.matchAll(/(?<![-\w])[a-zA-Z][\w-]*/g)) {
+    const after = value.slice((m.index ?? 0) + m[0].length);
+    if (/^\s*\(/.test(after)) continue; // 函数调用（tan(…) / snow(…)）不是颜色
     const word = m[0].toLowerCase();
     if (NAMED_COLOR_ALLOW.has(word)) continue;
     if (NAMED_COLORS.has(word)) return m[0];
@@ -248,13 +289,17 @@ export function namedColorIn(value: string): string | null {
  * 多行 token 声明（--x: … ; 跨行）按声明状态机整体放行；
  * s9-allow 标记：独立注释行豁免其下一条非空行，行内标记豁免本行。
  *
- * 色值覆盖（#312 补盲区，#327 补两侧边界）：
+ * 色值覆盖（#312 补盲区，#327 补两侧边界，#332 反转判据方向）：
  * - `#hex`；
  * - **色值函数族**（`COLOR_FUNCTIONS` 显式列举：`rgb(a)` / `hsl(a)` / `hwb` / `lab` / `lch` /
  *   `oklab` / `oklch` / `color` / `color-mix` / `color-contrast` / `light-dark` / `device-cmyk` …）
  *   —— 不再依赖「`lab(` 是 `oklab(` 子串」这类隐性覆盖；
- * - **命名颜色**（白名单见 `NAMED_COLOR_ALLOW`）：只扫**颜色类属性**的值、且先剥引号字符串，
- *   于是 `font-family: Linen, serif` / `animation: snow 2s` / `content: "gold"` 不再误报。
+ * - **命名颜色**（白名单见 `NAMED_COLOR_ALLOW`）：**默认所有属性都判**，只在 `NON_COLOR_PROPS`
+ *   （字体/内容/动画名/计数器… 这份封闭短清单）上放行 —— 于是 `-webkit-text-fill-color: gold` /
+ *   `text-decoration: underline gold` / `border-inline-start-color: red` 这些**以前漏掉**的形态都会被拦，
+ *   而新增颜色属性时**不需要维护**清单；
+ * - 三条判据统一在**剥掉引号字符串与 `url()` 内容**之后跑（`content: "gold"` / `content: "#fff"` /
+ *   `url(icon.svg#fff)` / `url("…rgb(…)…")` 都不再误报）。
  */
 export function s9Offenders(raw: string): { line: number; text: string }[] {
   const masked = maskComments(raw);
@@ -281,12 +326,15 @@ export function s9Offenders(raw: string): { line: number; text: string }[] {
       if (inTokenDecl && line.includes(";")) inTokenDecl = false;
       return;
     }
+    // #332：三条判据（hex / 色值函数 / 命名色）统一在**剥掉引号字符串与 url() 内容**之后跑，
+    // 否则 `content: "rgb(…)"` / `url(x.svg#fff)` 这类会被误报。
+    const scanned = stripOpaque(line);
     hexRe.lastIndex = 0;
-    const hasFunction = colorFunctionIn(line) !== null;
-    const hasNamed = declCandidates(line).some(
-      ({ prop, value }) => COLOR_PROP_RE.test(prop) && namedColorIn(value) !== null,
+    const hasFunction = colorFunctionIn(scanned) !== null;
+    const hasNamed = declCandidates(scanned).some(
+      ({ prop, value }) => !NON_COLOR_PROPS.has(prop) && namedColorIn(value) !== null,
     );
-    if (hexRe.test(line) || hasFunction || hasNamed) {
+    if (hexRe.test(scanned) || hasFunction || hasNamed) {
       out.push({ line: i + 1, text: rawLines[i].trim() });
     }
   });
