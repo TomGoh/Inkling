@@ -138,8 +138,20 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       // 按 spec 枚举补齐的同族个例
       "a { symbols: red }",
       "a { font-palette: red }",
+      "a { list-style: red }", // Codex 第五轮 P2：简写含 <counter-style>
+      "h1 { string-set: red content(text) }", // Codex 第五轮 P2：分页媒体 <custom-ident>
+      // Codex 第五轮 P2：**选择器行**不能被当声明解析（`:not(.red)` / `:is(.gold)`）
+      ".item:not(.red) {",
+      ".item:is(.gold), .x:where(.linen) {",
+      "@media (min-width: 600px) {",
     ])("不误报：%s", (css) => {
       expect(s9Offenders(css)).toEqual([]);
+    });
+
+    // 选择器行修好之后，同一行的**真实声明**仍必须判
+    it("同一行内选择器与真实声明并存时，声明照常判", () => {
+      expect(s9Offenders(".item:not(.red) { color: #fff }").length).toBe(1);
+      expect(s9Offenders(".item:not(.red) { color: gold }").length).toBe(1);
     });
 
     // 后缀兜底不得把它该管的东西也放掉：`-name/-class/-scope` 之外的属性照旧要判

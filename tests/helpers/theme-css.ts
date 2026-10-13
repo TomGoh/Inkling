@@ -255,6 +255,7 @@ export const NON_COLOR_VALUE_PROPS = new Set([
   "will-change",
   "cursor",
   "src",
+  "list-style", // 简写含 <counter-style>（自定义计数器名）
   "list-style-type",
   "list-style-image",
   "grid-template-areas",
@@ -281,6 +282,7 @@ export const NON_COLOR_VALUE_PROPS = new Set([
   "container",
   "symbols",
   "font-palette",
+  "string-set", // 分页媒体：首组件是 <custom-ident>
 ]);
 
 /** 是否需要对该属性做命名色判据（豁免清单 + `-name/-class/-scope` 后缀 + 网格线放置长手） */
@@ -428,12 +430,17 @@ export function s9Offenders(raw: string): { line: number; text: string }[] {
     // #332：三条判据（hex / 色值函数 / 命名色）统一在**剥掉引号字符串与 url() 内容**之后跑，
     // 否则 `content: "rgb(…)"` / `url(x.svg#fff)` 这类会被误报。
     const scanned = stripOpaque(line);
+    // #335 Codex 第五轮 P2：**选择器不能被当声明解析** —— 形如 `.item:not(.red) {` 的行里
+    // `:not(.red)` 的 `.red` 会被当成属性值。`{` 之前是选择器、之后才是声明，
+    // 故只对 `{` 之后的部分做判据（`{` 若出现在字符串里，上一行 stripOpaque 已剥掉）。
+    const brace = scanned.indexOf("{");
+    const declPart = brace >= 0 ? scanned.slice(brace + 1) : scanned;
     hexRe.lastIndex = 0;
-    const hasFunction = colorFunctionIn(scanned) !== null;
-    const hasNamed = declCandidates(scanned).some(
+    const hasFunction = colorFunctionIn(declPart) !== null;
+    const hasNamed = declCandidates(declPart).some(
       ({ prop, value }) => shouldCheckNamedColor(prop) && namedColorIn(value) !== null,
     );
-    if (hexRe.test(scanned) || hasFunction || hasNamed) {
+    if (hexRe.test(declPart) || hasFunction || hasNamed) {
       out.push({ line: i + 1, text: rawLines[i].trim() });
     }
   });
