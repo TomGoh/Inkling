@@ -219,6 +219,17 @@ export function colorFunctionIn(line: string): string | null {
  *    `view-transition-name: blue` 是**合法自定义标识符**，判据反转后会被误判成颜色）——
  *    这类属性值本身就是任意标识符，必须豁免。
  */
+/**
+ * 值的语法是 `<custom-ident>` / `<dashed-ident>` 的属性的**名字后缀**兜底。
+ *
+ * CSS 里这类属性统一以 `-name` / `-class` / `-scope` 结尾（`container-name`、
+ * `view-transition-name`/**`view-transition-class`**（Codex #335 第二轮 P2）、`anchor-name`、
+ * `scroll-timeline-name`/`view-timeline-name`、`timeline-scope`、`animation-name` …）。
+ * 用后缀规则兜住整族，避免「每出现一个新特性就得补一次豁免清单」这种拉锯 ——
+ * 显式清单仍保留（覆盖名字不遵循该后缀的个例，如 `page` / `will-change` / `cursor`）。
+ */
+const CUSTOM_IDENT_PROP_SUFFIX = /-(name|class|scope)$/;
+
 export const NON_COLOR_VALUE_PROPS = new Set([
   // ① 含自定义名字/关键字
   "font",
@@ -248,9 +259,10 @@ export const NON_COLOR_VALUE_PROPS = new Set([
   "grid-row",
   "background-clip",
   "-webkit-background-clip",
-  // ② 值语法即 `<custom-ident>`（豁免理由见上）
+  // ② 值语法即 `<custom-ident>`（豁免理由见上；凡以 -name/-class/-scope 结尾的另有后缀兜底）
   "container-name",
   "view-transition-name",
+  "view-transition-class",
   "timeline-scope",
   "scroll-timeline",
   "scroll-timeline-name",
@@ -258,11 +270,15 @@ export const NON_COLOR_VALUE_PROPS = new Set([
   "view-timeline-name",
   "anchor-name",
   "position-anchor",
+  "animation-timeline",
   "page",
   "container",
-  "scroll-timeline-axis",
-  "view-timeline-inset",
 ]);
+
+/** 是否需要对该属性做命名色判据（豁免清单 + `-name/-class/-scope` 后缀） */
+export function shouldCheckNamedColor(prop: string): boolean {
+  return !NON_COLOR_VALUE_PROPS.has(prop) && !CUSTOM_IDENT_PROP_SUFFIX.test(prop);
+}
 
 /**
  * 去掉「不透明值」（#332）：引号内字符串 + `url(...)` 的内容。
@@ -407,7 +423,7 @@ export function s9Offenders(raw: string): { line: number; text: string }[] {
     hexRe.lastIndex = 0;
     const hasFunction = colorFunctionIn(scanned) !== null;
     const hasNamed = declCandidates(scanned).some(
-      ({ prop, value }) => !NON_COLOR_VALUE_PROPS.has(prop) && namedColorIn(value) !== null,
+      ({ prop, value }) => shouldCheckNamedColor(prop) && namedColorIn(value) !== null,
     );
     if (hexRe.test(scanned) || hasFunction || hasNamed) {
       out.push({ line: i + 1, text: rawLines[i].trim() });

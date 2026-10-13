@@ -125,8 +125,20 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       "a { container-name: red }",
       "a { view-transition-name: blue }",
       "a { anchor-name: gold }",
+      "a { view-transition-class: red }", // Codex 第二轮 P2
+      "a { timeline-scope: gold }",
+      "a { scroll-timeline-name: linen }",
+      "a { animation-timeline: red }",
     ])("不误报：%s", (css) => {
       expect(s9Offenders(css)).toEqual([]);
+    });
+
+    // 后缀兜底不得把它该管的东西也放掉：`-name/-class/-scope` 之外的属性照旧要判
+    it("后缀兜底不越界：这些看起来像但不属于该族的属性仍要判", () => {
+      expect(s9Offenders("a { color: red }").length).toBe(1);
+      expect(s9Offenders("a { border-color: gold }").length).toBe(1);
+      expect(s9Offenders("a { text-emphasis-color: linen }").length).toBe(1);
+      expect(s9Offenders("a { grid-column-end: 3 }")).toEqual([]); // 无颜色词，本来就不该报
     });
 
     // #335 Codex P2①：URL 里的 `)` 曾让扫描在 URL 内部截断、错配引号，把**后续真实色值**吃掉
