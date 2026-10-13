@@ -140,6 +140,8 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       "a { font-palette: red }",
       "a { list-style: red }", // Codex 第五轮 P2：简写含 <counter-style>
       "h1 { string-set: red content(text) }", // Codex 第五轮 P2：分页媒体 <custom-ident>
+      "a { grid-template: [red] 1fr / 1fr }", // Codex 第五轮 P2：template 简写含命名网格线
+      "a { grid: [gold] 1fr / 1fr }",
       // Codex 第五轮 P2：**选择器行**不能被当声明解析（`:not(.red)` / `:is(.gold)`）
       ".item:not(.red) {",
       ".item:is(.gold), .x:where(.linen) {",
@@ -152,6 +154,22 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
     it("同一行内选择器与真实声明并存时，声明照常判", () => {
       expect(s9Offenders(".item:not(.red) { color: #fff }").length).toBe(1);
       expect(s9Offenders(".item:not(.red) { color: gold }").length).toBe(1);
+    });
+
+    // Codex 第五轮 P2 第 3 条：`{` 之前并非总是选择器 —— `@supports` 的前置条件就是声明形态，
+    // 整段丢掉会变成「S9 可被绕过」。这类**预置条件里的硬编码色**必须照常报。
+    it.each([
+      "@supports (color: #fff) { a { color: var(--x) } }",
+      "@supports (color: red) {",
+      "@supports (background: rgb(1, 2, 3)) {",
+      "@media (min-width: 600px) and (color: #fff) {",
+    ])("条件规则前置里的硬编码色不得被吞：%s", (css) => {
+      expect(s9Offenders(css).length).toBeGreaterThan(0);
+    });
+
+    it("但纯选择器的条件规则前置（无硬编码色）仍不报", () => {
+      expect(s9Offenders("@media (min-width: 600px) {")).toEqual([]);
+      expect(s9Offenders("@supports (display: grid) {")).toEqual([]);
     });
 
     // 后缀兜底不得把它该管的东西也放掉：`-name/-class/-scope` 之外的属性照旧要判

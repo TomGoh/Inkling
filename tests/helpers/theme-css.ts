@@ -259,8 +259,10 @@ export const NON_COLOR_VALUE_PROPS = new Set([
   "list-style-type",
   "list-style-image",
   "grid-template-areas",
+  "grid-template",
   "grid-template-columns",
   "grid-template-rows",
+  "grid", // 简写，接受同一套 template 语法（含 [命名网格线]）
   "grid-area",
   "grid-column",
   "grid-row",
@@ -433,8 +435,15 @@ export function s9Offenders(raw: string): { line: number; text: string }[] {
     // #335 Codex 第五轮 P2：**选择器不能被当声明解析** —— 形如 `.item:not(.red) {` 的行里
     // `:not(.red)` 的 `.red` 会被当成属性值。`{` 之前是选择器、之后才是声明，
     // 故只对 `{` 之后的部分做判据（`{` 若出现在字符串里，上一行 stripOpaque 已剥掉）。
+    //
+    // ⚠️ 但 `{` 前不**总是**选择器（Codex 第五轮 P2 第 3 条）：`@supports (color: #fff) { … }` 的
+    // **前置条件里就是声明形态**（feature query），若整段丢掉就成了「S9 可被绕过」。故：
+    // 预置条件（`@` 开头、或整行不含 `}` 的续行）里的 feature query **照常参与判据**。
     const brace = scanned.indexOf("{");
-    const declPart = brace >= 0 ? scanned.slice(brace + 1) : scanned;
+    // 只有 **at-rule**（`@media` / `@supports` …）的 `{` 前可能是「声明形态的前置条件」；
+    // 普通样式规则的 `{` 前一定是选择器（`.item:not(.red) {` 里的 `.red` 不是颜色）。
+    const isAtRule = /^\s*@/.test(scanned);
+    const declPart = brace >= 0 && !isAtRule ? scanned.slice(brace + 1) : scanned;
     hexRe.lastIndex = 0;
     const hasFunction = colorFunctionIn(declPart) !== null;
     const hasNamed = declCandidates(declPart).some(
