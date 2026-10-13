@@ -215,20 +215,26 @@ export function colorFunctionIn(line: string): string | null {
  * ① 值里含**自定义名字/关键字**的语法：`font*`（字体名）、`content`/`quotes`（字符串）、
  *    `animation*`/`transition*`/`will-change`（动画名）、`counter-*`（计数器名）、`cursor`（关键字）、
  *    `src`、`list-style-*`、`grid-template-areas` 等；
- * ② 语法就是 **`<custom-ident>`** 的属性（Codex #335 复核 P2：`container-name: red` /
- *    `view-transition-name: blue` 是**合法自定义标识符**，判据反转后会被误判成颜色）——
- *    这类属性值本身就是任意标识符，必须豁免。
+ * ② 语法就是 **`<custom-ident>`**（含命名网格线）的属性（Codex #335 复核 P2：
+ *    `container-name: red` / `view-transition-name: blue` / `view-transition-class: red` /
+ *    `grid-column-start: red` 都是**合法自定义标识符**，判据反转后会被误判成颜色）——
+ *    这类属性值本身就是任意标识符，必须豁免。凡名字符合
+ *    `-(name|class|scope)$` 或 `grid-(column|row)(-start|-end)?` 的由**形态规则**兜底。
  */
 /**
- * 值的语法是 `<custom-ident>` / `<dashed-ident>` 的属性的**名字后缀**兜底。
+ * 值的语法是 `<custom-ident>` / `<dashed-ident>`（或**命名网格线**）的属性的**名字形态**兜底。
  *
- * CSS 里这类属性统一以 `-name` / `-class` / `-scope` 结尾（`container-name`、
- * `view-transition-name`/**`view-transition-class`**（Codex #335 第二轮 P2）、`anchor-name`、
- * `scroll-timeline-name`/`view-timeline-name`、`timeline-scope`、`animation-name` …）。
- * 用后缀规则兜住整族，避免「每出现一个新特性就得补一次豁免清单」这种拉锯 ——
- * 显式清单仍保留（覆盖名字不遵循该后缀的个例，如 `page` / `will-change` / `cursor`）。
+ * 两类形态：
+ * ① **后缀** —— CSS 里 custom-ident 系属性统一以 `-name` / `-class` / `-scope` 结尾
+ *    （`container-name`、`view-transition-name`、**`view-transition-class`**、
+ *    `anchor-name`、`scroll-timeline-name`/`view-timeline-name`、`timeline-scope`、`animation-name` …）；
+ * ② **网格线放置长手** —— `grid-column-start` / `grid-column-end` / `grid-row-start` / `grid-row-end`
+ *    接受**命名网格线**（`<custom-ident>`，Codex #335 第四轮 P2）。
+ *
+ * 用形态规则兜住整族，避免「每出现一个新特性就得补一次豁免清单」这种拉锯；显式清单仍保留，
+ * 覆盖名字不遵循上述形态的个例（`page` / `will-change` / `cursor` / `symbols` / `font-palette` …）。
  */
-const CUSTOM_IDENT_PROP_SUFFIX = /-(name|class|scope)$/;
+const CUSTOM_IDENT_PROP_RE = /(-(name|class|scope)$)|(^grid-(column|row)(-(start|end))?$)/;
 
 export const NON_COLOR_VALUE_PROPS = new Set([
   // ① 含自定义名字/关键字
@@ -273,11 +279,13 @@ export const NON_COLOR_VALUE_PROPS = new Set([
   "animation-timeline",
   "page",
   "container",
+  "symbols",
+  "font-palette",
 ]);
 
-/** 是否需要对该属性做命名色判据（豁免清单 + `-name/-class/-scope` 后缀） */
+/** 是否需要对该属性做命名色判据（豁免清单 + `-name/-class/-scope` 后缀 + 网格线放置长手） */
 export function shouldCheckNamedColor(prop: string): boolean {
-  return !NON_COLOR_VALUE_PROPS.has(prop) && !CUSTOM_IDENT_PROP_SUFFIX.test(prop);
+  return !NON_COLOR_VALUE_PROPS.has(prop) && !CUSTOM_IDENT_PROP_RE.test(prop);
 }
 
 /**

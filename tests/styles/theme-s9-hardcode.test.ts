@@ -129,6 +129,15 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       "a { timeline-scope: gold }",
       "a { scroll-timeline-name: linen }",
       "a { animation-timeline: red }",
+      // Codex 第四轮 P2：命名网格线（长手 + 简写）
+      "a { grid-column-start: red }",
+      "a { grid-column-end: gold }",
+      "a { grid-row-start: linen }",
+      "a { grid-row-end: red }",
+      "a { grid-column: red / gold }",
+      // 按 spec 枚举补齐的同族个例
+      "a { symbols: red }",
+      "a { font-palette: red }",
     ])("不误报：%s", (css) => {
       expect(s9Offenders(css)).toEqual([]);
     });
