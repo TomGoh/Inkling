@@ -120,8 +120,20 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       'a { background: url("data:image/svg+xml,<svg fill=\'rgb(1,2,3)\'/>") }',
       "a { background: url(icon.svg#fff) }",
       "a { background-image: url(theme/gold.png) }",
+      'a { background-image: url("icons/foo).svg") }', // URL 内含 `)`，剥完不该吃掉后续
+      // #335 Codex P2②：值语法为 <custom-ident> 的属性，命名色词是合法标识符
+      "a { container-name: red }",
+      "a { view-transition-name: blue }",
+      "a { anchor-name: gold }",
     ])("不误报：%s", (css) => {
       expect(s9Offenders(css)).toEqual([]);
+    });
+
+    // #335 Codex P2①：URL 里的 `)` 曾让扫描在 URL 内部截断、错配引号，把**后续真实色值**吃掉
+    it("URL 内含 `)` 时不得吃掉后续真实色值（Codex 复核给的例子）", () => {
+      const css = 'a { background-image: url("icons/foo).svg"); color: #fff; content: "ok"; }';
+      expect(s9Offenders(css).length).toBe(1);
+      expect(s9Offenders(css)[0].text).toContain("#fff");
     });
   });
 

@@ -204,14 +204,23 @@ export function colorFunctionIn(line: string): string | null {
 }
 
 /**
- * **非颜色**属性（#332：判据反转）。命名色判据只在这些属性上**不**判。
+ * **值不是颜色**的属性（#332 判据反转；#335 Codex 复核后扩充 `<custom-ident>` 家族）。
+ * 命名色判据只在这些属性上**不**判。
  *
  * 为什么反转：枚举「颜色属性」永远会漏 —— `-webkit-text-fill-color` / `-webkit-text-stroke-color` /
  * `text-emphasis-color` / `border-inline-start-color` / `caret` / `text-decoration` …，而且新属性会继续出现
- * （其中若干本仓库**正在使用**）。反过来枚举「值里合法出现颜色词的属性」是一份**封闭且短**的清单
- * （字体名 / 内容 / 动画名 / 计数器名 / 光标关键字…），**新增颜色属性时不需要维护**。
+ * （其中若干本仓库**正在使用**）。反过来枚举「值里合法出现非颜色标识符的属性」是一份**封闭**清单。
+ *
+ * 清单由两类语法构成：
+ * ① 值里含**自定义名字/关键字**的语法：`font*`（字体名）、`content`/`quotes`（字符串）、
+ *    `animation*`/`transition*`/`will-change`（动画名）、`counter-*`（计数器名）、`cursor`（关键字）、
+ *    `src`、`list-style-*`、`grid-template-areas` 等；
+ * ② 语法就是 **`<custom-ident>`** 的属性（Codex #335 复核 P2：`container-name: red` /
+ *    `view-transition-name: blue` 是**合法自定义标识符**，判据反转后会被误判成颜色）——
+ *    这类属性值本身就是任意标识符，必须豁免。
  */
-export const NON_COLOR_PROPS = new Set([
+export const NON_COLOR_VALUE_PROPS = new Set([
+  // ① 含自定义名字/关键字
   "font",
   "font-family",
   "font-feature-settings",
@@ -239,15 +248,81 @@ export const NON_COLOR_PROPS = new Set([
   "grid-row",
   "background-clip",
   "-webkit-background-clip",
+  // ② 值语法即 `<custom-ident>`（豁免理由见上）
+  "container-name",
+  "view-transition-name",
+  "timeline-scope",
+  "scroll-timeline",
+  "scroll-timeline-name",
+  "view-timeline",
+  "view-timeline-name",
+  "anchor-name",
+  "position-anchor",
+  "page",
+  "container",
+  "scroll-timeline-axis",
+  "view-timeline-inset",
 ]);
 
 /**
  * 去掉「不透明值」（#332）：引号内字符串 + `url(...)` 的内容。
  * 它们里面的色值/颜色词都不该被当成硬编码色（`content: "gold"`、`content: "rgb(1,2,3)"`、
- * `url("data:image/svg+xml,…rgb(…)…")`、`url(icon.svg#fff)`）。先剥 `url()` 再剥引号（url 体内可能带引号）。
+ * `url("data:image/svg+xml,…rgb(…)…")`、`url(icon.svg#fff)`）。
+ *
+ * ⚠️ 不能用 `/url\([^)]*\)/`（Codex #335 复核 P2）：**合法 URL 内可以出现 `)`**
+ * （如 `url("icons/foo).svg")`），那样会在 URL 内部截断、把后面的引号**错配**，
+ * 反而吃掉后续的真实色值 —— 例：`background-image: url("icons/foo).svg"); color: #fff; content: "ok";`
+ * 修前会让 `#fff` 从扫描文本里消失 ⇒ S9 放行真实违规。故改为**引号感知的扫描器**：
+ * 引号串按转义规则整体吃掉；`url(` 之后按括号深度找配对 `)`，途中遇到引号同样整体跳过。
  */
 export function stripOpaque(s: string): string {
-  return s.replace(/url\([^)]*\)/gi, "url()").replace(/"[^"]*"|'[^']*'/g, "");
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i];
+
+    // 引号字符串（支持 `\` 转义）
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      i += 1;
+      while (i < s.length && s[i] !== quote) {
+        if (s[i] === "\\") i += 1;
+        i += 1;
+      }
+      i += 1; // 收尾引号
+      continue;
+    }
+
+    // url( ... )：括号内允许引号，按深度找配对 `)`
+    if (ch === "u" || ch === "U") {
+      if (s.slice(i, i + 4).toLowerCase() === "url(") {
+        i += 4;
+        let depth = 1;
+        while (i < s.length && depth > 0) {
+          const c = s[i];
+          if (c === '"' || c === "'") {
+            const quote = c;
+            i += 1;
+            while (i < s.length && s[i] !== quote) {
+              if (s[i] === "\\") i += 1;
+              i += 1;
+            }
+            i += 1;
+            continue;
+          }
+          if (c === "(") depth += 1;
+          if (c === ")") depth -= 1;
+          i += 1;
+        }
+        out += "url()";
+        continue;
+      }
+    }
+
+    out += ch;
+    i += 1;
+  }
+  return out;
 }
 
 /**
@@ -332,7 +407,7 @@ export function s9Offenders(raw: string): { line: number; text: string }[] {
     hexRe.lastIndex = 0;
     const hasFunction = colorFunctionIn(scanned) !== null;
     const hasNamed = declCandidates(scanned).some(
-      ({ prop, value }) => !NON_COLOR_PROPS.has(prop) && namedColorIn(value) !== null,
+      ({ prop, value }) => !NON_COLOR_VALUE_PROPS.has(prop) && namedColorIn(value) !== null,
     );
     if (hexRe.test(scanned) || hasFunction || hasNamed) {
       out.push({ line: i + 1, text: rawLines[i].trim() });
