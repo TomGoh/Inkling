@@ -199,6 +199,27 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       expect(s9Offenders(css).length).toBe(1);
       expect(s9Offenders(css)[0].text).toContain("#fff");
     });
+
+    // Codex 第八轮 P2①：条件里可以**嵌套**分组（`((color: #fff) and (display: grid))`），
+    // 复合组本身不是特性查询，但里面的组必须继续看 —— 否则就是无标记绕过。
+    it.each([
+      "@supports ((color: #fff) and (display: grid)) {",
+      "@supports ((color: #fff)) {",
+      "@media ((min-width: 600px) and (color: rgb(1, 2, 3))) {",
+    ])("嵌套条件里的硬编码色不得被吞：%s", (css) => {
+      expect(s9Offenders(css).length).toBeGreaterThan(0);
+    });
+
+    // Codex 第八轮 P2②：注释里的色值不是硬编码色。**实测**：postcss 已把注释从 `decl.value`
+    // 里剥掉（`a { color: var(--text) /* #fff */ }` → `decl.value === "var(--text) "`，
+    // 原文只在 `raws.value.raw`），故声明侧天然不误报；这条用例把该行为**锁住**
+    // （将来 postcss 若改行为，这里先红）。at-rule 前置（`at.params` 是原文）则自行掩码。
+    it("注释里的色值不参与判据（声明值靠 postcss 剥离、前置靠掩码；注释之外照常判）", () => {
+      expect(s9Offenders("a { color: var(--text) /* #fff */; }")).toEqual([]);
+      expect(s9Offenders("a { color: var(--text) /* rgb(1, 2, 3) */; }")).toEqual([]);
+      expect(s9Offenders("@supports (color: var(--x) /* #fff */) {")).toEqual([]);
+      expect(s9Offenders("a { color: #fff /* 说明：走 token 前先临时用 */; }").length).toBe(1);
+    });
   });
 
   it("未登记守卫：src 下所有 .css 必须被 tokenDefinitionFiles 覆盖（新增样式入口须登记）", () => {

@@ -468,30 +468,40 @@ function parseLenient(raw: string): Root {
 
 /**
  * 从 at-rule 前置里取出「声明形态」的特性查询（`(color: #fff)` / `(min-width: 600px)`）。
- * 按括号深度取到**配对** `)`，故 `(background: rgb(1, 2, 3))` 这种值里带括号的也能取到；
- * 属性名取 `:` 前最后一个词。
+ *
+ * 两条要点（第一条来自复核实测：`expected 0 to be greater than 0`）：
+ * - **复合条件要递归**：`@supports ((color: #fff) and (display: grid))` 的外层组本身不是特性
+ *   查询（`:` 前含 `(`），但**里面的组是** —— 整组跳过就成了无标记绕过；
+ * - **前置里的注释先掩码**：postcss 只对**声明值**做了注释剥离（`decl.value` 干净、原文在
+ *   `raws.value.raw`），`at.params` 是原文 ⇒ 这里自行掩码，
+ *   `@supports (color: var(--x) /* #fff *\/)` 不把注释里的色值当硬编码。
  */
 function featureQueries(params: string): { prop: string; value: string }[] {
-  const s = stripOpaque(params);
   const out: { prop: string; value: string }[] = [];
-  for (let i = 0; i < s.length; i++) {
-    if (s[i] !== "(") continue;
-    let depth = 1;
-    let j = i + 1;
-    while (j < s.length && depth > 0) {
-      if (s[j] === "(") depth++;
-      if (s[j] === ")") depth--;
-      j++;
-    }
-    const inner = s.slice(i + 1, j - 1);
-    const colon = inner.indexOf(":");
-    const head = colon > 0 ? inner.slice(0, colon) : "";
-    const prop = head.trim().split(/\s+/).pop()?.toLowerCase() ?? "";
-    if (prop && !head.includes("(") && /^[-\w]+$/.test(prop))
-      out.push({ prop, value: inner.slice(colon + 1) });
-    i = j - 1;
-  }
+  walkGroups(maskComments(stripOpaque(params)));
   return out;
+
+  function walkGroups(s: string): void {
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] !== "(") continue;
+      let depth = 1;
+      let j = i + 1;
+      while (j < s.length && depth > 0) {
+        if (s[j] === "(") depth++;
+        if (s[j] === ")") depth--;
+        j++;
+      }
+      const inner = s.slice(i + 1, j - 1);
+      const colon = inner.indexOf(":");
+      const head = colon > 0 ? inner.slice(0, colon) : "";
+      if (head && !head.includes("(")) {
+        const prop = head.trim().split(/\s+/).pop()?.toLowerCase() ?? "";
+        if (/^[-\w]+$/.test(prop)) out.push({ prop, value: inner.slice(colon + 1) });
+      }
+      walkGroups(inner); // 嵌套分组继续看
+      i = j - 1;
+    }
+  }
 }
 
 /**
@@ -513,7 +523,13 @@ function exemptLines(raw: string): Set<number> {
   return exempt;
 }
 
-/** 该声明/特性查询的值里是否含硬编码色值（返回命中片段，便于报错） */
+/**
+ * 该声明/特性查询的值里是否含硬编码色值（返回命中片段，便于报错）。
+ *
+ * 声明值**不需要**再掩码注释：postcss 已把注释从 `decl.value` 里剥掉（实测
+ * `a { color: var(--text) /* #fff *\/ }` → `decl.value === "var(--text) "`，
+ * 原文留在 `raws.value.raw`）。这条被用例锁住 —— 若将来 postcss 改了行为，用例会先红。
+ */
 function colorLiteralIn(prop: string, rawValue: string): string | null {
   const value = stripOpaque(rawValue);
   const hex = /(^|[^\w-])(#[0-9a-fA-F]{3,8})\b/.exec(value);
