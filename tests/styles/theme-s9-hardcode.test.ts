@@ -87,6 +87,15 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       "a { color: device-cmyk(0 1 0 0) }",
       "a { color: color-contrast(var(--x) vs red, blue) }",
       "a { color: light-dark(white, black) }",
+      // #332 补漏：属性白名单外的命名色（判据反转后**默认全判**，不再逐个列颜色属性）
+      "a { -webkit-text-fill-color: gold }",
+      "a { -webkit-text-stroke-color: red }",
+      "a { -webkit-tap-highlight-color: red }",
+      "a { text-decoration: underline gold }",
+      "a { text-emphasis-color: red }",
+      "a { border-inline-start-color: red }",
+      "a { border-block-end: 1px solid gold }",
+      "a { caret: red }",
     ])("拦截非 token 行上的色值：%s", (css) => {
       expect(s9Offenders(css).length).toBe(1);
     });
@@ -105,8 +114,111 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       ".p { animation: snow 2s; }",
       ".p { width: calc(tan(1rad) * 10px); }",
       ".p { transition-duration: 2s; color: var(--text); }",
+      // #332 收误报：色值**写在引号字符串或 url() 里**（三条判据统一剥掉后不该报）
+      'a { content: "rgb(1, 2, 3)"; }',
+      'a { content: "#fff"; }',
+      'a { background: url("data:image/svg+xml,<svg fill=\'rgb(1,2,3)\'/>") }',
+      "a { background: url(icon.svg#fff) }",
+      "a { background-image: url(theme/gold.png) }",
+      'a { background-image: url("icons/foo).svg") }', // URL 内含 `)`，剥完不该吃掉后续
+      // #335 Codex P2②：值语法为 <custom-ident> 的属性，命名色词是合法标识符
+      "a { container-name: red }",
+      "a { view-transition-name: blue }",
+      "a { anchor-name: gold }",
+      "a { view-transition-class: red }", // Codex 第二轮 P2
+      "a { timeline-scope: gold }",
+      "a { scroll-timeline-name: linen }",
+      "a { animation-timeline: red }",
+      // Codex 第四轮 P2：命名网格线（长手 + 简写）
+      "a { grid-column-start: red }",
+      "a { grid-column-end: gold }",
+      "a { grid-row-start: linen }",
+      "a { grid-row-end: red }",
+      "a { grid-column: red / gold }",
+      // 按 spec 枚举补齐的同族个例
+      "a { symbols: red }",
+      "a { font-palette: red }",
+      "a { list-style: red }", // Codex 第五轮 P2：简写含 <counter-style>
+      "h1 { string-set: red content(text) }", // Codex 第五轮 P2：分页媒体 <custom-ident>
+      "a { grid-template: [red] 1fr / 1fr }", // Codex 第五轮 P2：template 简写含命名网格线
+      "a { grid: [gold] 1fr / 1fr }",
+      // Codex 第五轮 P2：**选择器行**不能被当声明解析（`:not(.red)` / `:is(.gold)`）
+      ".item:not(.red) {",
+      ".item:is(.gold), .x:where(.linen) {",
+      "@media (min-width: 600px) {",
     ])("不误报：%s", (css) => {
       expect(s9Offenders(css)).toEqual([]);
+    });
+
+    // 选择器行修好之后，同一行的**真实声明**仍必须判
+    it("同一行内选择器与真实声明并存时，声明照常判", () => {
+      expect(s9Offenders(".item:not(.red) { color: #fff }").length).toBe(1);
+      expect(s9Offenders(".item:not(.red) { color: gold }").length).toBe(1);
+    });
+
+    // Codex 第五轮 P2 第 3 条：`{` 之前并非总是选择器 —— `@supports` 的前置条件就是声明形态，
+    // 整段丢掉会变成「S9 可被绕过」。这类**预置条件里的硬编码色**必须照常报。
+    it.each([
+      "@supports (color: #fff) { a { color: var(--x) } }",
+      "@supports (color: red) {",
+      "@supports (background: rgb(1, 2, 3)) {",
+      "@media (min-width: 600px) and (color: #fff) {",
+    ])("条件规则前置里的硬编码色不得被吞：%s", (css) => {
+      expect(s9Offenders(css).length).toBeGreaterThan(0);
+    });
+
+    it("但纯选择器的条件规则前置（无硬编码色）仍不报", () => {
+      expect(s9Offenders("@media (min-width: 600px) {")).toEqual([]);
+      expect(s9Offenders("@supports (display: grid) {")).toEqual([]);
+    });
+
+    // Codex 第七轮 P2：at-rule 前置里也可能是**选择器**（上一轮「@ 一律整行判」的反噬）
+    it.each([
+      "@scope (.item:not(.red)) {",
+      "@scope (.a) to (.b:is(.gold)) {",
+      "@supports selector(.item:not(.red)) {",
+      "a { color-scheme: red }",
+      "a { color-scheme: dark red }",
+      "@counter-style x { system: extends red; fallback: gold }",
+      "@counter-style x { speak-as: linen }",
+    ])("选择器型前置 / custom-ident 描述符不误报：%s", (css) => {
+      expect(s9Offenders(css)).toEqual([]);
+    });
+
+    // 后缀兜底不得把它该管的东西也放掉：`-name/-class/-scope` 之外的属性照旧要判
+    it("后缀兜底不越界：这些看起来像但不属于该族的属性仍要判", () => {
+      expect(s9Offenders("a { color: red }").length).toBe(1);
+      expect(s9Offenders("a { border-color: gold }").length).toBe(1);
+      expect(s9Offenders("a { text-emphasis-color: linen }").length).toBe(1);
+      expect(s9Offenders("a { grid-column-end: 3 }")).toEqual([]); // 无颜色词，本来就不该报
+    });
+
+    // #335 Codex P2①：URL 里的 `)` 曾让扫描在 URL 内部截断、错配引号，把**后续真实色值**吃掉
+    it("URL 内含 `)` 时不得吃掉后续真实色值（Codex 复核给的例子）", () => {
+      const css = 'a { background-image: url("icons/foo).svg"); color: #fff; content: "ok"; }';
+      expect(s9Offenders(css).length).toBe(1);
+      expect(s9Offenders(css)[0].text).toContain("#fff");
+    });
+
+    // Codex 第八轮 P2①：条件里可以**嵌套**分组（`((color: #fff) and (display: grid))`），
+    // 复合组本身不是特性查询，但里面的组必须继续看 —— 否则就是无标记绕过。
+    it.each([
+      "@supports ((color: #fff) and (display: grid)) {",
+      "@supports ((color: #fff)) {",
+      "@media ((min-width: 600px) and (color: rgb(1, 2, 3))) {",
+    ])("嵌套条件里的硬编码色不得被吞：%s", (css) => {
+      expect(s9Offenders(css).length).toBeGreaterThan(0);
+    });
+
+    // Codex 第八轮 P2②：注释里的色值不是硬编码色。**实测**：postcss 已把注释从 `decl.value`
+    // 里剥掉（`a { color: var(--text) /* #fff */ }` → `decl.value === "var(--text) "`，
+    // 原文只在 `raws.value.raw`），故声明侧天然不误报；这条用例把该行为**锁住**
+    // （将来 postcss 若改行为，这里先红）。at-rule 前置（`at.params` 是原文）则自行掩码。
+    it("注释里的色值不参与判据（声明值靠 postcss 剥离、前置靠掩码；注释之外照常判）", () => {
+      expect(s9Offenders("a { color: var(--text) /* #fff */; }")).toEqual([]);
+      expect(s9Offenders("a { color: var(--text) /* rgb(1, 2, 3) */; }")).toEqual([]);
+      expect(s9Offenders("@supports (color: var(--x) /* #fff */) {")).toEqual([]);
+      expect(s9Offenders("a { color: #fff /* 说明：走 token 前先临时用 */; }").length).toBe(1);
     });
   });
 

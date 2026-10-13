@@ -7,6 +7,7 @@
  */
 import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { resolve, relative, sep } from "node:path";
+import { parse, type Root } from "postcss";
 
 export interface ThemeEntries {
   tokenDefinitionFiles: string[];
@@ -203,39 +204,183 @@ export function colorFunctionIn(line: string): string | null {
   return null;
 }
 
-/** 颜色类属性（#327：命名色判据只在**这些属性**上启用，避免字体栈/动画名/`content` 里的颜色词误报）。 */
-const COLOR_PROP_RE =
-  /^(color|background|background-color|background-image|border|border-color|border-(top|right|bottom|left)(-color)?|outline|outline-color|fill|stroke|box-shadow|text-shadow|caret-color|accent-color|text-decoration-color|column-rule|column-rule-color|scrollbar-color|stop-color|flood-color|lighting-color|--.*)$/;
+/**
+ * **值不是颜色**的属性（#332 判据反转；#335 Codex 复核后扩充 `<custom-ident>` 家族）。
+ * 命名色判据只在这些属性上**不**判。
+ *
+ * 为什么反转：枚举「颜色属性」永远会漏 —— `-webkit-text-fill-color` / `-webkit-text-stroke-color` /
+ * `text-emphasis-color` / `border-inline-start-color` / `caret` / `text-decoration` …，而且新属性会继续出现
+ * （其中若干本仓库**正在使用**）。反过来枚举「值里合法出现非颜色标识符的属性」是一份**封闭**清单。
+ *
+ * 清单由两类语法构成：
+ * ① 值里含**自定义名字/关键字**的语法：`font*`（字体名）、`content`/`quotes`（字符串）、
+ *    `animation*`/`transition*`/`will-change`（动画名）、`counter-*`（计数器名）、`cursor`（关键字）、
+ *    `src`、`list-style-*`、`grid-template-areas` 等；
+ * ② 语法就是 **`<custom-ident>`**（含命名网格线）的属性（Codex #335 复核 P2：
+ *    `container-name: red` / `view-transition-name: blue` / `view-transition-class: red` /
+ *    `grid-column-start: red` 都是**合法自定义标识符**，判据反转后会被误判成颜色）——
+ *    这类属性值本身就是任意标识符，必须豁免。凡名字符合
+ *    `-(name|class|scope)$` 或 `grid-(column|row)(-start|-end)?` 的由**形态规则**兜底。
+ */
+/**
+ * 值的语法是 `<custom-ident>` / `<dashed-ident>`（或**命名网格线**）的属性的**名字形态**兜底。
+ *
+ * 两类形态：
+ * ① **后缀** —— CSS 里 custom-ident 系属性统一以 `-name` / `-class` / `-scope` 结尾
+ *    （`container-name`、`view-transition-name`、**`view-transition-class`**、
+ *    `anchor-name`、`scroll-timeline-name`/`view-timeline-name`、`timeline-scope`、`animation-name` …）；
+ * ② **网格线放置长手** —— `grid-column-start` / `grid-column-end` / `grid-row-start` / `grid-row-end`
+ *    接受**命名网格线**（`<custom-ident>`，Codex #335 第四轮 P2）。
+ *
+ * 用形态规则兜住整族，避免「每出现一个新特性就得补一次豁免清单」这种拉锯；显式清单仍保留，
+ * 覆盖名字不遵循上述形态的个例（`page` / `will-change` / `cursor` / `symbols` / `font-palette` …）。
+ */
+const CUSTOM_IDENT_PROP_RE = /(-(name|class|scope)$)|(^grid-(column|row)(-(start|end))?$)/;
 
-/** 去掉引号内字符串（`content: "gold"` 这类不该被当成硬编码色） */
-function stripStrings(s: string): string {
-  return s.replace(/"[^"]*"|'[^']*'/g, "");
+export const NON_COLOR_VALUE_PROPS = new Set([
+  // ① 含自定义名字/关键字
+  "font",
+  "font-family",
+  "font-feature-settings",
+  "font-variation-settings",
+  "font-synthesis",
+  "content",
+  "quotes",
+  "counter-reset",
+  "counter-increment",
+  "counter-set",
+  "animation",
+  "animation-name",
+  "transition",
+  "transition-property",
+  "will-change",
+  "cursor",
+  "src",
+  "list-style", // 简写含 <counter-style>（自定义计数器名）
+  "list-style-type",
+  "list-style-image",
+  "grid-template-areas",
+  "grid-template",
+  "grid-template-columns",
+  "grid-template-rows",
+  "grid", // 简写，接受同一套 template 语法（含 [命名网格线]）
+  "grid-area",
+  "grid-column",
+  "grid-row",
+  "background-clip",
+  "-webkit-background-clip",
+  // ② 值语法即 `<custom-ident>`（豁免理由见上；凡以 -name/-class/-scope 结尾的另有后缀兜底）
+  "container-name",
+  "view-transition-name",
+  "view-transition-class",
+  "timeline-scope",
+  "scroll-timeline",
+  "scroll-timeline-name",
+  "view-timeline",
+  "view-timeline-name",
+  "anchor-name",
+  "position-anchor",
+  "animation-timeline",
+  "page",
+  "container",
+  "symbols",
+  "font-palette",
+  "string-set", // 分页媒体：首组件是 <custom-ident>
+  "color-scheme", // 接受 <custom-ident>（Codex 第七轮 P2）
+  // @counter-style 描述符：值里含 <counter-style-name> / 自定义标识符（Codex 第七轮 P2）
+  "system",
+  "fallback",
+  "speak-as",
+  "negative",
+  "prefix",
+  "suffix",
+  "pad",
+  "range",
+  "additive-symbols",
+]);
+
+/** 是否需要对该属性做命名色判据（豁免清单 + `-name/-class/-scope` 后缀 + 网格线放置长手） */
+export function shouldCheckNamedColor(prop: string): boolean {
+  return !NON_COLOR_VALUE_PROPS.has(prop) && !CUSTOM_IDENT_PROP_RE.test(prop);
 }
 
 /**
- * 从一行里取出「属性 + 值」候选（按 `;` 分段，每段取**最后一个** `:` —— 这样
- * `a:hover { color: gold }` 也能正确取到 `color`）。返回 null 表示这行不是声明形态。
+ * 去掉「不透明值」（#332）：引号内字符串 + `url(...)` 的内容。
+ * 它们里面的色值/颜色词都不该被当成硬编码色（`content: "gold"`、`content: "rgb(1,2,3)"`、
+ * `url("data:image/svg+xml,…rgb(…)…")`、`url(icon.svg#fff)`）。
+ *
+ * ⚠️ 不能用 `/url\([^)]*\)/`（Codex #335 复核 P2）：**合法 URL 内可以出现 `)`**
+ * （如 `url("icons/foo).svg")`），那样会在 URL 内部截断、把后面的引号**错配**，
+ * 反而吃掉后续的真实色值 —— 例：`background-image: url("icons/foo).svg"); color: #fff; content: "ok";`
+ * 修前会让 `#fff` 从扫描文本里消失 ⇒ S9 放行真实违规。故改为**引号感知的扫描器**：
+ * 引号串按转义规则整体吃掉；`url(` 之后按括号深度找配对 `)`，途中遇到引号同样整体跳过。
  */
-function declCandidates(line: string): { prop: string; value: string }[] {
-  const out: { prop: string; value: string }[] = [];
-  for (const seg of line.split(";")) {
-    const i = seg.lastIndexOf(":");
-    if (i < 0) continue;
-    const m = /([-\w]+)\s*$/.exec(seg.slice(0, i));
-    if (!m) continue;
-    out.push({ prop: m[1].toLowerCase(), value: stripStrings(seg.slice(i + 1)) });
+export function stripOpaque(s: string): string {
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i];
+
+    // 引号字符串（支持 `\` 转义）
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      i += 1;
+      while (i < s.length && s[i] !== quote) {
+        if (s[i] === "\\") i += 1;
+        i += 1;
+      }
+      i += 1; // 收尾引号
+      continue;
+    }
+
+    // url( ... ) / selector( ... )：括号内允许引号，按深度找配对 `)`
+    // （`selector()` 的内容是**选择器**而非声明 —— Codex 第七轮 P2：`@supports selector(.item:not(.red)) {`
+    //   里的 `.red` 不该被当颜色）
+    if (ch === "u" || ch === "U" || ch === "s" || ch === "S") {
+      const head = s.slice(i, i + 9).toLowerCase();
+      const fn = head.startsWith("url(") ? 4 : head.startsWith("selector(") ? 9 : 0;
+      if (fn > 0) {
+        const fname = fn === 4 ? "url" : "selector";
+        i += fn;
+        let depth = 1;
+        while (i < s.length && depth > 0) {
+          const c = s[i];
+          if (c === '"' || c === "'") {
+            const quote = c;
+            i += 1;
+            while (i < s.length && s[i] !== quote) {
+              if (s[i] === "\\") i += 1;
+              i += 1;
+            }
+            i += 1;
+            continue;
+          }
+          if (c === "(") depth += 1;
+          if (c === ")") depth -= 1;
+          i += 1;
+        }
+        out += `${fname}()`;
+        continue;
+      }
+    }
+
+    out += ch;
+    i += 1;
   }
   return out;
 }
 
 /**
- * 值里是否含命名颜色（返回命中的词，便于报错）。两道收口（#327）：
- * ① 只扫**去掉引号字符串后**的值（`content: "gold"` 不再误报）；
- * ② 只在**颜色类属性**上判（`font-family: Linen, serif` / `animation: snow 2s` 不再误报）。
+ * 值里是否含命名颜色（返回命中的词，便于报错）。三道收口：
+ * ① 只扫**去掉引号字符串与 `url()` 内容后**的值（#332；`content: "gold"` 不再误报）；
+ * ② **函数调用**里的词不算颜色（#332；`calc(tan(1rad) * 10px)` 里的 `tan` 不是 Tan 色）；
+ * ③ 由调用方按**非颜色属性白名单**（`NON_COLOR_PROPS`）决定是否启用（#332 判据反转）。
  * 另用 `(?<![-\w])` 排除 `var(--gold)` / `--bg-gold` 这类自定义属性名里的同名词。
  */
 export function namedColorIn(value: string): string | null {
   for (const m of value.matchAll(/(?<![-\w])[a-zA-Z][\w-]*/g)) {
+    const after = value.slice((m.index ?? 0) + m[0].length);
+    if (/^\s*\(/.test(after)) continue; // 函数调用（tan(…) / snow(…)）不是颜色
     const word = m[0].toLowerCase();
     if (NAMED_COLOR_ALLOW.has(word)) continue;
     if (NAMED_COLORS.has(word)) return m[0];
@@ -244,53 +389,155 @@ export function namedColorIn(value: string): string | null {
 }
 
 /**
- * S9：返回违反「色值仅允许出现在 token 定义行」的行。
- * 多行 token 声明（--x: … ; 跨行）按声明状态机整体放行；
- * s9-allow 标记：独立注释行豁免其下一条非空行，行内标记豁免本行。
+ * S9：返回违反「色值只允许出现在 token 定义」的**声明**（#335 结构性重写）。
  *
- * 色值覆盖（#312 补盲区，#327 补两侧边界）：
- * - `#hex`；
- * - **色值函数族**（`COLOR_FUNCTIONS` 显式列举：`rgb(a)` / `hsl(a)` / `hwb` / `lab` / `lch` /
- *   `oklab` / `oklch` / `color` / `color-mix` / `color-contrast` / `light-dark` / `device-cmyk` …）
- *   —— 不再依赖「`lab(` 是 `oklab(` 子串」这类隐性覆盖；
- * - **命名颜色**（白名单见 `NAMED_COLOR_ALLOW`）：只扫**颜色类属性**的值、且先剥引号字符串，
- *   于是 `font-family: Linen, serif` / `animation: snow 2s` / `content: "gold"` 不再误报。
+ * 为什么不再按行扫：选择器 / at-rule 前置 / 声明这三者只能靠 CSS 文法区分。按行文本 + 属性清单去
+ * 逼近文法，必然在「选择器被当声明」（`.item:not(.red) {`）与「条件前置被吞」
+ * （`@supports (color: #fff) {`）之间来回振荡 —— #335 的 Codex 五～七轮 P2 反复出现的正是这一族。
+ * 改用 postcss 解析后，**只有声明节点（Decl）进入判据**：选择器与注释天然不参与，
+ * 这一族分歧从根上消失（不再需要「按形态猜」）。
+ *
+ * 判据三条（均在**剥掉引号串与 `url()` / `selector()` 内容**之后跑）：
+ * ① `#hex`；② 色值函数族（`COLOR_FUNCTIONS`）；③ 命名色 —— ③默认**所有属性都判**，
+ * 只对「值语法含 `<custom-ident>`」的属性放行（`NON_COLOR_VALUE_PROPS` + `-name/-class/-scope`
+ * 后缀 + 网格线放置长手），故新增颜色属性不需要维护清单。
+ *
+ * 放行口径：
+ * - **token 定义**（`prop` 以 `--` 开头）整条放行 —— 这正是色值唯一的合法居所；
+ * - `s9-allow` 标记（按原文匹配、不剥注释）：独立注释行豁免其下一条非空行，行内标记豁免本行；
+ * - 条件型 at-rule 前置里的**特性查询**（`@supports (color: #fff)` / `@media … (color: #fff)`）
+ *   按声明判 —— 否则就是无标记绕过；而 `@scope (…)` / `@supports selector(…)` 的前置是**选择器**，
+ *   不判（`selector()` 已在 `stripOpaque` 里被剥离）。
  */
 export function s9Offenders(raw: string): { line: number; text: string }[] {
-  const masked = maskComments(raw);
-  const rawLines = raw.split("\n");
-  const lines = masked.split("\n");
-  const exempt = new Set<number>();
-  rawLines.forEach((l, i) => {
-    if (/s9-allow/.test(l)) {
-      exempt.add(i);
-      if (/^\s*\/\*/.test(l)) {
-        let j = i + 1;
-        while (j < lines.length && !lines[j].trim()) j++;
-        exempt.add(j);
-      }
+  const exempt = exemptLines(raw);
+  const offenses: { line: number; text: string }[] = [];
+  const push = (line: number, text: string) => offenses.push({ line, text });
+
+  // ① 声明节点：token 定义放行，其余按三条判据
+  parseLenient(raw).walkDecls((decl) => {
+    if (decl.prop.startsWith("--")) return;
+    const line = decl.source?.start?.line ?? 0;
+    if (exempt.has(line)) return;
+    if (colorLiteralIn(decl.prop, decl.value))
+      push(line, `${decl.prop}: ${collapsed(decl.value)}`);
+  });
+
+  // ② 条件型 at-rule 的前置：可能是「声明形态」的特性查询（必须判），也可能是选择器（不判）
+  parseLenient(raw).walkAtRules((at) => {
+    if (!CONDITION_AT_RULES.test(at.name)) return;
+    const line = at.source?.start?.line ?? 0;
+    if (exempt.has(line)) return;
+    for (const { prop, value } of featureQueries(at.params)) {
+      if (prop.startsWith("--")) continue;
+      if (colorLiteralIn(prop, value)) push(line, `${at.name} (${prop}: ${collapsed(value)})`);
     }
   });
-  const hexRe = /#[0-9a-fA-F]{3,8}\b/g;
-  const out: { line: number; text: string }[] = [];
-  let inTokenDecl = false;
-  lines.forEach((line, i) => {
-    if (/^\s*--[\w-]+\s*:/.test(line)) inTokenDecl = true;
-    if (inTokenDecl || exempt.has(i)) {
-      // 放行行：仍需推进多行 token 声明状态机
-      if (inTokenDecl && line.includes(";")) inTokenDecl = false;
-      return;
-    }
-    hexRe.lastIndex = 0;
-    const hasFunction = colorFunctionIn(line) !== null;
-    const hasNamed = declCandidates(line).some(
-      ({ prop, value }) => COLOR_PROP_RE.test(prop) && namedColorIn(value) !== null,
-    );
-    if (hexRe.test(line) || hasFunction || hasNamed) {
-      out.push({ line: i + 1, text: rawLines[i].trim() });
-    }
-  });
+
+  return offenses.sort((a, b) => a.line - b.line);
+}
+
+/** 条件型 at-rule：只有它们的**前置**里可能出现「声明形态」的特性查询 */
+const CONDITION_AT_RULES = /^(supports|media|container)$/i;
+
+/** 压平空白，便于报错信息单行展示 */
+function collapsed(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * 真解析（#335）。片段容错：用例里有裸声明（`--gold: #ffd700;`）与未闭合块
+ * （`.item:not(.red) {`）—— 整份解析失败时包一层 `.s9-probe{…}` 再解析，
+ * 使它们仍按**声明**语义参与判据，而不是静默放过。
+ */
+function parseLenient(raw: string): Root {
+  const opts = { from: undefined };
+  try {
+    return parse(raw, opts);
+  } catch {
+    /* 片段 → 见下 */
+  }
+  // 包一层并**按花括号配平补齐**（用例里的片段常是「只写了开括号」的规则开头，
+  // 少补一个就仍是 Unclosed block）。花括号在字符串/注释里的极端情况这里不计较：
+  // 该路径只服务片段，真实样式表走上面的正路。
+  const open = (raw.match(/\{/g) ?? []).length;
+  const close = (raw.match(/\}/g) ?? []).length;
+  const closing = "}".repeat(Math.max(0, open - close) + 1);
+  return parse(`.s9-probe{${raw}${closing}`, opts);
+}
+
+/**
+ * 从 at-rule 前置里取出「声明形态」的特性查询（`(color: #fff)` / `(min-width: 600px)`）。
+ *
+ * 两条要点（第一条来自复核实测：`expected 0 to be greater than 0`）：
+ * - **复合条件要递归**：`@supports ((color: #fff) and (display: grid))` 的外层组本身不是特性
+ *   查询（`:` 前含 `(`），但**里面的组是** —— 整组跳过就成了无标记绕过；
+ * - **前置里的注释先掩码**：postcss 只对**声明值**做了注释剥离（`decl.value` 干净、原文在
+ *   `raws.value.raw`），`at.params` 是原文 ⇒ 这里自行掩码，
+ *   `@supports (color: var(--x) /* #fff *\/)` 不把注释里的色值当硬编码。
+ */
+function featureQueries(params: string): { prop: string; value: string }[] {
+  const out: { prop: string; value: string }[] = [];
+  walkGroups(maskComments(stripOpaque(params)));
   return out;
+
+  function walkGroups(s: string): void {
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] !== "(") continue;
+      let depth = 1;
+      let j = i + 1;
+      while (j < s.length && depth > 0) {
+        if (s[j] === "(") depth++;
+        if (s[j] === ")") depth--;
+        j++;
+      }
+      const inner = s.slice(i + 1, j - 1);
+      const colon = inner.indexOf(":");
+      const head = colon > 0 ? inner.slice(0, colon) : "";
+      if (head && !head.includes("(")) {
+        const prop = head.trim().split(/\s+/).pop()?.toLowerCase() ?? "";
+        if (/^[-\w]+$/.test(prop)) out.push({ prop, value: inner.slice(colon + 1) });
+      }
+      walkGroups(inner); // 嵌套分组继续看
+      i = j - 1;
+    }
+  }
+}
+
+/**
+ * 豁免行号（**1-based**，与 `decl.source.start.line` 对齐）。语义与重写前一致：
+ * 独立注释行（`^\s*\/\*`）豁免其下一条非空行，行内标记豁免本行。
+ */
+function exemptLines(raw: string): Set<number> {
+  const lines = maskComments(raw).split("\n");
+  const exempt = new Set<number>();
+  raw.split("\n").forEach((l, i) => {
+    if (!/s9-allow/.test(l)) return;
+    exempt.add(i + 1);
+    if (/^\s*\/\*/.test(l)) {
+      let j = i + 1;
+      while (j < lines.length && !lines[j].trim()) j++;
+      exempt.add(j + 1);
+    }
+  });
+  return exempt;
+}
+
+/**
+ * 该声明/特性查询的值里是否含硬编码色值（返回命中片段，便于报错）。
+ *
+ * 声明值**不需要**再掩码注释：postcss 已把注释从 `decl.value` 里剥掉（实测
+ * `a { color: var(--text) /* #fff *\/ }` → `decl.value === "var(--text) "`，
+ * 原文留在 `raws.value.raw`）。这条被用例锁住 —— 若将来 postcss 改了行为，用例会先红。
+ */
+function colorLiteralIn(prop: string, rawValue: string): string | null {
+  const value = stripOpaque(rawValue);
+  const hex = /(^|[^\w-])(#[0-9a-fA-F]{3,8})\b/.exec(value);
+  if (hex) return hex[2];
+  const fn = colorFunctionIn(value);
+  if (fn) return `${fn}()`;
+  if (!shouldCheckNamedColor(prop.toLowerCase())) return null;
+  return namedColorIn(value);
 }
 
 /**
