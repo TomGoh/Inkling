@@ -9,8 +9,39 @@
 // 因此期望值不会硬编码，也不会因主题不同而失效；同时每个用例都断言
 // 「高亮主题/默认值确实与 token 不同」，保证断言本身有区分力（非空转）。
 
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { openMockWorkspace, openFile, insertCodeBlock, MOD } from "./helpers";
+
+/**
+ * #343：等「宿主 + 指定节点」都真的在 DOM 里，而不是只等一个更外层的节点可见。
+ *
+ * 复现到的 flake：`S17e` 在 Windows CI 上偶发 `Received: null`（信息是「代码块 CM 宿主未挂载」）。
+ * 机制：`insertCodeBlock` 只等到 `.code-block` 可见，用例随即一次性读 `.cm-cursor`/`.cm-content`
+ * —— 而 CodeMirror 是**分帧绘制**的（光标属 drawSelection 图层），机器负载高时那一帧还没画出来 ⇒ 读到 null。
+ *
+ * 轮询而不是一次性读，并把**缺哪个节点**带进失败信息（比 `Received: null` 可诊断）。
+ */
+async function waitNodes(page: Page, rootSelector: string, selectors: string[]): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          ({ root, sels }) => {
+            const el = document.querySelector(root);
+            if (!el) return `缺宿主 ${root}`;
+            for (const s of sels) if (!el.querySelector(s)) return `缺节点 ${s}`;
+            return "ready";
+          },
+          { root: rootSelector, sels: selectors },
+        ),
+      { timeout: 15_000, message: `等待 ${rootSelector} 下的 ${selectors.join(" / ")}` },
+    )
+    .toBe("ready");
+}
+
+/** 代码块 CM 宿主就绪（可再等更深的图层，如光标层） */
+const waitCodeBlockCm = (page: Page, extra: string[] = []) =>
+  waitNodes(page, ".code-block", [".code-block-cm .cm-editor", ".cm-content", ...extra]);
 
 test.describe("S17 CM 宿主外观取自应用 token（#310 阻塞项 1）", () => {
   test.beforeEach(async ({ page }) => {
@@ -22,9 +53,9 @@ test.describe("S17 CM 宿主外观取自应用 token（#310 阻塞项 1）", () 
   }) => {
     await openFile(page, "readme.md");
     await insertCodeBlock(page);
-    await expect(page.locator(".code-block-cm .cm-gutters")).toBeVisible({
-      timeout: 10_000,
-    });
+    // #343：轮询到「编辑器 + content + 行号栏」都在（而不是只等 editor 可见）
+    await waitCodeBlockCm(page, [".cm-gutters"]);
+    await expect(page.locator(".code-block-cm .cm-editor")).toBeVisible({ timeout: 10_000 });
 
     const r = await page.evaluate(() => {
       const block = document.querySelector(".code-block") as HTMLElement | null;
@@ -71,6 +102,8 @@ test.describe("S17 CM 宿主外观取自应用 token（#310 阻塞项 1）", () 
   test("S17d 代码块：编辑器文字色跟随 --code-block-text（不被高亮主题夺权）", async ({ page }) => {
     await openFile(page, "readme.md");
     await insertCodeBlock(page);
+    // #343：轮询到宿主完整挂载（editor + content），再读文字色
+    await waitCodeBlockCm(page);
     await expect(page.locator(".code-block-cm .cm-editor")).toBeVisible({ timeout: 10_000 });
 
     const r = await page.evaluate(() => {
@@ -98,6 +131,9 @@ test.describe("S17 CM 宿主外观取自应用 token（#310 阻塞项 1）", () 
   test("S17e 代码块：光标边框跟随 --code-block-focus；caret 明确归 CodeMirror", async ({ page }) => {
     await openFile(page, "readme.md");
     await insertCodeBlock(page);
+    // #343：本用例要读 `.cm-cursor`（drawSelection 图层，分帧绘制）—— 必须轮询到它在 DOM 里，
+    // 只等 `.cm-editor` 可见后立刻一次性读，Windows CI 上偶发 `Received: null`。
+    await waitCodeBlockCm(page, [".cm-cursor, .cm-dropCursor"]);
     await expect(page.locator(".code-block-cm .cm-editor")).toBeVisible({ timeout: 10_000 });
 
     const r = await page.evaluate(() => {
@@ -136,6 +172,12 @@ test.describe("S17 CM 宿主外观取自应用 token（#310 阻塞项 1）", () 
     await page.keyboard.press(`${MOD}+Alt+KeyS`);
     const host = page.getByTestId("source-mode-editor");
     await expect(host.locator(".cm-editor")).toBeVisible({ timeout: 5_000 });
+    // #343 同类：源码模式宿主也要等内部节点齐（scroller / host 容器）再读尺寸
+    await waitNodes(page, '[data-testid="source-mode-editor"]', [
+      ".cm-editor",
+      ".cm-scroller",
+      ".source-mode-cm-host",
+    ]);
 
     const r = await page.evaluate(() => {
       const hostEl = document.querySelector(".source-mode-editor") as HTMLElement | null;
@@ -172,6 +214,8 @@ test.describe("S17 CM 宿主外观取自应用 token（#310 阻塞项 1）", () 
   }) => {
     await openFile(page, "frontmatter-demo.md");
     await expect(page.locator(".frontmatter-cm .cm-editor")).toBeVisible({ timeout: 10_000 });
+    // #343 同类：frontmatter 宿主要等行号栏也在，再切主题并读边框色
+    await waitNodes(page, ".frontmatter-block", [".cm-editor", ".cm-gutters"]);
     // 切深色：light 下 --content-frontmatter-gutter-border 就等于 --border，不具区分力
     await page.locator('.topbar-btn[title="主题"]').click();
     await page.locator(".export-item", { hasText: "深色" }).click();
