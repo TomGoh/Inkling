@@ -5,11 +5,33 @@ import { resolve } from "node:path";
 // #224 S10（#309/G7/G7-c）：asset 协议 CSP token 完整性。
 // 该问题只在打包产物暴露（dev 无 CSP、E2E 跑浏览器非 asset 协议），CI 无法靠
 // 运行时行为兜住，必须由源级静态断言保证。
-function tauriConf(): { security: { csp: string; dangerousDisableAssetCspModification?: unknown } } {
+//
+// #309 真机实测（2026-10-14，Windows + WebView2 Edg/120.0.2210.133）：
+// 形态 = `pnpm tauri build --debug --no-bundle`（页面 http://tauri.localhost/），并带**阳性对照**
+// （不在允许列表里的真 PNG，必须被拦）——
+// - 有 CSP：对照被 `img-src` 拦（这就是「本判定有效」的自检）；
+// - **`http://asset.localhost` 承重**：`img-src` 去掉它 ⇒ asset 图片当场被拦
+//   （violation 的 `blockedURI` 就是该 URL）；`style-src` 不含 asset ⇒ asset 样式表被
+//   `style-src-elem` 拦（`src/theme/typora/assets.ts` 的原注释因此是对的）。
+// ⚠️ 别用 `cargo build` 复现：那条路产出 `build.devUrl` 形态（页面 http://localhost:1420/，**无 CSP**），
+//    第一版就是这么把结论跑反的；`scripts/probe-asset-csp.mjs` 已内置「对照必须被拦」的自检与退出码。
+// 下方断言一处都不放松（含「token 形态随 scheme」）。
+function tauriApp(): {
+  security: {
+    csp: string;
+    dangerousDisableAssetCspModification?: unknown;
+    assetProtocol?: { enable?: boolean; scope?: string[] };
+  };
+  windows?: { useHttpsScheme?: boolean }[];
+} {
   const conf = JSON.parse(
     readFileSync(resolve(process.cwd(), "src-tauri/tauri.conf.json"), "utf8"),
   );
   return conf.app;
+}
+
+function tauriConf() {
+  return tauriApp();
 }
 
 function directives(): Map<string, string[]> {
@@ -67,5 +89,61 @@ describe("S10 CSP asset 协议 token 完整性（G7/G7-c/#309）", () => {
     expect(csp.get("style-src"), "style-src 必须保留 'unsafe-inline'").toContain(
       "'unsafe-inline'",
     );
+  });
+
+  // #309：上游 `convertFileSrc` 文档的**第二个**要求（第一个是两个 token）——
+  // 「Additionally, `"enable": "true"` must be added to app.security.assetProtocol and its
+  // access scope must be defined on the scope array」。少了它，token 写对也取不到内容。
+  it("assetProtocol 已启用且 scope 非空（上游 convertFileSrc 文档的第二个要求）", () => {
+    const ap = tauriConf().security.assetProtocol;
+    expect(
+      ap?.enable,
+      "app.security.assetProtocol.enable 必须为 true，否则 convertFileSrc 的 URL 取不到内容",
+    ).toBe(true);
+    expect(
+      Array.isArray(ap?.scope) && (ap?.scope?.length ?? 0) > 0,
+      "assetProtocol.scope 必须至少有一条（静态 scope 覆盖用户目录；工作区目录另有运行时放行）",
+    ).toBe(true);
+  });
+
+  // #309：token 的**形态**取决于窗口的 scheme 配置 ——
+  // `use_https_scheme=false`（默认，见 tauri-utils-2.9.3/config.rs:2344）时 Windows 产出
+  // `http://asset.localhost`；打开该开关后变成 `https://asset.localhost`，而 font-src
+  // **不含** `https:` ⇒ 必须显式补 token（img-src 的 `https:` 虽能兜住，也一并要求显式）。
+  it("token 形态与窗口 scheme 一致（useHttpsScheme 打开时必须补 https://asset.localhost）", () => {
+    const httpsScheme = (tauriApp().windows ?? []).some((w) => w.useHttpsScheme === true);
+    const expected = httpsScheme ? "https://asset.localhost" : "http://asset.localhost";
+    for (const directive of ["img-src", "font-src"]) {
+      expect(
+        csp.get(directive),
+        `${directive} 缺少与 useHttpsScheme=${httpsScheme} 对应的 token：${expected}`,
+      ).toContain(expected);
+    }
+  });
+
+  // #309：把**上游注释本身**当判据（不是我们抄一份清单）——已装 SDK 的 convertFileSrc
+  // 文档写明「`asset:` 与 `http://asset.localhost` must be added to app.security.csp」。
+  // 若将来升级 Tauri 改了口径（新增/改名 token），这里会先红，提醒回来核对。
+  it("判据锚定已装 @tauri-apps/api：其 convertFileSrc 文档点名的 token 都必须在 CSP 里", () => {
+    const api = readFileSync(
+      resolve(process.cwd(), "node_modules/@tauri-apps/api/core.js"),
+      "utf8",
+    );
+    const doc = api
+      .split("\n")
+      .find((l) => /must be added to/.test(l) && /security\.csp/.test(l));
+    expect(
+      doc,
+      "上游注释里应有 convertFileSrc 的 CSP 要求（措辞变了就要重新核对本用例与 CSP）",
+    ).toBeTruthy();
+    const tokens = [...doc!.matchAll(/`([^`]+)`/g)]
+      .map((m) => m[1])
+      .filter((t) => /asset/.test(t));
+    expect(tokens.length, `上游点名的 asset token：${tokens.join(" / ")}`).toBeGreaterThanOrEqual(2);
+    for (const token of tokens) {
+      for (const directive of ["img-src", "font-src"]) {
+        expect(csp.get(directive), `${directive} 缺少上游点名的 token：${token}`).toContain(token);
+      }
+    }
   });
 });
