@@ -29,17 +29,30 @@
 
 ## 自检：没有它就会重犯第一版的错
 
-用一张**不在任何允许列表里**的真 PNG 作阳性对照（`http://127.0.0.1:8899/32.png`，配 `tmp/pngserver.mjs`）：
+用一张**不在任何允许列表里**的真 PNG 作阳性对照。**对照源由探针内联自起**（`node:http` + 系统分配端口，
+提供仓库内的 `src-tauri/icons/32x32.png`），并在探针侧先 `fetch` 一次确认它**真的在听** ——
+所以复现时**不需要**额外准备任何脚本或端口（#340：此前文档引用的临时对照源没入库，别人照着跑不起来）。
 
-- 它**必须被拦**（说明本页确实有 CSP、本判定才有意义）；
-- 若它**加载成功** ⇒ 本页没有 CSP ⇒ 本轮结果无效 —— `scripts/probe-asset-csp.mjs` 会以**退出码 2** 明确报出来，
-  并在页面是 `localhost:1420`（devUrl 形态）时以退出码 3 拒绝出结论。
+- 对照**必须被拦**（说明本页确实有 CSP、本判定才有意义）；
+- 对照**加载成功** ⇒ 本页没有 CSP ⇒ 本轮无效；
+- 对照**超时** ⇒ **不算通过**（无法区分「被 CSP 拦」与「对照源不可达」，故判无效；探针会明确报出来）。
 
-第一版正是省了这一步，把「无 CSP 下的必然结果」（对照也加载、`<link>` 也 loaded）读成了「WebView2 不施加 CSP」。
+判定顺序（#340 起固定）：**先判 devUrl 形态**（`http://localhost:1420/` ⇒ 直接拒绝）→ **再做自检** →
+最后才看 asset 图。顺序很关键：devUrl 页面必然没有 CSP ⇒ 自检必然先撞「对照加载成功」，
+若把自检放在前面，devUrl 的专属诊断就永远不可达（第一版就是这么把结论跑反的）。
+
+| 退出码 | 含义 |
+|---|---|
+| 0 | 探针正常完成（结论看 JSON：`control` 被拦 + `asset.ok`） |
+| 1 | 用法/环境错（缺参数、CDP 连不上、找不到应用页、对照源起不来或不可达） |
+| 2 | 自检失败：对照加载成功（本页无 CSP）或对照超时（无法判定） |
+| 3 | 页面是 devUrl 形态（`http://localhost:1420/`）⇒ 不带 CSP，拒绝出结论 |
+
+第一版正是省了自检这一步，把「无 CSP 下的必然结果」（对照也加载、`<link>` 也 loaded）读成了「WebView2 不施加 CSP」。
 
 ## 实测数据（Windows + WebView2 `Edg/120.0.2210.133`）
 
-| 运行 | `img-src` | 对照 `127.0.0.1:8899/32.png` | asset `<img>` | asset `<link rel=stylesheet>` | violations |
+| 运行 | `img-src` | 对照（不在允许列表里的真 PNG，端口由探针自定） | asset `<img>` | asset `<link rel=stylesheet>` | violations |
 |---|---|---|---|---|---|
 | **A** | 含 `http://asset.localhost` | **blocked + `img-src`** ✓（CSP 生效） | **ok（w=32）** ✓ | **blocked + `style-src-elem`** | 2 |
 | **B** | **去掉**该 token | blocked ✓ | **blocked + `img-src`**（`blockedURI=http://asset.localhost/C%3A\…`）✗ | blocked（`style-src-elem`） | 3 |

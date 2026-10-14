@@ -4,37 +4,88 @@
 // ⚠️ 构建姿势是硬约束（PR #337 复核查出的坑，我第一版就踩了）：
 //   ✅ pnpm tauri build --debug --no-bundle     ← 走 frontendDist，页面 http://tauri.localhost/ ，**带 CSP**
 //   ❌ cargo build（不经 CLI）                  ← debug 下按 build.devUrl 加载 http://localhost:1420/ ，**不带 CSP**
-//   两者产物同路径（src-tauri/target/debug/inklingmd.exe），光看路径分不出来 —— 所以本探针会**自检**：
-//   先用一个**不在任何允许列表里**的对照 PNG（默认 http://127.0.0.1:8899/32.png，配 tmp/pngserver.mjs）验证
-//   「本页确实会拦东西」。对照图**加载成功 ⇒ 本页没有 CSP ⇒ 这轮结论无效**（退出码 2）。
+//   两者产物同路径（src-tauri/target/debug/inklingmd.exe），光看路径分不出来 —— 所以本探针会**自检**。
 //
-// 用法：
+// 自检怎么做的（#340：对照源已**内联**，不再依赖未入库的临时脚本）：
+//   探针自己起一个 node:http 服务（127.0.0.1 + 系统分配端口），提供一张**不在任何允许列表里**的真 PNG
+//   （仓库内 `src-tauri/icons/32x32.png`），并先 fetch 一次确认它**真的在听**（否则对照会超时、
+//   有「假通过」风险）→ 再用它做阳性对照：**它必须被 CSP 拦**，否则说明本页没有 CSP、本轮无效。
+//
+// 用法（两条命令，对照源无需另行准备）：
 //   1) pnpm tauri build --debug --no-bundle
-//   2) node tmp/pngserver.mjs &                      # 对照 PNG 源（127.0.0.1:8899）
-//   3) $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9222"
+//   2) $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9222"
 //      Start-Process src-tauri\target\debug\inklingmd.exe
-//   4) Copy-Item src-tauri/icons/32x32.png "$env:APPDATA\com.inklingmd.editor\probe-<新名字>.png"
+//   3) Copy-Item src-tauri/icons/32x32.png "$env:APPDATA\com.inklingmd.editor\probe-<新名字>.png"
 //      （放静态 scope 内；**每次换新文件名**，避免命中上次缓存）
-//   5) node scripts/probe-asset-csp.mjs "$env:APPDATA\com.inklingmd.editor\probe-<新名字>.png"
+//   4) node scripts/probe-asset-csp.mjs "$env:APPDATA\com.inklingmd.editor\probe-<新名字>.png"
 //
-// 判定：`control.blocked=true`（本页有 CSP）+ `asset.ok=true`（token 在位时 asset 图能加载）；
-// 把 img-src 里的 token 拿掉后重跑，`asset` 应变成 `ok=false` 且报 `img-src` violation。
+// 退出码（#340 起口径固定，文档与本文件一致）：
+//   0 探针正常完成（结论看 JSON 输出：`control` 被拦 + `asset.ok`）
+//   1 用法/环境错（缺参数、CDP 连不上、找不到应用页、对照源起不来或不可达）
+//   2 自检失败：对照**加载成功**（本页没有 CSP）或对照**超时**（无法判定 —— 不当作「被拦」，避免假通过）
+//   3 页面是 devUrl 形态（`http://localhost:1420/`）⇒ 本页没有 CSP，直接拒绝出结论
+// 判定：`control` 被拦（error 且非 timeout）+ `asset.ok=true`（token 在位时 asset 图能加载）；
+// 把 img-src 里的 token 拿掉重建后重跑，`asset` 应变成 `ok=false` 且报 `img-src` violation。
+import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { chromium } from "@playwright/test";
 
 const absPath = process.argv[2];
 const port = process.argv[3] ?? "9222";
-const controlUrl = process.argv[4] ?? "http://127.0.0.1:8899/32.png";
+const externalCtrl = process.argv[4] ?? null;
 if (!absPath) {
-  console.error("用法：node scripts/probe-asset-csp.mjs <绝对文件路径> [CDP 端口] [对照 URL]");
+  console.error(
+    "用法：node scripts/probe-asset-csp.mjs <绝对文件路径> [CDP 端口=9222] [对照 URL（可选，默认自动起）]",
+  );
   process.exit(1);
 }
 
-const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+const PNG = readFileSync("src-tauri/icons/32x32.png");
+let browser = null;
+let server = null;
+
+/** 统一出口：先收拾资源，再按退出码结束（避免遗留浏览器连接与对照源） */
+async function finish(code) {
+  if (browser) await browser.close().catch(() => {});
+  if (server) await new Promise((r) => server.close(r));
+  process.exit(code);
+}
+
+// ① 对照源：内联自起（避免「文档引用的脚本没入库 ⇒ 别人跑不起来」）
+let ctrlUrl = externalCtrl;
+if (!ctrlUrl) {
+  server = createServer((req, res) => {
+    if (req.url === "/32.png") {
+      res.writeHead(200, { "content-type": "image/png", "cache-control": "no-store" });
+      res.end(PNG);
+    } else {
+      res.writeHead(404).end();
+    }
+  });
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  ctrlUrl = `http://127.0.0.1:${server.address().port}/32.png`;
+}
+// 先确认对照源**真的在听**：否则对照会超时，而「超时」不该被当成「被拦」（#340 的假通过风险）
+try {
+  const resp = await fetch(ctrlUrl, { cache: "no-store" });
+  const body = Buffer.from(await resp.arrayBuffer());
+  if (resp.status !== 200 || !/image\/png/i.test(resp.headers.get("content-type") ?? "")) {
+    throw new Error(`status=${resp.status} content-type=${resp.headers.get("content-type")}`);
+  }
+  console.log(`对照源已就绪：${ctrlUrl}（${body.length} bytes 的 PNG，不在任何允许列表里）`);
+} catch (e) {
+  console.error(`✗ 对照源不可达（${ctrlUrl}）：${e instanceof Error ? e.message : e}`);
+  await finish(1);
+}
+
+// ② 连 CDP 并选页（**排除 chrome-error**：`\/$` 会把 chrome-error://chromewebdata/ 也匹配上）
+browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
 const pages = browser.contexts().flatMap((c) => c.pages());
 console.log("CDP 页面：", JSON.stringify(pages.map((p) => p.url())));
 
-// 选页：**排除 chrome-error**（上一次踩坑：`\/$` 把 chrome-error://chromewebdata/ 也匹配上了），
-// 优先真正的应用页（tauri.localhost = 打包形态；localhost:1420 = devUrl 形态，会被自检拦下）。
 const appPage = (p) =>
   !p.url().startsWith("chrome-error:") &&
   !p.url().startsWith("devtools:") &&
@@ -46,8 +97,17 @@ const page =
   null;
 if (!page) {
   console.error("没找到可评测的应用页；CDP 页面列表见上");
-  await browser.close();
-  process.exit(1);
+  await finish(1);
+}
+
+// ③ devUrl 形态**先判**（#340：它必然没有 CSP ⇒ 自检必然「对照加载成功」⇒ 若放在自检之后，
+//    就永远拿不到专属退出码 3，只能在 exit 2 的泛化信息里猜）
+if (/localhost:1420/.test(page.url())) {
+  console.error(
+    `✗ 页面是 devUrl 形态（${page.url()}）—— 它不带 CSP，不能用于本判定；` +
+      "请按头注释用 `pnpm tauri build --debug --no-bundle` 重新构建后再跑。",
+  );
+  await finish(3);
 }
 
 const out = await page.evaluate(async ({ path, ctrl }) => {
@@ -101,6 +161,7 @@ const out = await page.evaluate(async ({ path, ctrl }) => {
     pageUrl: location.href,
     isChromeError: location.protocol === "chrome-error:",
     ua: navigator.userAgent.slice(0, 90),
+    ctrlUrl: ctrl,
     assetUrl: url,
     control,
     vAfterControl,
@@ -109,27 +170,30 @@ const out = await page.evaluate(async ({ path, ctrl }) => {
     styleSheet,
     violationsTotal: violations,
   };
-}, { path: absPath, ctrl: controlUrl });
+}, { path: absPath, ctrl: ctrlUrl });
 
 console.log(JSON.stringify(out, null, 1));
 
-const controlBlocked = out.control.ok === false;
-if (!controlBlocked) {
+// ④ 自检（#340：区分「被拦」与「超时」——只有前者才算自检通过）
+if (/localhost:1420/.test(out.pageUrl)) {
+  console.error(`✗ 页面是 devUrl 形态（${out.pageUrl}）—— 不带 CSP，拒绝出结论。`);
+  await finish(3);
+}
+if (out.control.timeout) {
+  console.error(
+    `✗ 自检无法判定：对照图既没加载、也没报错（超时 8s），无法区分「被 CSP 拦」与「对照源不可达」；` +
+      `当前对照源 ${ctrlUrl}。请确认对照源可达后重跑（本探针自起的对照源会先 fetch 自检，正常不会走到这里）。`,
+  );
+  await finish(2);
+}
+if (out.control.ok === true) {
   console.error(
     "✗ 自检失败：对照图（不在任何允许列表里）居然加载成功 ⇒ **本页没有 CSP**（多半是 cargo build 的 devUrl 形态）；" +
       `当前页面 ${out.pageUrl}。本轮结果不能用来判断 CSP，请按头注释用 \`pnpm tauri build --debug --no-bundle\` 重来。`,
   );
-  await browser.close();
-  process.exit(2);
-}
-if (/localhost:1420/.test(out.pageUrl)) {
-  console.error(
-    `✗ 页面是 devUrl 形态（${out.pageUrl}）—— 它不带 CSP，不能用于本判定；请用 pnpm tauri build --debug --no-bundle。`,
-  );
-  await browser.close();
-  process.exit(3);
+  await finish(2);
 }
 console.log(
-  `✓ 自检通过（本页有 CSP）：对照被拦=${controlBlocked}；asset 图 ok=${out.asset.ok}；asset 样式表 loaded=${out.styleSheet.loaded}`,
+  `✓ 自检通过（本页有 CSP）：对照被拦=${out.control.error === true}；asset 图 ok=${out.asset.ok}；asset 样式表 loaded=${out.styleSheet.loaded}`,
 );
-await browser.close();
+await finish(0);
