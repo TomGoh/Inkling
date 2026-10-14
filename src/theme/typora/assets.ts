@@ -5,13 +5,13 @@
  * 1. 主题 CSS 以文档内联 `<style>` 注入 → `url()` 的相对路径按 **document base URL** 解析，
  *    不指向主题目录 → 请求打到 `http://tauri.localhost/…` 得 **404**（CSP 放行也救不回来）。
  *    故必须重写为 `convertFileSrc()` 产出的**绝对 URL**（相对路径按**主题目录**解析）。
- * 2. `style-src` 只写 `'self' 'unsafe-inline'`（不含 asset 协议）→ 指向 asset 的**样式表**
- *    （`@import` / `<link>`）在**会施加 CSP 的 WebView**（WebKit 系）上会被拦。
- *    ⚠️ #309 真机实测（2026-10-14）：Windows 的 WebView2（Edg/120）**不**对自定义协议请求
- *    施加 CSP —— 去掉 `img-src` 的 token、甚至 `style-src` 不含 asset 时，asset 的
- *    `<img>`/`<link>` 都照常加载、零违规。**但这不改变设计**：拦截行为是**平台相关**的
- *    （WebKit 系会拦），不能依赖「本机不拦」⇒ 本地 `@import` 仍必须**读取并内联**
- *    （递归 + 深度上限 + 循环保护），**不得**重写为 asset URL。
+ * 2. `style-src` 只写 `'self' 'unsafe-inline'`（不含 asset 协议）→ 任何指向 asset 的**样式表**
+ *    （`@import` / `<link>`）都会被拦。
+ *    #309 真机实测（2026-10-14，Windows + WebView2 Edg/120，`pnpm tauri build --debug --no-bundle`
+ *    的打包形态 + 阳性对照）：asset 样式表**确实**报 `style-src-elem` violation；同一形态下
+ *    `img-src` 也同样承重 —— 把 `http://asset.localhost` 去掉，asset 图片当场被拦。
+ *    （⚠️ 别用 `cargo build` 复现：那是 devUrl 形态、**没有 CSP**，会得出相反结论。）
+ *    故本地 `@import` 必须**读取并内联**（递归 + 深度上限 + 循环保护），**不得**重写为 asset URL。
  */
 import valueParser from "postcss-value-parser";
 import { parse, type Root } from "postcss";

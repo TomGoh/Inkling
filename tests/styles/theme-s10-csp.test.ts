@@ -6,13 +6,16 @@ import { resolve } from "node:path";
 // 该问题只在打包产物暴露（dev 无 CSP、E2E 跑浏览器非 asset 协议），CI 无法靠
 // 运行时行为兜住，必须由源级静态断言保证。
 //
-// #309 真机实测（2026-10-14，Windows + WebView2 Edg/120.0.2210.133，debug 打包形态）：
-// - 产出 `http://asset.localhost/C%3A%5C…`，`<img>` 正常加载；
-// - **把该 token 从 img-src 拿掉后仍照常加载、零 `securitypolicyviolation`**（连
-//   `style-src` 不含 asset 时的 `<link rel=stylesheet>` 也照常加载）⇒ **WebView2 对
-//   自定义协议请求不施加 CSP**（#309 的第二种假设）；
-// - 但 token **仍必须常备**：macOS/Linux 是 `asset:` 形态、WebKit 系会真拦、WebView2
-//   行为可能变更 ⇒ 下面的断言一处都不放松（并把「形态随 scheme」也钉住）。
+// #309 真机实测（2026-10-14，Windows + WebView2 Edg/120.0.2210.133）：
+// 形态 = `pnpm tauri build --debug --no-bundle`（页面 http://tauri.localhost/），并带**阳性对照**
+// （不在允许列表里的真 PNG，必须被拦）——
+// - 有 CSP：对照被 `img-src` 拦（这就是「本判定有效」的自检）；
+// - **`http://asset.localhost` 承重**：`img-src` 去掉它 ⇒ asset 图片当场被拦
+//   （violation 的 `blockedURI` 就是该 URL）；`style-src` 不含 asset ⇒ asset 样式表被
+//   `style-src-elem` 拦（`src/theme/typora/assets.ts` 的原注释因此是对的）。
+// ⚠️ 别用 `cargo build` 复现：那条路产出 `build.devUrl` 形态（页面 http://localhost:1420/，**无 CSP**），
+//    第一版就是这么把结论跑反的；`scripts/probe-asset-csp.mjs` 已内置「对照必须被拦」的自检与退出码。
+// 下方断言一处都不放松（含「token 形态随 scheme」）。
 function tauriApp(): {
   security: {
     csp: string;
