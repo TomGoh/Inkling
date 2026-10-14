@@ -220,6 +220,46 @@ describe("S9 零硬编码色 + 入口登记守卫 + 白名单同步（#223/#224�
       expect(s9Offenders("@supports (color: var(--x) /* #fff */) {")).toEqual([]);
       expect(s9Offenders("a { color: #fff /* 说明：走 token 前先临时用 */; }").length).toBe(1);
     });
+
+    // #336 复核 ①：自定义属性（token 定义 / **组件子树立色板**）整条放行 —— 这与「按行首 `--`
+    // 认 token 定义」的旧口径**有意不同**，用反例钉住口径；仓库里有 175 处这种子树立色板，
+    // 收窄会让它们一起变红（所以不许收窄，改口径请连同这组用例一起改）。
+    it("自定义属性一律放行（口径钉住）：token 定义与组件子树立色板同等对待", () => {
+      expect(s9Offenders(".card { --local-accent: #fff }")).toEqual([]);
+      expect(s9Offenders(".card { --local-accent: gold }")).toEqual([]);
+      expect(s9Offenders(".card { --local-accent: rgb(1, 2, 3) }")).toEqual([]);
+      // 正对照：同一行里的**普通属性**照旧判（防止「顺手放宽」）
+      expect(s9Offenders(".card { background: gold }").length).toBe(1);
+    });
+
+    // #336 复核 ②：兜底解析此前会被**多余右括号**打穿（异常穿出 s9Offenders，且报的是包装后文本的行列）
+    it("片段容错：多余右括号不再打穿兜底解析（仍按声明语义判）", () => {
+      const surplus = "a { color: var(--x) } b { color: #fff } }";
+      expect(s9Offenders(surplus).length).toBe(1);
+      expect(s9Offenders(surplus)[0].text).toContain("#fff");
+      // 两处硬编码色一个都不能漏（`gold` 与 `#fff`）
+      expect(s9Offenders("a { color: gold } b { color: #fff } }").length).toBe(2);
+      // 少右括号同样是片段（此前已支持，钉住不许回归）
+      expect(s9Offenders("a { color: #fff").length).toBe(1);
+    });
+
+    // #336 复核 ③：函数实参里的 `<custom-ident>` 不是颜色（styleset/ornament/swash/…/paint）
+    it("非色值函数的实参不判命名色（但色标函数照旧判）", () => {
+      expect(s9Offenders("a { font-variant-alternates: styleset(gold) }")).toEqual([]);
+      expect(s9Offenders("a { font-variant-alternates: ornament(gold) }")).toEqual([]);
+      expect(s9Offenders("a { font-variant-alternates: swash(snow) }")).toEqual([]);
+      expect(s9Offenders("a { font-variant-alternates: character-variant(red) }")).toEqual([]);
+      expect(s9Offenders("@supports (background: paint(gold)) {")).toEqual([]);
+      // 正对照：渐变的实参就是色标，必须照常报（复核明确点名不许一起放掉）
+      expect(s9Offenders("a { background: linear-gradient(gold, snow) }").length).toBe(1);
+      expect(s9Offenders("a { background: linear-gradient(#fff, #000) }").length).toBe(1);
+    });
+
+    // #336 记录项：换解析器不许「静默放宽」—— 旧口径会判 `@custom-media` 前置里的特性查询
+    it("@custom-media 前置里的硬编码色照旧判（保留旧口径）", () => {
+      expect(s9Offenders("@custom-media --narrow (color: #fff);").length).toBe(1);
+      expect(s9Offenders("@custom-media --narrow (max-width: 30em);")).toEqual([]);
+    });
   });
 
   it("未登记守卫：src 下所有 .css 必须被 tokenDefinitionFiles 覆盖（新增样式入口须登记）", () => {

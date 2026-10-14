@@ -305,15 +305,38 @@ export function shouldCheckNamedColor(prop: string): boolean {
 }
 
 /**
- * 去掉「不透明值」（#332）：引号内字符串 + `url(...)` 的内容。
+ * 实参不是「色值」的函数（#336）：括号内内容整体剥离。
+ *
+ * - `url()` / `selector()`（#332/#335）：URL 可以是任意串（含 `)` 与引号），
+ *   `selector()` 里是**选择器**（`@supports selector(.item:not(.red))` 的 `.red` 不是颜色）；
+ * - `styleset` / `ornament` / `swash` / `annotation` / `character-variant`（#336 复核）：
+ *   `font-variant-alternates` 的实参是 `<custom-ident>`（`styleset(gold)` 的 gold 是特性名）；
+ * - `paint()`（#336 复核）：CSS Painting API 的实参同样是 `<custom-ident>`（`paint(gold)`）。
+ *
+ * ⚠️ **不要**把 `linear-gradient()` 一类加进来：它的实参就是色标，`linear-gradient(gold, snow)`
+ * 必须照常报（用例里是正对照）。
+ */
+const OPAQUE_ARG_FUNCTIONS = new Set([
+  "url",
+  "selector",
+  "styleset",
+  "ornament",
+  "swash",
+  "annotation",
+  "character-variant",
+  "paint",
+]);
+
+/**
+ * 去掉「不透明值」（#332）：引号内字符串 + 上表函数的实参内容。
  * 它们里面的色值/颜色词都不该被当成硬编码色（`content: "gold"`、`content: "rgb(1,2,3)"`、
- * `url("data:image/svg+xml,…rgb(…)…")`、`url(icon.svg#fff)`）。
+ * `url("data:image/svg+xml,…rgb(…)…")`、`url(icon.svg#fff)`、`styleset(gold)`）。
  *
  * ⚠️ 不能用 `/url\([^)]*\)/`（Codex #335 复核 P2）：**合法 URL 内可以出现 `)`**
  * （如 `url("icons/foo).svg")`），那样会在 URL 内部截断、把后面的引号**错配**，
  * 反而吃掉后续的真实色值 —— 例：`background-image: url("icons/foo).svg"); color: #fff; content: "ok";`
  * 修前会让 `#fff` 从扫描文本里消失 ⇒ S9 放行真实违规。故改为**引号感知的扫描器**：
- * 引号串按转义规则整体吃掉；`url(` 之后按括号深度找配对 `)`，途中遇到引号同样整体跳过。
+ * 引号串按转义规则整体吃掉；函数实参按括号深度找配对 `)`，途中遇到引号同样整体跳过。
  */
 export function stripOpaque(s: string): string {
   let out = "";
@@ -333,15 +356,12 @@ export function stripOpaque(s: string): string {
       continue;
     }
 
-    // url( ... ) / selector( ... )：括号内允许引号，按深度找配对 `)`
-    // （`selector()` 的内容是**选择器**而非声明 —— Codex 第七轮 P2：`@supports selector(.item:not(.red)) {`
-    //   里的 `.red` 不该被当颜色）
-    if (ch === "u" || ch === "U" || ch === "s" || ch === "S") {
-      const head = s.slice(i, i + 9).toLowerCase();
-      const fn = head.startsWith("url(") ? 4 : head.startsWith("selector(") ? 9 : 0;
-      if (fn > 0) {
-        const fname = fn === 4 ? "url" : "selector";
-        i += fn;
+    // 上表函数的实参：括号内允许引号，按深度找配对 `)`
+    if (/[A-Za-z]/.test(ch)) {
+      const m = /^[A-Za-z][\w-]*\(/.exec(s.slice(i));
+      const fname = m ? m[0].slice(0, -1).toLowerCase() : "";
+      if (m && OPAQUE_ARG_FUNCTIONS.has(fname)) {
+        i += m[0].length;
         let depth = 1;
         while (i < s.length && depth > 0) {
           const c = s[i];
@@ -403,7 +423,11 @@ export function namedColorIn(value: string): string | null {
  * 后缀 + 网格线放置长手），故新增颜色属性不需要维护清单。
  *
  * 放行口径：
- * - **token 定义**（`prop` 以 `--` 开头）整条放行 —— 这正是色值唯一的合法居所；
+ * - **自定义属性**（`prop` 以 `--` 开头 —— token 定义**与组件子树立色板**，如
+ *   `.code-block { --code-block-bg: #282c34 }`）整条放行 —— 这是色值唯一的合法居所；
+ *   ⚠️ 这与「按行首 `--` 认 token 定义」的旧口径**有意不同**（#336 复核）：单行写法
+ *   `.card { --local-accent: gold }` 现在也放行。仓库里有 175 处这种组件子树立色板，
+ *   收窄会让它们一起变红；该口径由用例钉住（`.card { --local-accent: #fff }` → 0 命中）。
  * - `s9-allow` 标记（按原文匹配、不剥注释）：独立注释行豁免其下一条非空行，行内标记豁免本行；
  * - 条件型 at-rule 前置里的**特性查询**（`@supports (color: #fff)` / `@media … (color: #fff)`）
  *   按声明判 —— 否则就是无标记绕过；而 `@scope (…)` / `@supports selector(…)` 的前置是**选择器**，
@@ -413,9 +437,11 @@ export function s9Offenders(raw: string): { line: number; text: string }[] {
   const exempt = exemptLines(raw);
   const offenses: { line: number; text: string }[] = [];
   const push = (line: number, text: string) => offenses.push({ line, text });
+  // #336 记录项：解析**一次**就够（此前声明与 at-rule 各解析一遍，同一文件被解析两次）
+  const root = parseLenient(raw);
 
-  // ① 声明节点：token 定义放行，其余按三条判据
-  parseLenient(raw).walkDecls((decl) => {
+  // ① 声明节点：自定义属性（token 定义 / 组件子树立色板）放行，其余按三条判据
+  root.walkDecls((decl) => {
     if (decl.prop.startsWith("--")) return;
     const line = decl.source?.start?.line ?? 0;
     if (exempt.has(line)) return;
@@ -424,7 +450,7 @@ export function s9Offenders(raw: string): { line: number; text: string }[] {
   });
 
   // ② 条件型 at-rule 的前置：可能是「声明形态」的特性查询（必须判），也可能是选择器（不判）
-  parseLenient(raw).walkAtRules((at) => {
+  root.walkAtRules((at) => {
     if (!CONDITION_AT_RULES.test(at.name)) return;
     const line = at.source?.start?.line ?? 0;
     if (exempt.has(line)) return;
@@ -437,8 +463,13 @@ export function s9Offenders(raw: string): { line: number; text: string }[] {
   return offenses.sort((a, b) => a.line - b.line);
 }
 
-/** 条件型 at-rule：只有它们的**前置**里可能出现「声明形态」的特性查询 */
-const CONDITION_AT_RULES = /^(supports|media|container)$/i;
+/**
+ * 条件型 at-rule：只有它们的**前置**里可能出现「声明形态」的特性查询。
+ *
+ * `custom-media` 是 #336 复核的记录项（旧口径会判 `@custom-media --narrow (color: #fff)`，
+ * postcss 版一度放行）—— 这里按**保留旧口径**处理：能判就判，避免「换个解析器就静默放宽」。
+ */
+const CONDITION_AT_RULES = /^(supports|media|container|custom-media)$/i;
 
 /** 压平空白，便于报错信息单行展示 */
 function collapsed(s: string): string {
@@ -446,9 +477,13 @@ function collapsed(s: string): string {
 }
 
 /**
- * 真解析（#335）。片段容错：用例里有裸声明（`--gold: #ffd700;`）与未闭合块
- * （`.item:not(.red) {`）—— 整份解析失败时包一层 `.s9-probe{…}` 再解析，
- * 使它们仍按**声明**语义参与判据，而不是静默放过。
+ * 真解析（#335/#336）。片段容错：用例里有裸声明（`--gold: #ffd700;`）、未闭合块
+ * （`.item:not(.red) {`）与**多余右括号**（`a { color: gold } b { color: #fff } }`）——
+ * 整份解析失败时包一层 `.s9-probe{…}`，并**两侧配平**花括号后再解析，
+ * 使它们仍按**声明**语义参与判据，而不是静默放过（fail-closed）。
+ *
+ * 兜底仍失败时抛出**可行动**的错误（#336）：此前会把包装后文本的 `CssSyntaxError` 直接穿出
+ * `s9Offenders`，既对不上原文行号、调用方也拿不到「哪些声明可疑」。
  */
 function parseLenient(raw: string): Root {
   const opts = { from: undefined };
@@ -457,13 +492,58 @@ function parseLenient(raw: string): Root {
   } catch {
     /* 片段 → 见下 */
   }
-  // 包一层并**按花括号配平补齐**（用例里的片段常是「只写了开括号」的规则开头，
-  // 少补一个就仍是 Unclosed block）。花括号在字符串/注释里的极端情况这里不计较：
-  // 该路径只服务片段，真实样式表走上面的正路。
-  const open = (raw.match(/\{/g) ?? []).length;
-  const close = (raw.match(/\}/g) ?? []).length;
-  const closing = "}".repeat(Math.max(0, open - close) + 1);
-  return parse(`.s9-probe{${raw}${closing}`, opts);
+  const { text, missing } = stripSurplusBraces(raw);
+  try {
+    return parse(`.s9-probe{${text}${"}".repeat(missing + 1)}`, opts);
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `S9：片段既不是合法 CSS、也无法按声明语义兜底解析（${detail.split("\n")[0]}）；` +
+        `片段首行：${raw.split("\n")[0].slice(0, 120)}`,
+    );
+  }
+}
+
+/**
+ * 花括号配平（#336）：**剥掉多余的右括号**，并给出需要补足的 `{` 数量。
+ * 字符串（引号感知，支持 `\` 转义）与注释里的花括号不参与计数 —— `content: "}"` 只是文本。
+ */
+function stripSurplusBraces(raw: string): { text: string; missing: number } {
+  let depth = 0;
+  let out = "";
+  let i = 0;
+  while (i < raw.length) {
+    const ch = raw[i];
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      let j = i + 1;
+      while (j < raw.length && raw[j] !== quote) {
+        if (raw[j] === "\\") j += 1;
+        j += 1;
+      }
+      out += raw.slice(i, Math.min(j + 1, raw.length));
+      i = Math.min(j + 1, raw.length);
+      continue;
+    }
+    if (ch === "/" && raw[i + 1] === "*") {
+      const end = raw.indexOf("*/", i + 2);
+      const stop = end < 0 ? raw.length : end + 2;
+      out += raw.slice(i, stop);
+      i = stop;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      if (depth === 0) {
+        i += 1; // 多余的右括号：丢弃
+        continue;
+      }
+      depth -= 1;
+    }
+    out += ch;
+    i += 1;
+  }
+  return { text: out, missing: depth };
 }
 
 /**
