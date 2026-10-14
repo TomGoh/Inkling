@@ -265,6 +265,10 @@ jobs:
       # workflow 不再用 bash 分支（旧的 `|| true` + `[ -z "$PREV_TAG" ] → exit 0` 会把
       # 「tag 没 fetch 到」也当成「首个版本」静默跳过）。脚本内部用 --is-shallow-repository
       # 区分「浅克隆没 tag」与「完整克隆真无 tag」。
+      # #334：**本步骤的「首个发布跳过」要求 tag 齐全** —— 只有 `fetch-depth: 0` 的**完整克隆**
+      # （全分支 + 全部 tag）才满足；`--single-branch` 或手写部分 fetch 虽然**不是**浅克隆，
+      # 但 tag 列表同样不全，会把真实违规吞成「首个发布」。脚本现在会在跳过前用
+      # `git ls-remote --tags origin` 核对，远端有本地没有的 tag ⇒ 直接 fail（别再改成部分 fetch）。
       - name: Check docs updated since last release
         run: node scripts/check-docs-updated.mjs --head=HEAD
 

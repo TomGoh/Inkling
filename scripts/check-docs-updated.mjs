@@ -15,6 +15,14 @@
 //   脚本里的加固在 CI 上基本不可达）。
 // - **「0 个 tag」不等于「首个版本」**：浅克隆（tag 未 fetch / fetch-depth 被改小）同样列不出
 //   tag，故用 `rev-parse --is-shallow-repository` 区分，只有**完整克隆且确实无 tag** 才允许跳过。
+//
+// #334（PR #335 复核实测的残余边界）：
+// - **「完整克隆」也不等于「tag 齐全」**：`--single-branch` 克隆（或手写只取部分 tag 的 fetch）
+//   不是浅克隆（`--is-shallow-repository` = false），但本地只有 HEAD 上的那个 tag ⇒ 同一 HEAD
+//   会从「exit 1（报真实违规）」变成「exit 0（首个发布跳过）」。
+// - 故**跳过前一律做远端旁证**：`git ls-remote --tags origin` 列出远端有、本地没有的 tag ⇒ fail；
+//   远端不可达 ⇒ **保守 fail**（分不清就不跳过，与 runGit 的「永不抛 + stderr 带出」同口径）。
+// - 本步骤的隐含前提因此是：**全分支 + 全部 tag 的完整克隆**（CI 用 actions/checkout + fetch-depth: 0）。
 
 import { chooseBase, classifyBaseRef, runGit } from "./lib/docs-sync.mjs";
 
@@ -66,6 +74,8 @@ if (!base) {
       tagList,
       shallow,
       allTagsAtHead,
+      // #334：跳过的必经旁证 —— 远端有本地没有的 tag ⇒ tag 列表不全 ⇒ fail；远端不可达 ⇒ 保守 fail
+      remoteTags: runGit(["ls-remote", "--tags", "origin"]),
     });
     if (verdict.action === "skip-no-history") {
       console.log(`${verdict.reason} → 跳过文档同步校验（确实没有可比对象，不是「没校验」被吞）`);
@@ -83,7 +93,13 @@ const revParse = runGit(["rev-parse", "--verify", `${base}^{commit}`]);
 if (!revParse.ok) {
   const tagList = runGit(["tag", "--sort=-v:refname", "--list", "v*"]);
   const shallow = runGit(["rev-parse", "--is-shallow-repository"]);
-  const verdict = classifyBaseRef({ revParse, tagList, shallow });
+  const verdict = classifyBaseRef({
+    revParse,
+    tagList,
+    shallow,
+    // #334：同上 —— 显式 `--base` 解析失败时也可能落到「无历史」跳过，同样要过远端旁证
+    remoteTags: runGit(["ls-remote", "--tags", "origin"]),
+  });
   if (verdict.action === "skip-no-history") {
     // 用判据给出的原因（不再硬编码）：#331 的一半问题就是「提示与真因不符」
     console.log(`${verdict.reason} → 跳过文档同步校验（确实没有可比对象，不是「没校验」被吞）`);
