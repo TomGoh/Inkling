@@ -11,6 +11,12 @@
  * ③ **发版触发形态下没有「上一个 tag」不代表出错**（#331）—— 门禁由 tag push 触发 ⇒ HEAD 就是
  *    刚打的 tag ⇒ 首个发布时「唯一 tag 指向 HEAD」，此时唯一合法的结论是**跳过**（没有更早的发布
  *    可比），而不是回落到「有 tag 但 ref 不存在」报 fail、还提示去查 `--base` / fetch。
+ * ④ **「完整克隆」不等于「tag 齐全」**（#334）—— `--single-branch` 克隆（或手写只取部分 tag 的
+ *    fetch）**不是浅克隆**（`--is-shallow-repository` = false），但本地只本地化了 HEAD 上那一个 tag：
+ *    同一 HEAD 在完整克隆里 exit 1、在它这里 exit 0，把**真实的文档违规吞成「首个发布」**。
+ *    故**任何跳过之前都必须用 `git ls-remote --tags origin` 做远端旁证**：远端有本地没有的 tag
+ *    ⇒ tag 列表不可信 ⇒ fail；远端不可达 ⇒ **保守 fail**（与 `runGit` 的「永不抛」同一口径：
+ *    分不清就不跳过）。
  */
 import { execFileSync } from "node:child_process";
 
@@ -33,6 +39,28 @@ export function runGit(args, exec = execFileSync) {
     const stdout = String(err.stdout ?? "").trim();
     return { ok: false, stdout, stderr };
   }
+}
+
+/**
+ * #334 远端 tag 旁证：返回「远端有、本地没有」的 tag 名（升序）。
+ *
+ * @param {string[]} localTags 本地 `git tag --list v*` 的结果
+ * @param {string} remoteRefs `git ls-remote --tags origin` 的 stdout
+ *
+ * 口径细节：只取 `refs/tags/` 下的 `v*`（与本地 `--list v*` 一致）；附注 tag 会同时出现
+ * `refs/tags/vX` 与 `refs/tags/vX^{}` 两行，后者剥掉 `^{}` 后与前者同名（Set 天然去重）。
+ */
+export function missingLocalTags(localTags, remoteRefs) {
+  const local = new Set(localTags);
+  const remote = new Set();
+  for (const line of String(remoteRefs).split("\n")) {
+    const ref = line.trim().split(/\s+/)[1] ?? "";
+    if (!ref.startsWith("refs/tags/")) continue;
+    const name = ref.slice("refs/tags/".length).replace(/\^\{\}$/, "");
+    if (!name.startsWith("v")) continue;
+    remote.add(name);
+  }
+  return [...remote].filter((t) => !local.has(t)).sort();
 }
 
 /**
@@ -68,9 +96,19 @@ export function pickPreviousTag(tags, headCommit, commitOfTag) {
  * - `skip-no-history`：**确实没有更早的发布可比** —— 完整克隆且一个 tag 都没有（真正的首个版本），
  *   或 `allTagsAtHead`（发版触发形态下的首个发布）。这是唯一合法的跳过；
  * - `fail`：其余全部失败 —— git 不可用、**浅克隆里没有 tag（tags 没 fetch 到）**、
- *   无法判断是否浅克隆、或有更早的 tag 但该 ref 解析不了。一律显式失败，暴露「没校验」。
+ *   无法判断是否浅克隆、**远端还有本地没有的 tag（#334）**、或有更早的 tag 但该 ref 解析不了。
+ *   一律显式失败，暴露「没校验」。
+ *
+ * #334：`remoteTags`（`git ls-remote --tags origin` 的结果）是**跳过的必经旁证** ——
+ * 「完整克隆」只保证不是浅克隆，不保证 tags 齐全（`--single-branch` / 部分 fetch 同样列不全）。
  */
-export function classifyBaseRef({ revParse, tagList, shallow, allTagsAtHead = false }) {
+export function classifyBaseRef({
+  revParse,
+  tagList,
+  shallow,
+  allTagsAtHead = false,
+  remoteTags = null,
+}) {
   if (revParse.ok) return { action: "ok" };
 
   if (!tagList.ok) {
@@ -81,6 +119,29 @@ export function classifyBaseRef({ revParse, tagList, shallow, allTagsAtHead = fa
   }
 
   const tags = tagList.stdout.split("\n").filter(Boolean);
+
+  /**
+   * #334：跳过的远端旁证。通过 → null；不通过 → 失败原因。
+   * 远端不可达也**保守 fail**：分不清 tag 是否齐全时，「跳过」会把真实违规吞掉。
+   */
+  const remoteVerdict = () => {
+    if (!remoteTags || !remoteTags.ok) {
+      return (
+        "远端 tag 无法核对（`git ls-remote --tags origin` 失败）⇒ 不能确认本地 tag 是否齐全，" +
+        "故不按「首个发布 / 无历史」跳过" +
+        (remoteTags && remoteTags.stderr ? `（stderr: ${remoteTags.stderr}）` : "")
+      );
+    }
+    const missing = missingLocalTags(tags, remoteTags.stdout);
+    if (missing.length > 0) {
+      return (
+        `远端还有 ${missing.length} 个本地没有的 tag（${missing.slice(0, 3).join(", ")}` +
+        `${missing.length > 3 ? ", …" : ""}）⇒ 本地 tag 列表**不完整**（\`--single-branch\` 克隆或只 fetch 了部分 tag），` +
+        "不能按「首个发布 / 无历史」跳过 —— 这会吞掉真实违规（请改用完整克隆，或先 git fetch --tags）"
+      );
+    }
+    return null;
+  };
 
   // #331：发版触发形态下的首个发布 —— 唯一的 tag 就指向 HEAD，没有更早的发布可比。
   // ⚠️ 复核阻塞项：这只在**完整克隆**里才可信。浅克隆（`fetch-depth` 被改小）+ tag push 时，
@@ -98,9 +159,12 @@ export function classifyBaseRef({ revParse, tagList, shallow, allTagsAtHead = fa
           " ⇒ tag 列表不可信，不能按「首个发布」跳过（浅克隆请设 fetch-depth: 0）",
       };
     }
+    // #334：完整克隆只是必要条件，还要远端旁证「本地 tag 没漏」
+    const bad = remoteVerdict();
+    if (bad) return { action: "fail", reason: bad };
     return {
       action: "skip-no-history",
-      reason: `仓库里 ${tags.length} 个 tag 全部指向 HEAD（${tags.slice(0, 3).join(", ")}）→ 本次是首个发布（完整克隆，tag 列表可信），没有更早的发布可比`,
+      reason: `仓库里 ${tags.length} 个 tag 全部指向 HEAD（${tags.slice(0, 3).join(", ")}）→ 本次是首个发布（完整克隆 + 远端 tag 已核对一致），没有更早的发布可比`,
     };
   }
 
@@ -130,8 +194,11 @@ export function classifyBaseRef({ revParse, tagList, shallow, allTagsAtHead = fa
         "不能按「首个版本」跳过（浅克隆请设 fetch-depth: 0）",
     };
   }
+  // #334：0 个 tag 同理 —— 远端若确实有 tag，说明是本地没 fetch，不能跳过
+  const bad = remoteVerdict();
+  if (bad) return { action: "fail", reason: bad };
   return {
     action: "skip-no-history",
-    reason: "仓库尚无任何 tag（完整克隆，确系首个版本）",
+    reason: "仓库尚无任何 tag（完整克隆 + 远端 tag 已核对一致，确系首个版本）",
   };
 }

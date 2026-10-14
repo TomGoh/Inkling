@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   chooseBase,
   classifyBaseRef,
+  missingLocalTags,
   pickPreviousTag,
   runGit,
   // @ts-ignore -- 纯 JS 模块（脚本与单测共用同一实现），不带类型声明
@@ -29,6 +30,8 @@ describe("#302 文档同步门禁：base ref 失败分类", () => {
       revParse: FAIL("unknown revision or path not in the working tree"),
       tagList: { ok: true, stdout: "", stderr: "" },
       shallow: { ok: true, stdout: "false", stderr: "" },
+      // #334：跳过要过远端旁证 —— 远端也没有 tag 才算「确系首个版本」
+      remoteTags: { ok: true, stdout: "", stderr: "" },
     });
     expect(v.action).toBe("skip-no-history");
   });
@@ -111,12 +114,13 @@ describe("#331 发版触发形态：首个发布（tag 就是 HEAD）必须**跳
     expect(chooseBase([], "c1", () => null)).toEqual({ base: null, allAtHead: false });
   });
 
-  it("classifyBaseRef：完整克隆 + allTagsAtHead → skip-no-history，原因写明是「首个发布」", () => {
+  it("classifyBaseRef：完整克隆 + allTagsAtHead + 远端核对一致 → skip-no-history，原因写明是「首个发布」", () => {
     const v = classifyBaseRef({
       revParse: { ok: false, stdout: "", stderr: "没有可用的 base tag" },
       tagList: { ok: true, stdout: "v1.0.0", stderr: "" },
       shallow: { ok: true, stdout: "false", stderr: "" },
       allTagsAtHead: true,
+      remoteTags: { ok: true, stdout: "abc\trefs/tags/v1.0.0\n", stderr: "" },
     });
     expect(v.action).toBe("skip-no-history");
     expect(v.reason).toContain("首个发布");
@@ -184,5 +188,67 @@ describe("#302 runGit：永不抛，把 stderr 原样带出", () => {
     }) as never);
     expect(r.ok).toBe(false);
     expect(r.stderr).toBe("boom only message");
+  });
+});
+
+// #334：`--single-branch` 克隆**不是**浅克隆（is-shallow=false），但本地只本地化了 HEAD 上那一个
+// tag ⇒ 旧判据会把它当「首个发布」跳过，同一 HEAD 在完整克隆里却是 exit 1（真实文档违规）。
+// 故「跳过」必须再过一道远端 tag 旁证；远端不可达也保守 fail。
+describe("#334 完整克隆 ≠ tag 齐全：跳过前必须过远端 tag 旁证", () => {
+  const NO_REF = { ok: false, stdout: "", stderr: "没有可用的 base tag" };
+  const NO_TAGS = { ok: true, stdout: "", stderr: "" };
+
+  it("完整克隆 + tag 全指向 HEAD，但远端还有更早的 tag → fail（single-branch 正是这一形态）", () => {
+    const v = classifyBaseRef({
+      revParse: NO_REF,
+      tagList: { ok: true, stdout: "v2.0.0", stderr: "" },
+      shallow: { ok: true, stdout: "false", stderr: "" },
+      allTagsAtHead: true,
+      remoteTags: {
+        ok: true,
+        stdout: "aaa\trefs/tags/v1.0.1\nbbb\trefs/tags/v2.0.0\n",
+        stderr: "",
+      },
+    });
+    expect(v.action).toBe("fail");
+    expect(v.reason).toContain("不完整");
+    expect(v.reason).toContain("v1.0.1");
+    expect(v.reason).toContain("git fetch --tags");
+  });
+
+  it("0 个 tag 但远端其实有 tag（没 fetch）→ fail", () => {
+    const v = classifyBaseRef({
+      revParse: NO_REF,
+      tagList: NO_TAGS,
+      shallow: { ok: true, stdout: "false", stderr: "" },
+      remoteTags: { ok: true, stdout: "aaa\trefs/tags/v3.4.0\n", stderr: "" },
+    });
+    expect(v.action).toBe("fail");
+    expect(v.reason).toContain("v3.4.0");
+  });
+
+  it("远端不可达（ls-remote 失败）→ 保守 fail（分不清就不跳过，stderr 带出）", () => {
+    const v = classifyBaseRef({
+      revParse: NO_REF,
+      tagList: { ok: true, stdout: "v1.0.0", stderr: "" },
+      shallow: { ok: true, stdout: "false", stderr: "" },
+      allTagsAtHead: true,
+      remoteTags: { ok: false, stdout: "", stderr: "fatal: could not read from remote" },
+    });
+    expect(v.action).toBe("fail");
+    expect(v.reason).toContain("无法核对");
+    expect(v.reason).toContain("could not read from remote");
+  });
+
+  it("missingLocalTags：只认 refs/tags/v*，附注 tag 的 ^{} 去重，非 tag/非 v* 忽略", () => {
+    const remote = [
+      "aaa\trefs/tags/v1.0.0",
+      "bbb\trefs/tags/v1.0.0^{}", // 附注 tag 的解引用行 → 与 v1.0.0 同名
+      "ccc\trefs/tags/release-1.2.3", // 非 v* → 与本地 `--list v*` 同口径，忽略
+      "ddd\trefs/heads/main", // 非 tag → 忽略
+      "eee\trefs/tags/v2.0.0",
+    ].join("\n");
+    expect(missingLocalTags(["v2.0.0"], remote)).toEqual(["v1.0.0"]);
+    expect(missingLocalTags(["v1.0.0", "v2.0.0"], remote)).toEqual([]);
   });
 });
