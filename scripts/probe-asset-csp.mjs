@@ -20,14 +20,15 @@
 //   4) node scripts/probe-asset-csp.mjs "$env:APPDATA\com.inklingmd.editor\probe-<新名字>.png"
 //
 // 退出码（#340 起口径固定，文档与本文件一致）：
-//   0 探针正常完成（结论看 JSON 输出：`control` 被拦 + `asset.ok`）
-//   1 用法/环境错（缺参数、CDP 连不上、找不到应用页、对照源起不来或不可达）
-//   2 自检失败：对照**加载成功**（本页没有 CSP）或对照**超时**（无法判定 —— 不当作「被拦」，避免假通过）
-//   3 页面是 devUrl 形态（`http://localhost:1420/`）⇒ 本页没有 CSP，直接拒绝出结论
+//   0 探针正常完成（结论看 JSON：`control` 被拦 + `asset.ok`）
+//   1 用法/环境错（缺参数、读不到对照 PNG、CDP 连不上、找不到应用页、对照源起不来/不可达/预检查 5s 超时）
+//   2 自检失败：对照**加载成功**（本页无 CSP）或对照**超时**（无法判定 —— 不当作「被拦」，避免假通过）
+//   3 页面是 devUrl 形态（`http://localhost:1420/`）⇒ 不带 CSP，拒绝出结论
 // 判定：`control` 被拦（error 且非 timeout）+ `asset.ok=true`（token 在位时 asset 图能加载）；
 // 把 img-src 里的 token 拿掉重建后重跑，`asset` 应变成 `ok=false` 且报 `img-src` violation。
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 
 const absPath = process.argv[2];
@@ -40,7 +41,24 @@ if (!absPath) {
   process.exit(1);
 }
 
-const PNG = readFileSync("src-tauri/icons/32x32.png");
+// #342：错误信息统一取 `message` **首行**并剥掉 ANSI 转义。
+// playwright 连不上 CDP 时的原始 message 是「首行摘要 + `Call log:` 多行 + 暗色转义码」，
+// 直接内联会把中文提示挤到多行之后、终端里还是花花绿绿 —— 各处错误出口必须走同一口径。
+const firstLine = (e) =>
+  String(e instanceof Error ? e.message : e)
+    .split("\n")[0]
+    .replace(/\u001b\[[0-9;]*m/g, "");
+
+// #342：对照 PNG 按**脚本自身位置**解析 —— 此前是相对路径，从别的目录（如 `src-tauri/`）跑会抛原始
+// ENOENT stack（退出码碰巧是 1，但报错不可读、与文档口径不符）。
+const PNG_URL = new URL("../src-tauri/icons/32x32.png", import.meta.url);
+let PNG;
+try {
+  PNG = readFileSync(PNG_URL);
+} catch (e) {
+  console.error(`✗ 环境错：读不到对照用的 PNG（${fileURLToPath(PNG_URL)}）：${firstLine(e)}`);
+  process.exit(1);
+}
 let browser = null;
 let server = null;
 
@@ -69,20 +87,38 @@ if (!ctrlUrl) {
   ctrlUrl = `http://127.0.0.1:${server.address().port}/32.png`;
 }
 // 先确认对照源**真的在听**：否则对照会超时，而「超时」不该被当成「被拦」（#340 的假通过风险）
+// #342：预检查必须带**超时** —— 连接被拒时能干净失败，但连接被黑洞吞掉（防火墙 DROP / TCP 半开 /
+// 服务假死）时裸 fetch 会**永久挂起**（CI 上会一直挂到 job 超时），与文档「不可达 ⇒ 退出码 1」不符。
 try {
-  const resp = await fetch(ctrlUrl, { cache: "no-store" });
+  const resp = await fetch(ctrlUrl, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(5000),
+  });
   const body = Buffer.from(await resp.arrayBuffer());
   if (resp.status !== 200 || !/image\/png/i.test(resp.headers.get("content-type") ?? "")) {
     throw new Error(`status=${resp.status} content-type=${resp.headers.get("content-type")}`);
   }
   console.log(`对照源已就绪：${ctrlUrl}（${body.length} bytes 的 PNG，不在任何允许列表里）`);
 } catch (e) {
-  console.error(`✗ 对照源不可达（${ctrlUrl}）：${e instanceof Error ? e.message : e}`);
+  const isTimeout = e instanceof Error && e.name === "TimeoutError";
+  console.error(
+    `✗ 对照源不可达（${ctrlUrl}）：${isTimeout ? "预检查超时 5s（连接被挂起/黑洞）—— " : ""}` +
+      `${firstLine(e)}`,
+  );
   await finish(1);
 }
 
 // ② 连 CDP 并选页（**排除 chrome-error**：`\/$` 会把 chrome-error://chromewebdata/ 也匹配上）
-browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+// #342 同类：连不上时给可读的环境错，而不是把 playwright 的原始 stack 抛出去
+try {
+  browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+} catch (e) {
+  console.error(
+    `✗ 连不上 CDP（http://127.0.0.1:${port}）：${firstLine(e)}；` +
+      "请确认应用已带 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=…` 启动",
+  );
+  await finish(1);
+}
 const pages = browser.contexts().flatMap((c) => c.pages());
 console.log("CDP 页面：", JSON.stringify(pages.map((p) => p.url())));
 
