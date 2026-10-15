@@ -50,6 +50,53 @@ describe("#340 asset-CSP 探针：与文档口径一致", () => {
     expect(existsSync(pngPath), `对照 PNG 必须存在：${pngPath}`).toBe(true);
   });
 
+  it("预检查必须带超时 —— 否则对照源被黑洞吞掉时裸 fetch 会永久挂起（#342 新增防护不许静默回退）", () => {
+    // #342 复核实测：删掉 `AbortSignal.timeout(5000)` 后仍是 4 passed ⇒ 新增的挂起防护可被静默回退。
+    const preCheck = /fetch\(ctrlUrl,\s*\{[\s\S]{0,160}?signal:\s*AbortSignal\.timeout\(\s*(\d+)\s*\)/.exec(
+      probe,
+    );
+    expect(preCheck, "预检查 fetch 必须带 AbortSignal.timeout(…)").toBeTruthy();
+    expect(Number(preCheck?.[1]), "超时毫秒数须与报错文案「预检查超时 5s」一致").toBe(5000);
+    expect(probe, "报错文案要写明秒数，别让文案与实现悄悄漂移").toMatch(/预检查超时\s*5s/);
+  });
+
+  it("错误信息必须经 firstLine() 取首行（#342：CDP 分支漏取，输出仍是 `Call log:` 多行 + ANSI）", () => {
+    expect(probe, "应有统一的 firstLine 出口").toMatch(/const firstLine = \(e\) =>/);
+    expect(probe, "不许再直接内联 e.message（会把中文提示挤到多行之后）").not.toMatch(
+      /\$\{[^}]*e\.message/,
+    );
+    expect(probe, "对照源分支应经 firstLine() 取首行").toMatch(
+      /对照源不可达[\s\S]{0,160}?\$\{firstLine\(e\)\}/,
+    );
+    expect(probe, "CDP 分支同样要取 firstLine() —— 口径必须与对照源分支一致").toMatch(
+      /连不上 CDP[\s\S]{0,80}?\$\{firstLine\(e\)\}/,
+    );
+  });
+
+  it("头注释的退出码图例与文档退出码表逐项同步（#342 漏了「读不到对照 PNG」「预检查 5s 超时」）", () => {
+    const start = doc.indexOf("| 退出码 |");
+    const nextHeading = doc.indexOf("\n## ", start);
+    const exitTable = doc.slice(start, nextHeading < 0 ? undefined : nextHeading);
+    /** 把一行文案拆成可比较的小项：去括号/反引号/强调，再按分隔符切开 */
+    const items = (s: string) =>
+      s
+        .replace(/[（）()]/g, "、")
+        .replace(/[`*]/g, "")
+        .split(/[、/：]/)
+        .map((t) => t.trim())
+        .filter((t) => t.length > 1);
+    for (const code of ["0", "1", "2", "3"]) {
+      const docRow = new RegExp(`^\\|\\s*${code}\\s*\\|\\s*(.+?)\\s*\\|\\s*$`, "m").exec(exitTable);
+      const legend = new RegExp(`^//\\s*${code}\\s+(.+)$`, "m").exec(probe);
+      expect(docRow, `文档退出码表应有 ${code} 那一行`).toBeTruthy();
+      expect(legend, `探针头注释应有退出码 ${code} 的图例`).toBeTruthy();
+      // 两边都先去掉反引号/强调标记再比，否则文档里的 `asset.ok` 永远对不上图例的 `asset.ok`
+      const legendText = (legend?.[1] ?? "").replace(/[`*]/g, "");
+      const missing = items(docRow?.[1] ?? "").filter((t) => !legendText.includes(t));
+      expect(missing, `退出码 ${code} 的图例漏了：${missing.join(" / ")}`).toEqual([]);
+    }
+  });
+
   it("文档不再引用未入库的对照源，并写明「超时不算通过」", () => {
     expect(doc).not.toMatch(/tmp\/pngserver/);
     expect(doc).toContain("scripts/probe-asset-csp.mjs");

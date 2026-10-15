@@ -20,10 +20,10 @@
 //   4) node scripts/probe-asset-csp.mjs "$env:APPDATA\com.inklingmd.editor\probe-<新名字>.png"
 //
 // 退出码（#340 起口径固定，文档与本文件一致）：
-//   0 探针正常完成（结论看 JSON 输出：`control` 被拦 + `asset.ok`）
-//   1 用法/环境错（缺参数、CDP 连不上、找不到应用页、对照源起不来或不可达）
-//   2 自检失败：对照**加载成功**（本页没有 CSP）或对照**超时**（无法判定 —— 不当作「被拦」，避免假通过）
-//   3 页面是 devUrl 形态（`http://localhost:1420/`）⇒ 本页没有 CSP，直接拒绝出结论
+//   0 探针正常完成（结论看 JSON：`control` 被拦 + `asset.ok`）
+//   1 用法/环境错（缺参数、读不到对照 PNG、CDP 连不上、找不到应用页、对照源起不来/不可达/预检查 5s 超时）
+//   2 自检失败：对照**加载成功**（本页无 CSP）或对照**超时**（无法判定 —— 不当作「被拦」，避免假通过）
+//   3 页面是 devUrl 形态（`http://localhost:1420/`）⇒ 不带 CSP，拒绝出结论
 // 判定：`control` 被拦（error 且非 timeout）+ `asset.ok=true`（token 在位时 asset 图能加载）；
 // 把 img-src 里的 token 拿掉重建后重跑，`asset` 应变成 `ok=false` 且报 `img-src` violation。
 import { createServer } from "node:http";
@@ -41,6 +41,14 @@ if (!absPath) {
   process.exit(1);
 }
 
+// #342：错误信息统一取 `message` **首行**并剥掉 ANSI 转义。
+// playwright 连不上 CDP 时的原始 message 是「首行摘要 + `Call log:` 多行 + 暗色转义码」，
+// 直接内联会把中文提示挤到多行之后、终端里还是花花绿绿 —— 各处错误出口必须走同一口径。
+const firstLine = (e) =>
+  String(e instanceof Error ? e.message : e)
+    .split("\n")[0]
+    .replace(/\u001b\[[0-9;]*m/g, "");
+
 // #342：对照 PNG 按**脚本自身位置**解析 —— 此前是相对路径，从别的目录（如 `src-tauri/`）跑会抛原始
 // ENOENT stack（退出码碰巧是 1，但报错不可读、与文档口径不符）。
 const PNG_URL = new URL("../src-tauri/icons/32x32.png", import.meta.url);
@@ -48,9 +56,7 @@ let PNG;
 try {
   PNG = readFileSync(PNG_URL);
 } catch (e) {
-  console.error(
-    `✗ 环境错：读不到对照用的 PNG（${fileURLToPath(PNG_URL)}）：${e instanceof Error ? e.message : e}`,
-  );
+  console.error(`✗ 环境错：读不到对照用的 PNG（${fileURLToPath(PNG_URL)}）：${firstLine(e)}`);
   process.exit(1);
 }
 let browser = null;
@@ -97,7 +103,7 @@ try {
   const isTimeout = e instanceof Error && e.name === "TimeoutError";
   console.error(
     `✗ 对照源不可达（${ctrlUrl}）：${isTimeout ? "预检查超时 5s（连接被挂起/黑洞）—— " : ""}` +
-      `${e instanceof Error ? e.message.split("\n")[0] : e}`,
+      `${firstLine(e)}`,
   );
   await finish(1);
 }
@@ -108,7 +114,7 @@ try {
   browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
 } catch (e) {
   console.error(
-    `✗ 连不上 CDP（http://127.0.0.1:${port}）：${e instanceof Error ? e.message : e}；` +
+    `✗ 连不上 CDP（http://127.0.0.1:${port}）：${firstLine(e)}；` +
       "请确认应用已带 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=…` 启动",
   );
   await finish(1);
