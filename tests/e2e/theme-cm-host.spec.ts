@@ -55,6 +55,10 @@ test.describe("S17 CM 宿主外观取自应用 token（#310 阻塞项 1）", () 
     await insertCodeBlock(page);
     // #343：轮询到「编辑器 + content + 行号栏」都在（而不是只等 editor 可见）
     await waitCodeBlockCm(page, [".cm-gutters"]);
+    // 可见性断言保持原样：本用例守的就是行号栏，`waitCodeBlockCm` 只判「在 DOM 里」（querySelector），
+    // 若行号栏存在但被 display:none/零尺寸掉，它仍会返回 ready，而下面 getComputedStyle 照样取得值 ⇒
+    // 「行号栏被隐藏」这类回归会静默溜过。两条都留（`.cm-editor` 是新增的额外守卫，可见性断言自带自动重试）。
+    await expect(page.locator(".code-block-cm .cm-gutters")).toBeVisible({ timeout: 10_000 });
     await expect(page.locator(".code-block-cm .cm-editor")).toBeVisible({ timeout: 10_000 });
 
     const r = await page.evaluate(() => {
