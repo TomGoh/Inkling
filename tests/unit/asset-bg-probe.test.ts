@@ -78,6 +78,14 @@ function headLegend(code: string): string {
   return plain(block.join("\n"));
 }
 
+/** 探针实际用到的退出码（`finish(n)` / `process.exit(n)`），升序 */
+function usedExitCodes(): string[] {
+  const used = new Set(
+    [...probe.matchAll(/finish\((\d)\)|process\.exit\((\d)\)/g)].map((m) => m[1] ?? m[2]),
+  );
+  return [...used].sort();
+}
+
 /** 每个退出码必须同时出现在文档表与头注释图例里的语义关键词（防张冠李戴） */
 const SEMANTICS: Record<string, RegExp[]> = {
   "0": [/判定通过/, /对照成立/],
@@ -90,10 +98,8 @@ const SEMANTICS: Record<string, RegExp[]> = {
 
 describe("#350 asset 背景图探针：源级口径守卫", () => {
   it("探针用到的退出码集合 = 0–5，且文档退出码表与头注释图例逐码对齐", () => {
-    const used = new Set(
-      [...probe.matchAll(/finish\((\d)\)|process\.exit\((\d)\)/g)].map((m) => m[1] ?? m[2]),
-    );
-    expect([...used].sort(), "退出码集合被改过就要重写文档表与头注释").toEqual([
+    const used = usedExitCodes();
+    expect(used, "退出码集合被改过就要重写文档表与头注释").toEqual([
       "0",
       "1",
       "2",
@@ -103,7 +109,7 @@ describe("#350 asset 背景图探针：源级口径守卫", () => {
     ]);
 
     expect(docExitTable(), "退出码表必须写明 0–5 全部六种").toBeTruthy();
-    for (const code of [...used].sort()) {
+    for (const code of used) {
       const row = docExitRow(code);
       expect(row, `文档退出码表应有一行 \`| ${code} |\``).not.toBe("");
       const legend = headLegend(code);
@@ -208,6 +214,25 @@ describe("#350 asset 背景图探针：源级口径守卫", () => {
     expect(timeoutBlock, "渲染超时不得复用 exit 4 的丢图文案").not.toMatch(/静默丢图复现/);
   });
 
+  it("渲染超时的聚合 stuck 必须覆盖全部四个用例（缩短它 ⇒ exit 0 假通过 / exit 4 假丢图）", () => {
+    // 语义：只聚合**超时**的用例（改成别的字段会让「画上了」也进超时分支）
+    expect(probe, "stuck 必须按 timedOut 过滤").toMatch(
+      /const stuck = \[[\s\S]{0,200}?\]\.filter\(\s*\(r\) => r\.timedOut/,
+    );
+    // 覆盖：缩成 `[out.targetAsset]` 时 controlNoImage 超时会被漏掉（对照 B 的 painted=false
+    // 不触发自检 B ⇒ 两个 target 画上就 exit 0 假通过）；漏掉 targetStyleSheet 则落进 exit 4
+    // 的「静默丢图」（把挂死误报成丢图）。这两种都是本 PR 新增 exit 5 行为的误报通道。
+    const m = /const stuck = \[([\s\S]{0,200}?)\]\.filter\(/.exec(probe);
+    expect(m, "应有 `const stuck = [...].filter(...)` 聚合").toBeTruthy();
+    const items = (m?.[1] ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    expect(items.slice().sort(), "stuck 必须逐个引用四个用例结果，少一个就是误报通道").toEqual(
+      ["out.controlData", "out.controlNoImage", "out.targetAsset", "out.targetStyleSheet"].sort(),
+    );
+  });
+
   it("探针必须复刻生产导出参数（useCORS:true / 不开 allowTaint / scale 2）", () => {
     const call = /window\.html2canvas\(themeRoot,\s*\{[\s\S]{0,240}?\}\)/.exec(probe);
     expect(call, "探针应以 exporter.ts 同参数调用 html2canvas").toBeTruthy();
@@ -228,6 +253,17 @@ describe("#351 「结论绑定 tauri 版本」必须有明确触发点", () => {
       plain(contributing),
       "升级 tauri 后必须重跑探针并确认 exit 0 —— 只写「注意兼容性」不构成触发点",
     ).toMatch(/升级 tauri[\s\S]{0,400}?exit 0/);
+  });
+
+  it("CONTRIBUTING 的升级清单必须写全退出码口径（新增退出码不许只改文档与头注释）", () => {
+    // 口径三处一致才叫「一致」：头注释图例 / 文档退出码表 / 升级清单里那句「只有 0 算通过」
+    const line = contributing.split("\n").find((l) => l.includes("算通过")) ?? "";
+    expect(line, "CONTRIBUTING 升级清单里应有「只有 `0` 算通过」那句").not.toBe("");
+    for (const code of usedExitCodes().filter((code) => code !== "0")) {
+      expect(line, `CONTRIBUTING 漏了退出码 ${code} 的口径（文档/头注释改了这里就得同步）`).toContain(
+        `\`${code}\``,
+      );
+    }
   });
 
   it("结论绑定的 tauri 版本必须与 Cargo.lock 一致（升级后忘了重跑探针就红在这里）", () => {
