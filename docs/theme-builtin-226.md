@@ -54,6 +54,23 @@
 
 **`asset.localhost` 背景图 × `html2canvas`（#348，已真机实测闭环）**：**不丢图**。真机打包形态（WebView2 + CSP + assetProtocol，`tauri 2.11.5`）下用 `scripts/probe-asset-bg-export.mjs` 造「带 asset 背景图」的离屏卡片，按 `exporter.ts` 的同参数（`useCORS: true`、未开 `allowTaint`、`scale: 2`）导出后采样：内联 style 与**样式表规则**两种声明都被正常画进画布（[38,35,38] ≈ 探针图中心 [35,35,35]，容差 30；而「指向不存在文件」的对照只剩标记色 [255,0,255]）。根因：asset 协议响应本就带 `Access-Control-Allow-Origin`（`tauri-2.11.5/src/protocol/asset.rs:39` 注入 `window_origin`，与页面 origin 一致）⇒ 跨源头在位、`useCORS` 生效。**结论：不要改 `allowTaint`**（那会污染 canvas，让 `toBlob` 直接抛 SecurityError）。CI 侧守卫：E2E `tests/e2e/export.spec.ts` 的 `E7`（跨源 + ACAO 必须画上 / 缺 ACAO 不画上）+ 单测 `tests/unit/export-png.test.ts` 的参数不变量。
 
+探针 `scripts/probe-asset-bg-export.mjs` 的退出码口径（#350 起与 `docs/asset-csp-309.md` 同型；由 `tests/unit/asset-bg-probe.test.ts` 源级锁定，改码不更表会红）：
+
+| 退出码 | 含义 |
+|---|---|
+| 0 | 判定**通过**：三条对照成立 + asset 背景图被正常画进导出画布（N1 疑点不成立） |
+| 1 | 用法/环境错（缺参数、CDP 连不上、找不到应用页、找不到 html2canvas UMD 产物） |
+| 2 | 自检失败：对照不成立（对照 A 没画上 / 对照 B 被画上 / 探针图中心像素≈标记色）⇒ 本轮**结论无效** |
+| 3 | 页面是 devUrl 形态（`http://localhost:1420/`）⇒ 不带 CSP，不是本次要评测的形态 |
+| 4 | 判定**失败**：asset 背景图**没被画进导出画布** ⇒ 静默丢图复现（JSON 的 `verdict` 给归因） |
+| 5 | 渲染超时：某条用例在 20s 内没有返回（html2canvas 加载图片无超时，asset 协议无响应即永久 pending）⇒ 本轮**无法判定** |
+
+两条踩过的纪律：探针图**每次换新文件名**（否则可能命中上次缓存）、**中心像素不能是标记色** `#ff00ff`。
+判定顺序固定为 **devUrl 形态（3）→ 渲染超时（5）→ 自检（2）→ 目标判定（0/4）**：devUrl 页面必然没有 CSP，若把自检放在前面，专属退出码 3 永远不可达（#340 的同型教训）；超时没返回时「有没有画上」这个观测不成立，若落进自检或丢图，会把「挂死」误报成「对照不成立」或「静默丢图」（#350 复核阻塞项 3）。
+两处长度防护都**不可省**，且归因必须分开：诊断 `fetch(assetUrl)` 带 **5s 超时**（`corsFetch.timeout` / `corsFetch.cspBlocked` 互斥，超时对 CORS 无判定力）；`runCase()` 的 `html2canvas` 调用带 **20s 超时**（html2canvas 1.4.1 的 `CacheStorage.loadImage` 只有 `onload`/`onerror`，asset 协议无响应即永久 pending —— 它既不落进 `cspBlocked`，也不落进 exit 4 的丢图文案）。该「既不拒绝也不响应」形态**本机未复现**（要构造它需改 tauri 侧协议行为），本轮以源级断言 + 突变验证为准；真机若撞到，出口即 `5`。
+
+**版本绑定（#351）**：这条结论依赖**上游 tauri crate 的行为**（asset 协议响应按 `window_origin` 注入 `Access-Control-Allow-Origin`），实测版本为 `tauri = 2.11.5`（`src-tauri/Cargo.toml` 是 caret 约束 `"2"`，实际版本由 `src-tauri/Cargo.lock` 锁定）。②③④ 三道 CI 守卫（`#306` 主题 URL 改写 / `useCORS` 参数不变量 / 跨源 E2E）在**上游行为变化时照样全绿**，只有真机探针能发现 ⇒ **升级 tauri 后必须重跑探针确认 `exit 0`**，清单见 [CONTRIBUTING.md](../CONTRIBUTING.md)「依赖升级」。
+
 ## 5. 渲染组件的主题跟随
 
 ### 5.1 Mermaid（`src/components/Editor/mermaid-view.ts`）
@@ -106,7 +123,7 @@ Mermaid 的 NodeView 不是 React 组件（不订阅 store），故用 DOM 事�
 
 | # | 项 | 说明 |
 |---|---|---|
-| N1 | ~~`asset.localhost` 背景图与 `html2canvas`~~ | **已闭环（#348 真机实测）**：**不丢图** —— asset 协议响应自带 `Access-Control-Allow-Origin`，`useCORS: true` 已足够；**不要**改 `allowTaint`（污染 canvas ⇒ `toBlob` 抛 SecurityError）。证据：`scripts/probe-asset-bg-export.mjs` 判定通过（exit 0）+ E2E `E7` + 单测参数不变量 |
+| N1 | ~~`asset.localhost` 背景图与 `html2canvas`~~ | **已闭环（#348 真机实测）**：**不丢图** —— asset 协议响应自带 `Access-Control-Allow-Origin`，`useCORS: true` 已足够；**不要**改 `allowTaint`（污染 canvas ⇒ `toBlob` 抛 SecurityError）。证据：`scripts/probe-asset-bg-export.mjs` 判定通过（exit 0）+ E2E `E7` + 单测参数不变量。探针退出码表与判定顺序见 §4，源级守卫 `tests/unit/asset-bg-probe.test.ts`（#350）；结论绑定 `tauri 2.11.5`，**升级 tauri 后须重跑探针确认 exit 0**（#351） |
 | N2 | Mermaid 主题变化 = **全量重渲染**活动图表 | 长文档（数十张）会有一次集中开销；现有懒渲染/空闲队列/占位高度不变，缓存按主题分桶后不会来回抖。若实测卡顿，可改成「仅重渲染视口内 + 滚到再渲染」 |
 | N3 | 视觉回归仍以**源级静态断言 + 行为断言**为主 | 未引入 screenshot diff：固定容器尺寸下的截图基线在 CI 上跨平台不稳（字体/渲染差异），收益与维护成本不划算；如需，建议单独开 issue 引入并配平台별基线 |
 | N4 | 自研主题的「四类风格」覆盖 4 套 | 更高对比的暗色变体（`builtin:contrast-dark`）与更多阅读风主题可后续追加，机制已就绪（加一条 `BUILTIN_SELF_THEMES` 记录 + 断言自动覆盖） |

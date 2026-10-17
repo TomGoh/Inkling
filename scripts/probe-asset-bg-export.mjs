@@ -1,6 +1,6 @@
 // #348 真机探针：在**打包形态**（frontendDist + CSP + assetProtocol）的 WebView2 里实测
 // 「`convertFileSrc` 产出的 asset URL 作为 **CSS 背景图**，交给 `html2canvas(useCORS: true, 未开 allowTaint)`
-// 时，导出图里到底有没有这张背景图」——即 `docs/theme-builtin-226.md` §7 N1 / §5「未覆盖/待实测」那一条。
+// 时，导出图里到底有没有这张背景图」——即 `docs/theme-builtin-226.md` §4（判定结论与退出码表）/ §7 N1 那一条。
 //
 // 为什么单测/E2E 覆盖不了：
 //   `asset.localhost` 是 Tauri 的 asset 协议 host。浏览器 dev 模式下该 host 根本不存在，
@@ -19,6 +19,10 @@
 //   `connect-src` ⇒ 回落 `default-src 'self'`，而 asset 协议只在 `img-src` 里放行。
 //   实测（tmp 诊断 + 本探针的 `cspBlocked` 字段）已确认该失败会带上 `connect-src` 违规归因，
 //   不会被误读成「CORS 缺失」。
+//   但 fetch 必须带 **5s 超时**（#350）：CSP 拦是「立刻拒绝」，而一换 CSP 配置 / 换 tauri 版本 /
+//   手工改 scope，「asset 协议既不拒绝也不响应」就会让裸 fetch 永久挂起 —— `page.evaluate`
+//   再也返回不了，连退出码都拿不到。超时落在 `corsFetch.timeout`，与 `cspBlocked` 分开归因
+//   （超时说明「没响应」，对「是否 CORS 缺失」没有任何判定力）。
 //
 // 用法（四条命令）：
 //   1) npx tauri build --debug --no-bundle
@@ -38,6 +42,8 @@
 //     · 探针图中心像素 ≈ 品红（标记色）：无法与「没画上」区分，换图重跑。
 //   3 页面是 devUrl 形态（`http://localhost:1420/`）⇒ 不带 CSP，不是本次要评测的形态
 //   4 判定**失败**：背景图**没被画进导出画布** —— 静默丢图复现（JSON 的 `verdict` 给出归因）
+//   5 渲染超时：某条用例在 20s 内没有返回（html2canvas 加载图片没有超时，asset 协议无响应即永久 pending）
+//     ⇒ 本轮**无法判定**，既不算丢图也不能算画上；检查 asset 协议 / CSP / 图片可解码性后重跑
 //
 // 实测结论（2026-10-16，本机 Windows / WebView2 Edg 120 / tauri 2.11.5）：
 //   **判定通过（exit 0）** —— `asset` 背景图（内联与样式表两种声明）都被正常画进画布，
@@ -47,6 +53,17 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
+
+// #350 复核阻塞项 3：html2canvas 1.4.1 的图片加载只有 `onload` / `onerror`
+// （`dist/html2canvas.js` 的 `CacheStorage.loadImage`），**没有超时**。asset 协议若「既不拒绝也不响应」，
+// `runCase` 里的 `await window.html2canvas(…)` 会永久 pending —— 与上面 `fetch` 的挂死同型，
+// 只是发生得更早：连 exit 4 的归因文案都打不出来，退出码同样拿不到。故 runCase 整体带超时。
+const RENDER_TIMEOUT_MS = 20000;
+const RENDER_TIMEOUT_TEXT = `html2canvas 渲染超时 ${RENDER_TIMEOUT_MS / 1000}s`;
+// 哨兵名也只留一处：页面内写端（`err.name =`）与 Node 侧读端（`e.name ===`）都用它。
+// 两端各写一个字面量时，「改一半」会让 res.timedOut 恒 false —— control 超时落 exit 2、
+// targetStyleSheet 超时落 exit 4（假丢图），正是 exit 5 要消除的误归因。
+const RENDER_TIMEOUT_NAME = "ProbeRenderTimeout";
 
 const absPath = process.argv[2];
 const port = process.argv[3] ?? "9222";
@@ -128,11 +145,19 @@ async function injectHtml2Canvas(page, source) {
 console.log(`html2canvas 注入方式：${await injectHtml2Canvas(page, readFileSync(H2C, "utf8"))}`);
 
 const out = await page.evaluate(
-  async ({ absPath: p, dataUrl: du }) => {
+  async ({ absPath: p, dataUrl: du, renderTimeoutMs, renderTimeoutText, renderTimeoutName }) => {
     const FALLBACK = "#ff00ff"; // 「背景图没画上」的标记色（由卡片 background-color 承担）
     const SCALE = 2; // 与 exporter.ts 一致（2 倍清晰度）
     const TOL = 30; // 单通道容差：吸收浏览器色彩管理差异
     const dist = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+    /** 渲染超时哨兵：用独立 name 而不是普通 Error，才能与「真的丢图」区分归因。
+     *  name 取自参数 `renderTimeoutName`（= Node 侧同一个 RENDER_TIMEOUT_NAME 常量），
+     *  读端也用它比对 ⇒ 改名只需改一处，不存在「写端改了、读端没改」的静默失配。 */
+    const renderTimeout = () => {
+      const err = new Error(renderTimeoutText);
+      err.name = renderTimeoutName;
+      return err;
+    };
 
     const convert = window.__TAURI_INTERNALS__?.convertFileSrc;
     const assetUrl = typeof convert === "function" ? convert(p) : null;
@@ -195,20 +220,29 @@ const out = await page.evaluate(
       const px = Math.round((cr.left - rr.left + cr.width / 2) * SCALE);
       const py = Math.round((cr.top - rr.top + cr.height / 2) * SCALE);
 
-      const res = { label, sampled: null, error: null, canvas: null };
+      const res = { label, sampled: null, error: null, timedOut: false, canvas: null };
+      let timer = null;
       try {
-        const canvas = await window.html2canvas(themeRoot, {
-          backgroundColor: "#ffffff",
-          scale: SCALE,
-          useCORS: true,
-          logging: false,
-        });
+        // 与超时竞速：超时后不再等这条渲染（它可能永远不返回），**也不能**把它读成「没画上」。
+        const canvas = await Promise.race([
+          window.html2canvas(themeRoot, {
+            backgroundColor: "#ffffff",
+            scale: SCALE,
+            useCORS: true,
+            logging: false,
+          }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(renderTimeout()), renderTimeoutMs);
+          }),
+        ]);
         res.canvas = [canvas.width, canvas.height];
         const d = canvas.getContext("2d").getImageData(px, py, 1, 1).data;
         res.sampled = [d[0], d[1], d[2], d[3]];
       } catch (e) {
         res.error = e instanceof Error ? e.message : String(e);
+        res.timedOut = e instanceof Error && e.name === renderTimeoutName;
       } finally {
+        if (timer) clearTimeout(timer);
         themeRoot.remove();
         if (styleEl) styleEl.remove();
       }
@@ -241,16 +275,36 @@ const out = await page.evaluate(
         });
       document.addEventListener("securitypolicyviolation", onViolation);
       try {
-        const resp = await fetch(assetUrl, { cache: "no-store" });
+        // #350：超时不可省（见头注释）。缺了它，「asset 协议无响应」会把整轮探针挂死。
+        const resp = await fetch(assetUrl, {
+          cache: "no-store",
+          signal: AbortSignal.timeout(5000),
+        });
         corsFetch = { ok: resp.ok, status: resp.status };
       } catch (e) {
-        corsFetch = { ok: false, error: e instanceof Error ? e.message : String(e) };
+        const msg = e instanceof Error ? e.message : String(e);
+        // 超时与「被 CSP 拦」是两种不同事实，必须分开标记：超时＝没响应，无归因力。
+        const timedOut =
+          /timeout|timed out|abort/i.test(msg) ||
+          (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError"));
+        corsFetch = timedOut
+          ? {
+              ok: false,
+              timeout: true,
+              error: msg,
+              note: "诊断 fetch 超时 5s（asset 协议既不拒绝也不响应）⇒ 本条无归因力，**不是** CORS 结论",
+            }
+          : { ok: false, error: msg };
       }
       // securitypolicyviolation 是异步派发的：fetch 的 Promise 先 reject，事件随后才到，
       // 立刻摘监听会漏掉违规（实测踩过：漏了就会把「CSP 拦」误写成一条无归因的失败）。
       await new Promise((r) => setTimeout(r, 600));
       document.removeEventListener("securitypolicyviolation", onViolation);
-      if (!corsFetch.ok && violations.some((v) => /connect-src/.test(v.directive))) {
+      if (
+        !corsFetch.ok &&
+        !corsFetch.timeout &&
+        violations.some((v) => /connect-src/.test(v.directive))
+      ) {
         corsFetch.cspBlocked = violations;
         corsFetch.note =
           "被 CSP 拦（未声明 connect-src ⇒ 回落 default-src 'self'），本条**不是** CORS 结论";
@@ -271,6 +325,7 @@ const out = await page.evaluate(
       assetUrl,
       missingUrl,
       pageUrl: location.href,
+      renderTimeoutMs,
     };
     const painted = (r) => !!r.sampled && dist(r.sampled, expected.rgba) <= TOL;
     const looksFallback = (r) => !!r.sampled && dist(r.sampled, [255, 0, 255, 255]) <= TOL;
@@ -293,7 +348,13 @@ const out = await page.evaluate(
       imageCenterIsFallback: dist(expected.rgba, [255, 0, 255, 255]) <= TOL,
     };
   },
-  { absPath, dataUrl },
+  {
+    absPath,
+    dataUrl,
+    renderTimeoutMs: RENDER_TIMEOUT_MS,
+    renderTimeoutText: RENDER_TIMEOUT_TEXT,
+    renderTimeoutName: RENDER_TIMEOUT_NAME,
+  },
 );
 
 const j = (v) => JSON.stringify(v);
@@ -315,6 +376,22 @@ console.log(
     1,
   ),
 );
+
+// 渲染超时优先：一条用例没返回时，「没画上」这个观测根本不成立 ——
+// 若落到自检（2）或丢图（4），会把「挂死」误报成「对照不成立」或「静默丢图」。
+// 归因独立：这里不写 cspBlocked、也不复用 exit 4 的丢图文案。
+const stuck = [out.controlData, out.controlNoImage, out.targetAsset, out.targetStyleSheet].filter(
+  (r) => r.timedOut,
+);
+if (stuck.length > 0) {
+  console.error(
+    `✗ 渲染超时：${stuck.map((r) => r.label).join(" / ")} 在 ${out.renderTimeoutMs / 1000}s 内没有返回。` +
+      "html2canvas 1.4.1 的图片加载只有 onload/onerror、没有超时，asset 协议若既不拒绝也不响应就会永久 pending。" +
+      "本轮**无法判定**：这既不是「丢图」（exit 4），也不是「跨源头缺失」（CORS 归因对此形态不适用）；" +
+      "请检查 asset 协议 / CSP / 图片可解码性后重跑。",
+  );
+  await finish(5);
+}
 
 // 自检：对照必须一条一条成立，否则本轮结论无效
 if (out.imageCenterIsFallback) {
