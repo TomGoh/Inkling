@@ -204,8 +204,48 @@ describe("#350 asset 背景图探针：源级口径守卫", () => {
       /html2canvas 渲染超时 \$\{RENDER_TIMEOUT_MS \/ 1000\}s/,
     );
     expect(probe, "超时必须由独立哨兵标记（否则与「真的丢图」无法区分）").toMatch(
-      /res\.timedOut = e instanceof Error && e\.name === "ProbeRenderTimeout"/,
+      /res\.timedOut = e instanceof Error && e\.name === renderTimeoutName/,
     );
+
+    // ── 接线守卫（#350 三轮复核）：常量算对了不等于「真的传进页面 / 两端真的同名」──
+    // ① 哨兵名单一来源：写端（err.name）与读端（e.name ===）都用同一个常量，
+    //    全文件只许出现一次字面量 "ProbeRenderTimeout"（即常量定义本身）。
+    expect(probe, "哨兵名必须是单一常量").toMatch(
+      /const RENDER_TIMEOUT_NAME = "ProbeRenderTimeout";/,
+    );
+    expect(probe, "哨兵写端必须用同一常量").toMatch(/err\.name = renderTimeoutName;/);
+    expect(probe, "哨兵读端必须用同一常量").toMatch(/e\.name === renderTimeoutName/);
+    expect(
+      (probe.match(/ProbeRenderTimeout/g) ?? []).length,
+      "字面量只许出现在常量定义里 —— 两端各写一个字面量时「改一半」不会被发现",
+    ).toBe(1);
+
+    // ② 参数接线：常量必须真的作为 page.evaluate 的第三参传进去。
+    //    删掉 renderTimeoutMs ⇒ setTimeout(…, undefined) = 0ms ⇒ 四个用例全 timedOut，每次都 exit 5；
+    //    删掉 renderTimeoutText ⇒ res.error 丢失文案，exit 5 的归因失真。
+    const evaluateArgs = /\{\s*absPath,\s*dataUrl[\s\S]{0,300}?\}/.exec(probe)?.[0] ?? "";
+    expect(evaluateArgs, "应能定位 page.evaluate 的参数对象").not.toBe("");
+    for (const [prop, constant] of [
+      ["renderTimeoutMs", "RENDER_TIMEOUT_MS"],
+      ["renderTimeoutText", "RENDER_TIMEOUT_TEXT"],
+      ["renderTimeoutName", "RENDER_TIMEOUT_NAME"],
+    ]) {
+      expect(evaluateArgs, `参数对象必须传 ${prop}: ${constant}`).toMatch(
+        new RegExp(`${prop}:\\s*${constant}`),
+      );
+    }
+    // 页面侧的形参解构同样不许丢（缺了就是 undefined）
+    const destructure = /async \(\{ absPath: p[\s\S]{0,200}?\}\) =>/.exec(probe)?.[0] ?? "";
+    expect(destructure, "应能定位页面侧的形参解构").not.toBe("");
+    for (const name of ["renderTimeoutMs", "renderTimeoutText", "renderTimeoutName"]) {
+      expect(destructure, `页面侧解构必须包含 ${name}`).toContain(name);
+    }
+
+    // ③ 初始状态：res.timedOut 只能由 catch 里的哨兵置位，不许预置 true（否则每次 exit 5）
+    const resLine = probe.split("\n").find((l) => l.includes("const res = {")) ?? "";
+    expect(resLine, "应能定位 runCase 的 res 初始化").toMatch(/timedOut:\s*false/);
+    expect(probe, "不许在别处把 timedOut 预置为 true").not.toMatch(/timedOut:\s*true/);
+
 
     const timeoutBlock = braceBlock(probe, "if (stuck.length > 0) {");
     expect(timeoutBlock, "必须有渲染超时专属分支").not.toBe("");

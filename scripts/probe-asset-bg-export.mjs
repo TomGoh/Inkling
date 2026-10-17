@@ -60,6 +60,10 @@ import { chromium } from "@playwright/test";
 // 只是发生得更早：连 exit 4 的归因文案都打不出来，退出码同样拿不到。故 runCase 整体带超时。
 const RENDER_TIMEOUT_MS = 20000;
 const RENDER_TIMEOUT_TEXT = `html2canvas 渲染超时 ${RENDER_TIMEOUT_MS / 1000}s`;
+// 哨兵名也只留一处：页面内写端（`err.name =`）与 Node 侧读端（`e.name ===`）都用它。
+// 两端各写一个字面量时，「改一半」会让 res.timedOut 恒 false —— control 超时落 exit 2、
+// targetStyleSheet 超时落 exit 4（假丢图），正是 exit 5 要消除的误归因。
+const RENDER_TIMEOUT_NAME = "ProbeRenderTimeout";
 
 const absPath = process.argv[2];
 const port = process.argv[3] ?? "9222";
@@ -141,15 +145,17 @@ async function injectHtml2Canvas(page, source) {
 console.log(`html2canvas 注入方式：${await injectHtml2Canvas(page, readFileSync(H2C, "utf8"))}`);
 
 const out = await page.evaluate(
-  async ({ absPath: p, dataUrl: du, renderTimeoutMs, renderTimeoutText }) => {
+  async ({ absPath: p, dataUrl: du, renderTimeoutMs, renderTimeoutText, renderTimeoutName }) => {
     const FALLBACK = "#ff00ff"; // 「背景图没画上」的标记色（由卡片 background-color 承担）
     const SCALE = 2; // 与 exporter.ts 一致（2 倍清晰度）
     const TOL = 30; // 单通道容差：吸收浏览器色彩管理差异
     const dist = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
-    /** 渲染超时哨兵：用独立 name 而不是普通 Error，才能与「真的丢图」区分归因 */
+    /** 渲染超时哨兵：用独立 name 而不是普通 Error，才能与「真的丢图」区分归因。
+     *  name 取自参数 `renderTimeoutName`（= Node 侧同一个 RENDER_TIMEOUT_NAME 常量），
+     *  读端也用它比对 ⇒ 改名只需改一处，不存在「写端改了、读端没改」的静默失配。 */
     const renderTimeout = () => {
       const err = new Error(renderTimeoutText);
-      err.name = "ProbeRenderTimeout";
+      err.name = renderTimeoutName;
       return err;
     };
 
@@ -234,7 +240,7 @@ const out = await page.evaluate(
         res.sampled = [d[0], d[1], d[2], d[3]];
       } catch (e) {
         res.error = e instanceof Error ? e.message : String(e);
-        res.timedOut = e instanceof Error && e.name === "ProbeRenderTimeout";
+        res.timedOut = e instanceof Error && e.name === renderTimeoutName;
       } finally {
         if (timer) clearTimeout(timer);
         themeRoot.remove();
@@ -342,7 +348,13 @@ const out = await page.evaluate(
       imageCenterIsFallback: dist(expected.rgba, [255, 0, 255, 255]) <= TOL,
     };
   },
-  { absPath, dataUrl, renderTimeoutMs: RENDER_TIMEOUT_MS, renderTimeoutText: RENDER_TIMEOUT_TEXT },
+  {
+    absPath,
+    dataUrl,
+    renderTimeoutMs: RENDER_TIMEOUT_MS,
+    renderTimeoutText: RENDER_TIMEOUT_TEXT,
+    renderTimeoutName: RENDER_TIMEOUT_NAME,
+  },
 );
 
 const j = (v) => JSON.stringify(v);
