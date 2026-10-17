@@ -52,7 +52,7 @@
 
 `tests/lib/export-theme.test.ts`（12 条）：层序声明在最前、三表内联且顺序正确、取不到的样式表计入 `skipped` 而不静默丢、正文两层包裹、`data-theme`/`data-theme-id` 就位、标题转义、骨架无颜色声明、打印块放开 `.editor-scroll` 裁切。
 
-**未覆盖/待实测**：`asset.localhost` 背景图在 `html2canvas`（`useCORS: true`、未开 `allowTaint`）下是否被 CORS 跳过 → 需要带 `url(asset://…)` 背景的真实主题 + 真机导出（见 §7 登记）。
+**`asset.localhost` 背景图 × `html2canvas`（#348，已真机实测闭环）**：**不丢图**。真机打包形态（WebView2 + CSP + assetProtocol，`tauri 2.11.5`）下用 `scripts/probe-asset-bg-export.mjs` 造「带 asset 背景图」的离屏卡片，按 `exporter.ts` 的同参数（`useCORS: true`、未开 `allowTaint`、`scale: 2`）导出后采样：内联 style 与**样式表规则**两种声明都被正常画进画布（[38,35,38] ≈ 探针图中心 [35,35,35]，容差 30；而「指向不存在文件」的对照只剩标记色 [255,0,255]）。根因：asset 协议响应本就带 `Access-Control-Allow-Origin`（`tauri-2.11.5/src/protocol/asset.rs:39` 注入 `window_origin`，与页面 origin 一致）⇒ 跨源头在位、`useCORS` 生效。**结论：不要改 `allowTaint`**（那会污染 canvas，让 `toBlob` 直接抛 SecurityError）。CI 侧守卫：E2E `tests/e2e/export.spec.ts` 的 `E7`（跨源 + ACAO 必须画上 / 缺 ACAO 不画上）+ 单测 `tests/unit/export-png.test.ts` 的参数不变量。
 
 ## 5. 渲染组件的主题跟随
 
@@ -106,7 +106,7 @@ Mermaid 的 NodeView 不是 React 组件（不订阅 store），故用 DOM 事�
 
 | # | 项 | 说明 |
 |---|---|---|
-| N1 | `asset.localhost` 背景图与 `html2canvas` | 需要带本地背景图的真实主题 + 真机导出实测（`useCORS` + 不开 `allowTaint`）。若确被 CORS 跳过，参数调整或「导出前把背景图内联为 data URL」二选一 |
+| N1 | ~~`asset.localhost` 背景图与 `html2canvas`~~ | **已闭环（#348 真机实测）**：**不丢图** —— asset 协议响应自带 `Access-Control-Allow-Origin`，`useCORS: true` 已足够；**不要**改 `allowTaint`（污染 canvas ⇒ `toBlob` 抛 SecurityError）。证据：`scripts/probe-asset-bg-export.mjs` 判定通过（exit 0）+ E2E `E7` + 单测参数不变量 |
 | N2 | Mermaid 主题变化 = **全量重渲染**活动图表 | 长文档（数十张）会有一次集中开销；现有懒渲染/空闲队列/占位高度不变，缓存按主题分桶后不会来回抖。若实测卡顿，可改成「仅重渲染视口内 + 滚到再渲染」 |
 | N3 | 视觉回归仍以**源级静态断言 + 行为断言**为主 | 未引入 screenshot diff：固定容器尺寸下的截图基线在 CI 上跨平台不稳（字体/渲染差异），收益与维护成本不划算；如需，建议单独开 issue 引入并配平台별基线 |
 | N4 | 自研主题的「四类风格」覆盖 4 套 | 更高对比的暗色变体（`builtin:contrast-dark`）与更多阅读风主题可后续追加，机制已就绪（加一条 `BUILTIN_SELF_THEMES` 记录 + 断言自动覆盖） |

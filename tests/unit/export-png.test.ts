@@ -48,6 +48,16 @@ describe("exportPNG", () => {
     expect(document.body.contains(root)).toBe(false);
   });
 
+  it("html2canvas 必须带 useCORS 且不得开 allowTaint（#348：asset 背景图进画布的充要参数）", async () => {
+    await exportPNG(() => editorWith("<p>Body</p>"));
+    const options = html2canvasMock.mock.calls[0][1] as Record<string, unknown>;
+    // 关掉 useCORS ⇒ 跨源图（#306 改写后的 asset URL、远程图）会被 html2canvas **静默跳过**：
+    // 不报错、导出图里少图（「应用里正常、导出里丢图」，真机探针 scripts/probe-asset-bg-export.mjs 的对照 B 实测过该形态）。
+    expect(options.useCORS).toBe(true);
+    // 开 allowTaint ⇒ 跨源图直接画进画布但**污染**它，`canvas.toBlob` 抛 SecurityError，整个导出失败。
+    expect(options.allowTaint).toBeFalsy();
+  });
+
   it("cleans the off-screen clone when html2canvas rejects", async () => {
     html2canvasMock.mockRejectedValueOnce(new Error("canvas failed"));
     await expect(exportPNG(() => editorWith("<p>Body</p>"))).rejects.toThrow("canvas failed");
