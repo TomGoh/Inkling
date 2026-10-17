@@ -78,6 +78,25 @@ pnpm tauri build  # 打包桌面应用
 
 > 浏览器 `pnpm dev` 模式下会使用 mock 工作区，方便脱离 Tauri 环境调试 UI。
 
+## 依赖升级
+
+前端依赖走 `pnpm update`，失败面在 `pnpm test` / `pnpm build`，CI 拦得住。**Rust 侧有一条结论 CI 拦不住**，必须人工触发验证：
+
+- `src-tauri/Cargo.toml` 里的 `tauri` 是 caret 约束（`tauri = { version = "2" }`），实际版本由 `src-tauri/Cargo.lock` 锁定。
+- 「`asset.localhost` 背景图导出不丢图」这条结论**绑定在上游 tauri 的行为上**：asset 协议响应自带 `Access-Control-Allow-Origin`（`src/protocol/asset.rs` 按 `window_origin` 注入，实测于 `tauri 2.11.5`）。E2E 走自建 HTTP 服务、不碰 asset 协议 ⇒ 这条链路 CI 覆盖不到。
+- **升级 `tauri` 后必须重跑真机探针并确认 `exit 0`**：
+
+  ```powershell
+  npx tauri build --debug --no-bundle
+  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9222"
+  Start-Process src-tauri\target\debug\inklingmd.exe
+  node scripts/probe-asset-bg-export.mjs <探针图绝对路径>
+  ```
+
+  跑法与探针图放置位置见脚本头注释；退出码表与判定顺序见 [`docs/theme-builtin-226.md`](./docs/theme-builtin-226.md) §4 —— 只有 `0` 算通过（`2` = 自检不成立、本轮结论无效，`3` = 构建姿势不对，`4` = 丢图复现）。
+- 为什么必须写进清单：主题 URL 改写、`useCORS` 参数不变量、跨源 E2E 三道守卫在**上游行为变化时照样全绿**，只有探针能发现；升级后没重跑就等于放行了一条未被验证的结论。
+- 文档里登记的版本与 `src-tauri/Cargo.lock` 由 `tests/unit/asset-bg-probe.test.ts` 对账：升级后没同步文档会直接红 —— 那是**提醒你先去跑探针**，不是让你改断言。
+
 ## 性能 Benchmark（性能回归防线）
 
 一条命令跑完 6 个场景（打开 / 输入 / 滚动 / 编辑内查找 / 标签切换 / 保存），与基线自动比较，

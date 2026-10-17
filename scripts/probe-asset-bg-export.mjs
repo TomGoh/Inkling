@@ -1,6 +1,6 @@
 // #348 真机探针：在**打包形态**（frontendDist + CSP + assetProtocol）的 WebView2 里实测
 // 「`convertFileSrc` 产出的 asset URL 作为 **CSS 背景图**，交给 `html2canvas(useCORS: true, 未开 allowTaint)`
-// 时，导出图里到底有没有这张背景图」——即 `docs/theme-builtin-226.md` §7 N1 / §5「未覆盖/待实测」那一条。
+// 时，导出图里到底有没有这张背景图」——即 `docs/theme-builtin-226.md` §4（判定结论与退出码表）/ §7 N1 那一条。
 //
 // 为什么单测/E2E 覆盖不了：
 //   `asset.localhost` 是 Tauri 的 asset 协议 host。浏览器 dev 模式下该 host 根本不存在，
@@ -19,6 +19,10 @@
 //   `connect-src` ⇒ 回落 `default-src 'self'`，而 asset 协议只在 `img-src` 里放行。
 //   实测（tmp 诊断 + 本探针的 `cspBlocked` 字段）已确认该失败会带上 `connect-src` 违规归因，
 //   不会被误读成「CORS 缺失」。
+//   但 fetch 必须带 **5s 超时**（#350）：CSP 拦是「立刻拒绝」，而一换 CSP 配置 / 换 tauri 版本 /
+//   手工改 scope，「asset 协议既不拒绝也不响应」就会让裸 fetch 永久挂起 —— `page.evaluate`
+//   再也返回不了，连退出码都拿不到。超时落在 `corsFetch.timeout`，与 `cspBlocked` 分开归因
+//   （超时说明「没响应」，对「是否 CORS 缺失」没有任何判定力）。
 //
 // 用法（四条命令）：
 //   1) npx tauri build --debug --no-bundle
@@ -241,16 +245,36 @@ const out = await page.evaluate(
         });
       document.addEventListener("securitypolicyviolation", onViolation);
       try {
-        const resp = await fetch(assetUrl, { cache: "no-store" });
+        // #350：超时不可省（见头注释）。缺了它，「asset 协议无响应」会把整轮探针挂死。
+        const resp = await fetch(assetUrl, {
+          cache: "no-store",
+          signal: AbortSignal.timeout(5000),
+        });
         corsFetch = { ok: resp.ok, status: resp.status };
       } catch (e) {
-        corsFetch = { ok: false, error: e instanceof Error ? e.message : String(e) };
+        const msg = e instanceof Error ? e.message : String(e);
+        // 超时与「被 CSP 拦」是两种不同事实，必须分开标记：超时＝没响应，无归因力。
+        const timedOut =
+          /timeout|timed out|abort/i.test(msg) ||
+          (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError"));
+        corsFetch = timedOut
+          ? {
+              ok: false,
+              timeout: true,
+              error: msg,
+              note: "诊断 fetch 超时 5s（asset 协议既不拒绝也不响应）⇒ 本条无归因力，**不是** CORS 结论",
+            }
+          : { ok: false, error: msg };
       }
       // securitypolicyviolation 是异步派发的：fetch 的 Promise 先 reject，事件随后才到，
       // 立刻摘监听会漏掉违规（实测踩过：漏了就会把「CSP 拦」误写成一条无归因的失败）。
       await new Promise((r) => setTimeout(r, 600));
       document.removeEventListener("securitypolicyviolation", onViolation);
-      if (!corsFetch.ok && violations.some((v) => /connect-src/.test(v.directive))) {
+      if (
+        !corsFetch.ok &&
+        !corsFetch.timeout &&
+        violations.some((v) => /connect-src/.test(v.directive))
+      ) {
         corsFetch.cspBlocked = violations;
         corsFetch.note =
           "被 CSP 拦（未声明 connect-src ⇒ 回落 default-src 'self'），本条**不是** CORS 结论";
