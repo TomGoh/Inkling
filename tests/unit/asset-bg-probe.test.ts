@@ -1,15 +1,17 @@
 // #350 / #351：`scripts/probe-asset-bg-export.mjs` 的源级口径守卫。
 //
-// 背景：该探针的判定（exit 0）与结论本身已复核属实，缺的是「探针实现 ↔ 文档口径」的锁定——
-// 退出码此前只写在脚本头注释里，文档只记了「判定通过（exit 0）」；于是改退出码、删掉某条自检、
+// 背景：该探针的判定（exit 0）与结论本身已复核属实，缺的是「探针实现 ↔ 口径登记」的锁定——
+// 退出码此前只写在脚本头注释里，登记处只记了「判定通过（exit 0）」；于是改退出码、删掉某条自检、
 // 去掉长度防护，全都没人拦。照 `tests/unit/asset-csp-probe.test.ts`（#340 建立、#342 加固）的形态锁：
-//  ① 探针用到的退出码集合 = 文档退出码表 = 头注释图例（0–5，含 2 / 3 / 4 / 5）；
+//  ① 探针用到的退出码集合 = CONTRIBUTING「依赖升级」的退出码表 = 头注释图例（0–5，含 2 / 3 / 4 / 5）；
 //  ② 判定顺序固定：devUrl（3）→ 渲染超时（5）→ 自检（2）→ 目标（0/4）；
 //  ③ 三条对照自检**在各自块内**恰好一个 `await finish(2)`（块级锚定，不用字符数窗口）；
 //  ④ 两处长度防护都必须带超时、且归因互不串味：
 //     · 诊断 `fetch` 5s（`corsFetch.timeout` 与 `cspBlocked` 互斥）；
 //     · `runCase()` 的 html2canvas 20s（独立哨兵，不落进 `cspBlocked` / exit 4）。
 // 另按 #351 锁住「结论绑定 tauri 版本」的触发点。
+// v3.5.0 起：退出码表从 `docs/theme-builtin-226.md` §4 迁入 CONTRIBUTING「依赖升级」（锚定
+// 「probe-asset-bg-export.mjs`（asset 背景图导出探针）」引言行之后的表，不与其余表格混淆）。
 //
 // 断言强度用突变实测过（#350 复核阻塞项 1/2）：删块内 `finish(2)`、把 `finish(2)` 改成 `finish(0)`、
 // 只删 `corsFetch` 超时分支的 `timeout: true`（保留 `<img>` 的 8s 兜底）、删渲染超时、把渲染超时
@@ -20,7 +22,6 @@ import { describe, expect, it } from "vitest";
 
 const read = (rel: string) => readFileSync(resolve(process.cwd(), rel), "utf8");
 const probe = read("scripts/probe-asset-bg-export.mjs");
-const doc = read("docs/theme-builtin-226.md");
 const contributing = read("CONTRIBUTING.md");
 
 /** 剥掉 Markdown 的强调/行内代码标记，让「头注释图例」与「文档表格」逐字可比 */
@@ -48,12 +49,24 @@ function braceBlock(source: string, header: string): string {
   return "";
 }
 
-/** 文档里的退出码表：必须限定在「| 退出码 |」那一段内（#342 的教训：别被无关表格满足） */
+/**
+ * CONTRIBUTING 里本探针的退出码表：先锚定「probe-asset-bg-export.mjs`（asset 背景图导出探针）」
+ * 引言行，再取其后第一张「| 退出码 |」表（按行收集到第一个非表格行为止）。
+ * 不能用「从首个 `| 退出码 |` 切到下一个 `##`」——CONTRIBUTING 里还有另一个探针的表（#342 的教训：
+ * 别让无关表格满足断言），锚定引言行才能保证取到的是**本探针**的表。
+ */
 function docExitTable(): string {
-  const start = doc.indexOf("| 退出码 |");
-  expect(start, "文档应有「| 退出码 | 含义 |」表").toBeGreaterThan(-1);
-  const nextHeading = doc.indexOf("\n## ", start);
-  return doc.slice(start, nextHeading < 0 ? undefined : nextHeading);
+  const anchor = contributing.indexOf("probe-asset-bg-export.mjs`（asset 背景图导出探针）");
+  expect(anchor, "CONTRIBUTING「依赖升级」应有本探针的退出码表引言行").toBeGreaterThan(-1);
+  const start = contributing.indexOf("| 退出码 |", anchor);
+  expect(start, "引言行之后应有「| 退出码 | 含义 |」表").toBeGreaterThan(-1);
+  const lines = contributing.slice(start).split("\n");
+  const rows: string[] = [];
+  for (const line of lines) {
+    if (!line.trimStart().startsWith("|")) break;
+    rows.push(line);
+  }
+  return rows.join("\n");
 }
 
 /** 取文档退出码表里 `code` 那一行的含义列（去标记） */
@@ -284,8 +297,10 @@ describe("#350 asset 背景图探针：源级口径守卫", () => {
 });
 
 describe("#351 「结论绑定 tauri 版本」必须有明确触发点", () => {
-  it("文档必须引用探针路径，升级清单必须写「重跑探针并确认 exit 0」", () => {
-    expect(doc, "文档必须出现探针脚本路径").toContain("scripts/probe-asset-bg-export.mjs");
+  it("CONTRIBUTING 必须引用探针路径，升级清单必须写「重跑探针并确认 exit 0」", () => {
+    expect(contributing, "CONTRIBUTING 必须出现探针脚本路径").toContain(
+      "scripts/probe-asset-bg-export.mjs",
+    );
     expect(plain(contributing), "CONTRIBUTING 的依赖升级清单必须点名该探针").toContain(
       "scripts/probe-asset-bg-export.mjs",
     );
@@ -295,12 +310,12 @@ describe("#351 「结论绑定 tauri 版本」必须有明确触发点", () => {
     ).toMatch(/升级 tauri[\s\S]{0,400}?exit 0/);
   });
 
-  it("CONTRIBUTING 的升级清单必须写全退出码口径（新增退出码不许只改文档与头注释）", () => {
-    // 口径三处一致才叫「一致」：头注释图例 / 文档退出码表 / 升级清单里那句「只有 0 算通过」
+  it("CONTRIBUTING 的升级清单必须写全退出码口径（新增退出码不许只改登记表与头注释）", () => {
+    // 口径三处一致才叫「一致」：头注释图例 / CONTRIBUTING 退出码表 / 升级清单里那句「只有 0 算通过」
     const line = contributing.split("\n").find((l) => l.includes("算通过")) ?? "";
     expect(line, "CONTRIBUTING 升级清单里应有「只有 `0` 算通过」那句").not.toBe("");
     for (const code of usedExitCodes().filter((code) => code !== "0")) {
-      expect(line, `CONTRIBUTING 漏了退出码 ${code} 的口径（文档/头注释改了这里就得同步）`).toContain(
+      expect(line, `CONTRIBUTING 漏了退出码 ${code} 的口径（登记表/头注释改了这里就得同步）`).toContain(
         `\`${code}\``,
       );
     }
@@ -311,9 +326,9 @@ describe("#351 「结论绑定 tauri 版本」必须有明确触发点", () => {
     const locked = /\[\[package\]\]\r?\nname = "tauri"\r?\nversion = "([^"]+)"/.exec(lock)?.[1];
     expect(locked, "Cargo.lock 里应有 tauri 包").toBeTruthy();
     expect(
-      plain(doc),
-      `文档登记的 tauri 版本与 Cargo.lock（${locked}）不一致：升级 tauri 后请先重跑 ` +
-        "`node scripts/probe-asset-bg-export.mjs <探针图>` 确认 exit 0，再更新文档与本次断言",
+      plain(contributing),
+      `CONTRIBUTING 登记的 tauri 版本与 Cargo.lock（${locked}）不一致：升级 tauri 后请先重跑 ` +
+        "`node scripts/probe-asset-bg-export.mjs <探针图>` 确认 exit 0，再更新登记与本次断言",
     ).toContain(`tauri ${locked}`);
   });
 });

@@ -1,29 +1,48 @@
-// #340：探针与文档的口径一致性守卫。
+// #340：探针与口径登记的一致性守卫。
 //
-// 这两处都是「文档写一套、实现对不上」的形态（devUrl 退出码写了 3 但实测永远是 2；注释引用的对照源没入库），
+// 这两处都是「登记写一套、实现对不上」的形态（devUrl 退出码写了 3 但实测永远是 2；注释引用的对照源没入库），
 // 靠人盯必然复发，故用源级断言把三条口径锁住：
-//  ① 探针用到的退出码集合 = 文档写明的那套；
+//  ① 探针用到的退出码集合 = 登记处写明的那套；
 //  ② **devUrl 检查必须排在自检之前**（否则 devUrl 页面必然撞「对照加载成功」的先手判定，专属退出码 3 不可达）；
 //  ③ 探针的对照源必须**内联自起**且真 PNG 存在于仓库（不许再指向未入库的临时脚本）。
+// v3.5.0 起：退出码表从 `docs/asset-csp-309.md` 迁入 CONTRIBUTING「依赖升级」（锚定
+// 「probe-asset-csp.mjs`（asset 协议 CSP 探针）」引言行之后的表，不与其余表格混淆）。
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const probe = readFileSync(resolve(process.cwd(), "scripts/probe-asset-csp.mjs"), "utf8");
-const doc = readFileSync(resolve(process.cwd(), "docs/asset-csp-309.md"), "utf8");
+const doc = readFileSync(resolve(process.cwd(), "CONTRIBUTING.md"), "utf8");
 
-describe("#340 asset-CSP 探针：与文档口径一致", () => {
-  it("探针用到的退出码集合 = 文档退出码表那一段（限定范围，不被无关表格满足）", () => {
+/**
+ * CONTRIBUTING 里本探针的退出码表：先锚定「probe-asset-csp.mjs`（asset 协议 CSP 探针）」引言行，
+ * 再取其后第一张「| 退出码 |」表（按行收集到第一个非表格行为止）。
+ * 不能用「从首个 `| 退出码 |` 切到下一个 `##`」——CONTRIBUTING 里还有另一个探针的表，
+ * 锚定引言行才能保证取到的是**本探针**的表。
+ */
+function docExitTable(): string {
+  const anchor = doc.indexOf("probe-asset-csp.mjs`（asset 协议 CSP 探针）");
+  expect(anchor, "CONTRIBUTING「依赖升级」应有本探针的退出码表引言行").toBeGreaterThan(-1);
+  const start = doc.indexOf("| 退出码 |", anchor);
+  expect(start, "引言行之后应有「| 退出码 | 含义 |」表").toBeGreaterThan(-1);
+  const lines = doc.slice(start).split("\n");
+  const rows: string[] = [];
+  for (const line of lines) {
+    if (!line.trimStart().startsWith("|")) break;
+    rows.push(line);
+  }
+  return rows.join("\n");
+}
+
+describe("#340 asset-CSP 探针：与口径登记一致", () => {
+  it("探针用到的退出码集合 = CONTRIBUTING 退出码表那一段（锚定引言行，不被无关表格满足）", () => {
     const used = new Set(
       [...probe.matchAll(/finish\((\d)\)|process\.exit\((\d)\)/g)].map((m) => m[1] ?? m[2]),
     );
     expect([...used].sort()).toEqual(["0", "1", "2", "3"]);
     // #342：断言必须限定在**退出码表那一段** —— 否则实测数据表 violations 列里的 `| 2 |` / `| 3 |`
     // 会把「退出码表漏了一行」也满足掉（复核实测：把 `| 3 |` 改成 `| 三 |` 时断言仍然 4 passed ✗）。
-    const start = doc.indexOf("| 退出码 |");
-    expect(start, "文档应有「| 退出码 | 含义 |」表").toBeGreaterThan(-1);
-    const nextHeading = doc.indexOf("\n## ", start);
-    const exitTable = doc.slice(start, nextHeading < 0 ? undefined : nextHeading);
+    const exitTable = docExitTable();
     for (const code of used) {
       expect(exitTable, `退出码表里应有一行 \`| ${code} |\``).toContain(`| ${code} |`);
     }
@@ -73,10 +92,8 @@ describe("#340 asset-CSP 探针：与文档口径一致", () => {
     );
   });
 
-  it("头注释的退出码图例与文档退出码表逐项同步（#342 漏了「读不到对照 PNG」「预检查 5s 超时」）", () => {
-    const start = doc.indexOf("| 退出码 |");
-    const nextHeading = doc.indexOf("\n## ", start);
-    const exitTable = doc.slice(start, nextHeading < 0 ? undefined : nextHeading);
+  it("头注释的退出码图例与 CONTRIBUTING 退出码表逐项同步（#342 漏了「读不到对照 PNG」「预检查 5s 超时」）", () => {
+    const exitTable = docExitTable();
     /** 把一行文案拆成可比较的小项：去括号/反引号/强调，再按分隔符切开 */
     const items = (s: string) =>
       s

@@ -102,7 +102,7 @@ thirdParty.push(
   "- KaTeX / Mermaid / CodeMirror 等运行时依赖按其自身许可（MIT 等）分发；按同一条「副本须附版权与许可」的条件，**其声明也应随包提供**。",
 );
 thirdParty.push(
-  "  当前只在仓库内登记（`package.json` 与各自仓库），**尚未随包产出** → 已登记为后续项（见 `docs/theme-packaging-308.md` §7）。",
+  "  当前只在仓库内登记（`package.json` 与各自仓库），**尚未随包产出** → 已登记为后续项。",
 );
 thirdParty.push("");
 

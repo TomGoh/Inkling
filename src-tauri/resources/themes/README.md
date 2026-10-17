@@ -1,6 +1,6 @@
 # 预装主题运行时光源副本（`$RESOURCE/themes`）
 
-本目录是**随安装包分发的只读清单与主题源副本**，落地口径见 `docs/theme-import-307.md` 与设计集 `06`：
+本目录是**随安装包分发的只读清单与主题源副本**，落地口径见 `docs/v3.5.0 设计文档.md`（主题导入与预装清单机制，#307 / #308）：
 
 - `manifest.json`：预装清单（**最小字段集**），`{ v: 1, themes: [{ slug, css, dir?, name, mode, hiddenByDefault? }] }`。
   - 与**用户主题的运行时索引** `inkling-themes-index`（`localStorage`，可写）**严格区分**：这里是只读发版产物。

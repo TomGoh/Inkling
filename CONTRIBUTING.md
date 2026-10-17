@@ -80,11 +80,11 @@ pnpm tauri build  # 打包桌面应用
 
 ## 依赖升级
 
-前端依赖走 `pnpm update`，失败面在 `pnpm test` / `pnpm build`，CI 拦得住。**Rust 侧有一条结论 CI 拦不住**，必须人工触发验证：
+前端依赖走 `pnpm update`，失败面在 `pnpm test` / `pnpm build`，CI 拦得住。**Rust 侧有一组结论 CI 拦不住**，必须人工触发验证：
 
 - `src-tauri/Cargo.toml` 里的 `tauri` 是 caret 约束（`tauri = { version = "2" }`），实际版本由 `src-tauri/Cargo.lock` 锁定。
-- 「`asset.localhost` 背景图导出不丢图」这条结论**绑定在上游 tauri 的行为上**：asset 协议响应自带 `Access-Control-Allow-Origin`（`src/protocol/asset.rs` 按 `window_origin` 注入，实测于 `tauri 2.11.5`）。E2E 走自建 HTTP 服务、不碰 asset 协议 ⇒ 这条链路 CI 覆盖不到。
-- **升级 `tauri` 后必须重跑真机探针并确认 `exit 0`**：
+- 「`asset.localhost` 背景图导出不丢图」与「asset 协议 CSP token 承重」这组结论**绑定在上游 tauri 的行为上**：asset 协议响应自带 `Access-Control-Allow-Origin`（`src/protocol/asset.rs` 按 `window_origin` 注入，实测于 `tauri 2.11.5`）。E2E 走自建 HTTP 服务、不碰 asset 协议 ⇒ 这条链路 CI 覆盖不到。
+- **升级 `tauri` 后必须重跑真机探针并确认 `exit 0`**——两个探针都**只有 `0` 算通过**（`1` = 用法 / 环境错，`2` = 自检不成立、本轮结论无效，`3` = 构建姿势不对，`4` = 丢图复现，`5` = 渲染超时、本轮无法判定）：
 
   ```powershell
   npx tauri build --debug --no-bundle
@@ -93,9 +93,30 @@ pnpm tauri build  # 打包桌面应用
   node scripts/probe-asset-bg-export.mjs <探针图绝对路径>
   ```
 
-  跑法与探针图放置位置见脚本头注释；退出码表与判定顺序见 [`docs/theme-builtin-226.md`](./docs/theme-builtin-226.md) §4 —— 只有 `0` 算通过（`1` = 用法 / 环境错，`2` = 自检不成立、本轮结论无效，`3` = 构建姿势不对，`4` = 丢图复现，`5` = 渲染超时、本轮无法判定）。
+- 跑法与探针图放置位置见各脚本头注释；退出码表与判定顺序登记如下（改退出码必须同步本表与脚本头注释，`tests/unit/asset-bg-probe.test.ts` 与 `tests/unit/asset-csp-probe.test.ts` 会逐码对账）。
+
+`scripts/probe-asset-bg-export.mjs`（asset 背景图导出探针）——判定顺序固定 **devUrl（3）→ 渲染超时（5）→ 自检（2）→ 目标判定（0/4）**：
+
+| 退出码 | 含义 |
+|---|---|
+| 0 | 判定**通过**：三条对照成立 + asset 背景图被正常画进导出画布（N1 疑点不成立） |
+| 1 | 用法/环境错（缺参数、CDP 连不上、找不到应用页、找不到 html2canvas UMD 产物） |
+| 2 | 自检失败：对照不成立（对照 A 没画上 / 对照 B 被画上 / 探针图中心像素≈标记色）⇒ 本轮**结论无效** |
+| 3 | 页面是 devUrl 形态（`http://localhost:1420/`）⇒ 不带 CSP，不是本次要评测的形态 |
+| 4 | 判定**失败**：asset 背景图**没被画进导出画布** ⇒ 静默丢图复现（JSON 的 `verdict` 给出归因） |
+| 5 | 渲染超时：某条用例在 20s 内没有返回（html2canvas 加载图片无超时，asset 协议无响应即永久 pending）⇒ 本轮**无法判定** |
+
+`scripts/probe-asset-csp.mjs`（asset 协议 CSP 探针）——判定顺序：**devUrl（3）→ 自检（2）→ 目标判定**；对照**超时**也不得当作「被拦」（无法区分「被 CSP 拦」与「对照源不可达」，故判无效）：
+
+| 退出码 | 含义 |
+|---|---|
+| 0 | 探针正常完成（结论看 JSON：`control` 被拦 + `asset.ok`） |
+| 1 | 用法/环境错（缺参数、读不到对照 PNG、CDP 连不上、找不到应用页、对照源起不来/不可达/**预检查 5s 超时**） |
+| 2 | 自检失败：对照加载成功（本页无 CSP）或对照超时（无法判定） |
+| 3 | 页面是 devUrl 形态（`http://localhost:1420/`）⇒ 不带 CSP，拒绝出结论 |
+
 - 为什么必须写进清单：主题 URL 改写、`useCORS` 参数不变量、跨源 E2E 三道守卫在**上游行为变化时照样全绿**，只有探针能发现；升级后没重跑就等于放行了一条未被验证的结论。
-- 文档里登记的版本与 `src-tauri/Cargo.lock` 由 `tests/unit/asset-bg-probe.test.ts` 对账：升级后没同步文档会直接红 —— 那是**提醒你先去跑探针**，不是让你改断言。
+- CONTRIBUTING 里登记的版本与 `src-tauri/Cargo.lock` 由 `tests/unit/asset-bg-probe.test.ts` 对账：升级后没同步登记会直接红 —— 那是**提醒你先去跑探针**，不是让你改断言。
 
 ## 性能 Benchmark（性能回归防线）
 

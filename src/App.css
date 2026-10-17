@@ -1352,7 +1352,7 @@ button.save-indicator:focus-visible {
 /* #225 归并：原本散落于此的 [data-theme="dark"] 纯颜色覆盖规则已删除 ——
    这些声明引用的 token 自身随主题翻转（#223 已逐条 token 化），保留只会形成双份真相；
    仅保留**结构属性**规则（::-webkit-scrollbar-* 的 border/background-clip）与 .split-pane。
-   归并清单与计数核对见 docs/theme-dark-rules-split-223.md（#223 交付）与矩阵 D6/D30。 */
+   归并口径见 #223 / #225（PR #310 / #315）与兼容性矩阵 D6/D30（docs/typora-compatibility-matrix.md）。 */
 
 /* 深色滚动条：轨道透明，滑块更亮 */
 [data-theme="dark"] ::-webkit-scrollbar-thumb {

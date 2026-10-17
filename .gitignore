@@ -35,3 +35,15 @@ coverage/
 # 本地基线独立于 CI：.perf-baseline/local/<profile>/<mode>/r<rounds>/
 .perf-output/
 .perf-baseline/local/
+
+# 本地过程性产物（agent / 调试工作区，严禁入库；过程文档放这里或随用随删，不进 docs/）
+tmp/
+.perf-verify/
+dist-verify/
+release-portable/
+.trash/
+.workbuddy/
+
+# 本地指引与本地压测文档（不随仓库分发）
+AGENTS.md
+md_editor_stress_test.md

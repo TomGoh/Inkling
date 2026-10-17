@@ -1,6 +1,7 @@
 // #348 真机探针：在**打包形态**（frontendDist + CSP + assetProtocol）的 WebView2 里实测
 // 「`convertFileSrc` 产出的 asset URL 作为 **CSS 背景图**，交给 `html2canvas(useCORS: true, 未开 allowTaint)`
-// 时，导出图里到底有没有这张背景图」——即 `docs/theme-builtin-226.md` §4（判定结论与退出码表）/ §7 N1 那一条。
+// 时，导出图里到底有没有这张背景图」——即「asset 背景图导出不丢图」结论（#348 N1；退出码表登记在
+// CONTRIBUTING.md「依赖升级」）。
 //
 // 为什么单测/E2E 覆盖不了：
 //   `asset.localhost` 是 Tauri 的 asset 协议 host。浏览器 dev 模式下该 host 根本不存在，
