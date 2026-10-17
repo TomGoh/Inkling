@@ -42,6 +42,8 @@
 //     · 探针图中心像素 ≈ 品红（标记色）：无法与「没画上」区分，换图重跑。
 //   3 页面是 devUrl 形态（`http://localhost:1420/`）⇒ 不带 CSP，不是本次要评测的形态
 //   4 判定**失败**：背景图**没被画进导出画布** —— 静默丢图复现（JSON 的 `verdict` 给出归因）
+//   5 渲染超时：某条用例在 20s 内没有返回（html2canvas 加载图片没有超时，asset 协议无响应即永久 pending）
+//     ⇒ 本轮**无法判定**，既不算丢图也不能算画上；检查 asset 协议 / CSP / 图片可解码性后重跑
 //
 // 实测结论（2026-10-16，本机 Windows / WebView2 Edg 120 / tauri 2.11.5）：
 //   **判定通过（exit 0）** —— `asset` 背景图（内联与样式表两种声明）都被正常画进画布，
@@ -51,6 +53,13 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
+
+// #350 复核阻塞项 3：html2canvas 1.4.1 的图片加载只有 `onload` / `onerror`
+// （`dist/html2canvas.js` 的 `CacheStorage.loadImage`），**没有超时**。asset 协议若「既不拒绝也不响应」，
+// `runCase` 里的 `await window.html2canvas(…)` 会永久 pending —— 与上面 `fetch` 的挂死同型，
+// 只是发生得更早：连 exit 4 的归因文案都打不出来，退出码同样拿不到。故 runCase 整体带超时。
+const RENDER_TIMEOUT_MS = 20000;
+const RENDER_TIMEOUT_TEXT = `html2canvas 渲染超时 ${RENDER_TIMEOUT_MS / 1000}s`;
 
 const absPath = process.argv[2];
 const port = process.argv[3] ?? "9222";
@@ -132,11 +141,17 @@ async function injectHtml2Canvas(page, source) {
 console.log(`html2canvas 注入方式：${await injectHtml2Canvas(page, readFileSync(H2C, "utf8"))}`);
 
 const out = await page.evaluate(
-  async ({ absPath: p, dataUrl: du }) => {
+  async ({ absPath: p, dataUrl: du, renderTimeoutMs, renderTimeoutText }) => {
     const FALLBACK = "#ff00ff"; // 「背景图没画上」的标记色（由卡片 background-color 承担）
     const SCALE = 2; // 与 exporter.ts 一致（2 倍清晰度）
     const TOL = 30; // 单通道容差：吸收浏览器色彩管理差异
     const dist = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+    /** 渲染超时哨兵：用独立 name 而不是普通 Error，才能与「真的丢图」区分归因 */
+    const renderTimeout = () => {
+      const err = new Error(renderTimeoutText);
+      err.name = "ProbeRenderTimeout";
+      return err;
+    };
 
     const convert = window.__TAURI_INTERNALS__?.convertFileSrc;
     const assetUrl = typeof convert === "function" ? convert(p) : null;
@@ -199,20 +214,29 @@ const out = await page.evaluate(
       const px = Math.round((cr.left - rr.left + cr.width / 2) * SCALE);
       const py = Math.round((cr.top - rr.top + cr.height / 2) * SCALE);
 
-      const res = { label, sampled: null, error: null, canvas: null };
+      const res = { label, sampled: null, error: null, timedOut: false, canvas: null };
+      let timer = null;
       try {
-        const canvas = await window.html2canvas(themeRoot, {
-          backgroundColor: "#ffffff",
-          scale: SCALE,
-          useCORS: true,
-          logging: false,
-        });
+        // 与超时竞速：超时后不再等这条渲染（它可能永远不返回），**也不能**把它读成「没画上」。
+        const canvas = await Promise.race([
+          window.html2canvas(themeRoot, {
+            backgroundColor: "#ffffff",
+            scale: SCALE,
+            useCORS: true,
+            logging: false,
+          }),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(renderTimeout()), renderTimeoutMs);
+          }),
+        ]);
         res.canvas = [canvas.width, canvas.height];
         const d = canvas.getContext("2d").getImageData(px, py, 1, 1).data;
         res.sampled = [d[0], d[1], d[2], d[3]];
       } catch (e) {
         res.error = e instanceof Error ? e.message : String(e);
+        res.timedOut = e instanceof Error && e.name === "ProbeRenderTimeout";
       } finally {
+        if (timer) clearTimeout(timer);
         themeRoot.remove();
         if (styleEl) styleEl.remove();
       }
@@ -295,6 +319,7 @@ const out = await page.evaluate(
       assetUrl,
       missingUrl,
       pageUrl: location.href,
+      renderTimeoutMs,
     };
     const painted = (r) => !!r.sampled && dist(r.sampled, expected.rgba) <= TOL;
     const looksFallback = (r) => !!r.sampled && dist(r.sampled, [255, 0, 255, 255]) <= TOL;
@@ -317,7 +342,7 @@ const out = await page.evaluate(
       imageCenterIsFallback: dist(expected.rgba, [255, 0, 255, 255]) <= TOL,
     };
   },
-  { absPath, dataUrl },
+  { absPath, dataUrl, renderTimeoutMs: RENDER_TIMEOUT_MS, renderTimeoutText: RENDER_TIMEOUT_TEXT },
 );
 
 const j = (v) => JSON.stringify(v);
@@ -339,6 +364,22 @@ console.log(
     1,
   ),
 );
+
+// 渲染超时优先：一条用例没返回时，「没画上」这个观测根本不成立 ——
+// 若落到自检（2）或丢图（4），会把「挂死」误报成「对照不成立」或「静默丢图」。
+// 归因独立：这里不写 cspBlocked、也不复用 exit 4 的丢图文案。
+const stuck = [out.controlData, out.controlNoImage, out.targetAsset, out.targetStyleSheet].filter(
+  (r) => r.timedOut,
+);
+if (stuck.length > 0) {
+  console.error(
+    `✗ 渲染超时：${stuck.map((r) => r.label).join(" / ")} 在 ${out.renderTimeoutMs / 1000}s 内没有返回。` +
+      "html2canvas 1.4.1 的图片加载只有 onload/onerror、没有超时，asset 协议若既不拒绝也不响应就会永久 pending。" +
+      "本轮**无法判定**：这既不是「丢图」（exit 4），也不是「跨源头缺失」（CORS 归因对此形态不适用）；" +
+      "请检查 asset 协议 / CSP / 图片可解码性后重跑。",
+  );
+  await finish(5);
+}
 
 // 自检：对照必须一条一条成立，否则本轮结论无效
 if (out.imageCenterIsFallback) {

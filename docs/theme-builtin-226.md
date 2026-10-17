@@ -63,10 +63,11 @@
 | 2 | 自检失败：对照不成立（对照 A 没画上 / 对照 B 被画上 / 探针图中心像素≈标记色）⇒ 本轮**结论无效** |
 | 3 | 页面是 devUrl 形态（`http://localhost:1420/`）⇒ 不带 CSP，不是本次要评测的形态 |
 | 4 | 判定**失败**：asset 背景图**没被画进导出画布** ⇒ 静默丢图复现（JSON 的 `verdict` 给归因） |
+| 5 | 渲染超时：某条用例在 20s 内没有返回（html2canvas 加载图片无超时，asset 协议无响应即永久 pending）⇒ 本轮**无法判定** |
 
 两条踩过的纪律：探针图**每次换新文件名**（否则可能命中上次缓存）、**中心像素不能是标记色** `#ff00ff`。
-判定顺序固定为 **devUrl 形态（3）→ 自检（2）→ 目标判定（0/4）**：devUrl 页面必然没有 CSP，若把自检放在前面，专属退出码 3 永远不可达（#340 的同型教训）。
-诊断用 `fetch(assetUrl)` 带 **5s 超时**，且「超时」与「被 CSP 拦」分开归因（`corsFetch.timeout` / `corsFetch.cspBlocked`）——前者只说明「asset 协议没响应」，对 CORS 没有任何判定力。
+判定顺序固定为 **devUrl 形态（3）→ 渲染超时（5）→ 自检（2）→ 目标判定（0/4）**：devUrl 页面必然没有 CSP，若把自检放在前面，专属退出码 3 永远不可达（#340 的同型教训）；超时没返回时「有没有画上」这个观测不成立，若落进自检或丢图，会把「挂死」误报成「对照不成立」或「静默丢图」（#350 复核阻塞项 3）。
+两处长度防护都**不可省**，且归因必须分开：诊断 `fetch(assetUrl)` 带 **5s 超时**（`corsFetch.timeout` / `corsFetch.cspBlocked` 互斥，超时对 CORS 无判定力）；`runCase()` 的 `html2canvas` 调用带 **20s 超时**（html2canvas 1.4.1 的 `CacheStorage.loadImage` 只有 `onload`/`onerror`，asset 协议无响应即永久 pending —— 它既不落进 `cspBlocked`，也不落进 exit 4 的丢图文案）。该「既不拒绝也不响应」形态**本机未复现**（要构造它需改 tauri 侧协议行为），本轮以源级断言 + 突变验证为准；真机若撞到，出口即 `5`。
 
 **版本绑定（#351）**：这条结论依赖**上游 tauri crate 的行为**（asset 协议响应按 `window_origin` 注入 `Access-Control-Allow-Origin`），实测版本为 `tauri = 2.11.5`（`src-tauri/Cargo.toml` 是 caret 约束 `"2"`，实际版本由 `src-tauri/Cargo.lock` 锁定）。②③④ 三道 CI 守卫（`#306` 主题 URL 改写 / `useCORS` 参数不变量 / 跨源 E2E）在**上游行为变化时照样全绿**，只有真机探针能发现 ⇒ **升级 tauri 后必须重跑探针确认 `exit 0`**，清单见 [CONTRIBUTING.md](../CONTRIBUTING.md)「依赖升级」。
 

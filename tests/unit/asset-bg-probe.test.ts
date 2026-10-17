@@ -1,14 +1,19 @@
 // #350 / #351：`scripts/probe-asset-bg-export.mjs` 的源级口径守卫。
 //
 // 背景：该探针的判定（exit 0）与结论本身已复核属实，缺的是「探针实现 ↔ 文档口径」的锁定——
-// 退出码 0–4 此前只写在脚本头注释里，文档只记了「判定通过（exit 0）」；于是改退出码、
-// 删掉某条自检、去掉诊断 fetch 的超时，全都没人拦。照 `tests/unit/asset-csp-probe.test.ts`
-// （#340 建立、#342 加固）的形态，本文件锁住四件事：
-//  ① 探针用到的退出码集合 = 文档退出码表 = 头注释图例（含 2 / 3 / 4）；
-//  ② devUrl 判定（finish(3)）必须排在自检之前，否则专属退出码 3 不可达；
-//  ③ 三条对照自检（对照 A 必须画上 / 对照 B 必须没画上 / 探针图中心 ≠ 标记色）不可被静默回退；
-//  ④ 诊断 fetch 必须带 5s 超时，且「超时」与「被 CSP 拦」分开归因（#342 的同型教训）。
-// 另按 #351 锁住「结论绑定 tauri 版本」的触发点：升级后没重跑探针就会红在版本对账上。
+// 退出码此前只写在脚本头注释里，文档只记了「判定通过（exit 0）」；于是改退出码、删掉某条自检、
+// 去掉长度防护，全都没人拦。照 `tests/unit/asset-csp-probe.test.ts`（#340 建立、#342 加固）的形态锁：
+//  ① 探针用到的退出码集合 = 文档退出码表 = 头注释图例（0–5，含 2 / 3 / 4 / 5）；
+//  ② 判定顺序固定：devUrl（3）→ 渲染超时（5）→ 自检（2）→ 目标（0/4）；
+//  ③ 三条对照自检**在各自块内**恰好一个 `await finish(2)`（块级锚定，不用字符数窗口）；
+//  ④ 两处长度防护都必须带超时、且归因互不串味：
+//     · 诊断 `fetch` 5s（`corsFetch.timeout` 与 `cspBlocked` 互斥）；
+//     · `runCase()` 的 html2canvas 20s（独立哨兵，不落进 `cspBlocked` / exit 4）。
+// 另按 #351 锁住「结论绑定 tauri 版本」的触发点。
+//
+// 断言强度用突变实测过（#350 复核阻塞项 1/2）：删块内 `finish(2)`、把 `finish(2)` 改成 `finish(0)`、
+// 只删 `corsFetch` 超时分支的 `timeout: true`（保留 `<img>` 的 8s 兜底）、删渲染超时、把渲染超时
+// 并进丢图归因 —— 五种改动都必须让本文件变红。
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -20,6 +25,28 @@ const contributing = read("CONTRIBUTING.md");
 
 /** 剥掉 Markdown 的强调/行内代码标记，让「头注释图例」与「文档表格」逐字可比 */
 const plain = (s: string) => s.replace(/[`*]/g, "");
+
+/**
+ * 取 `if (<cond>) {` 到该块收尾 `}` 的完整块：按大括号配对切片。
+ * 不能用 `[\s\S]{0,600}` 这类字符数窗口 —— 实测 245 字符就能跨到下一个自检块，
+ * 「删掉本块的 finish(2)」会由**下一块**的 finish(2) 满足掉（#350 复核阻塞项 1）。
+ */
+function braceBlock(source: string, header: string): string {
+  const start = source.indexOf(header);
+  if (start < 0) return "";
+  const open = source.indexOf("{", start);
+  if (open < 0) return "";
+  let depth = 0;
+  for (let i = open; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return source.slice(start, i + 1);
+    }
+  }
+  return "";
+}
 
 /** 文档里的退出码表：必须限定在「| 退出码 |」那一段内（#342 的教训：别被无关表格满足） */
 function docExitTable(): string {
@@ -58,10 +85,11 @@ const SEMANTICS: Record<string, RegExp[]> = {
   "2": [/自检失败/, /结论无效/],
   "3": [/devUrl/, /CSP/],
   "4": [/判定失败/, /静默丢图/],
+  "5": [/渲染超时/, /无法判定/, /20s/],
 };
 
 describe("#350 asset 背景图探针：源级口径守卫", () => {
-  it("探针用到的退出码集合 = 0–4，且文档退出码表与头注释图例逐码对齐", () => {
+  it("探针用到的退出码集合 = 0–5，且文档退出码表与头注释图例逐码对齐", () => {
     const used = new Set(
       [...probe.matchAll(/finish\((\d)\)|process\.exit\((\d)\)/g)].map((m) => m[1] ?? m[2]),
     );
@@ -71,9 +99,10 @@ describe("#350 asset 背景图探针：源级口径守卫", () => {
       "2",
       "3",
       "4",
+      "5",
     ]);
 
-    expect(docExitTable(), "退出码表必须写明 0–4 全部五种").toBeTruthy();
+    expect(docExitTable(), "退出码表必须写明 0–5 全部六种").toBeTruthy();
     for (const code of [...used].sort()) {
       const row = docExitRow(code);
       expect(row, `文档退出码表应有一行 \`| ${code} |\``).not.toBe("");
@@ -86,15 +115,23 @@ describe("#350 asset 背景图探针：源级口径守卫", () => {
     }
   });
 
-  it("devUrl 判定必须排在自检之前 —— 否则 devUrl 页面拿不到专属退出码 3（#340 同型）", () => {
+  it("判定顺序：devUrl（3）→ 渲染超时（5）→ 自检（2）→ 丢图（4）", () => {
     const devUrlAt = probe.indexOf("await finish(3)");
-    const firstSelfCheckAt = probe.indexOf("if (out.imageCenterIsFallback)");
+    const timeoutAt = probe.indexOf("await finish(5)");
+    const selfCheckAt = probe.indexOf("if (out.imageCenterIsFallback)");
+    const verdictFailAt = probe.indexOf("✗ 判定失败");
     expect(devUrlAt, "探针里应有 devUrl 的 finish(3)").toBeGreaterThan(-1);
-    expect(firstSelfCheckAt, "探针里应有第一条自检").toBeGreaterThan(-1);
-    expect(devUrlAt, "devUrl 的 finish(3) 必须出现在自检之前").toBeLessThan(firstSelfCheckAt);
+    expect(timeoutAt, "探针里应有渲染超时的 finish(5)").toBeGreaterThan(-1);
+    expect(selfCheckAt, "探针里应有第一条自检").toBeGreaterThan(-1);
+    expect(verdictFailAt, "探针里应有丢图归因文案").toBeGreaterThan(-1);
+    // devUrl 最前：devUrl 页面必然没有 CSP，自检放在前面会让专属退出码 3 不可达（#340 同型）
+    expect(devUrlAt, "devUrl 判定必须最早").toBeLessThan(timeoutAt);
+    // 超时次之：一条用例没返回时「有没有画上」不成立，落进自检/丢图就是误报
+    expect(timeoutAt, "渲染超时判定必须早于自检").toBeLessThan(selfCheckAt);
+    expect(selfCheckAt, "自检必须早于丢图判定").toBeLessThan(verdictFailAt);
   });
 
-  it("三条对照自检不可被静默回退（回退后结论会被误当有效）", () => {
+  it("三条对照自检必须在**自己的块内**恰好一个 await finish(2)（块级锚定）", () => {
     // 对照 B 的「不存在文件」必须仍由 convertFileSrc 产出（同 scope、与生产同一个 URL 生产者）
     expect(probe, "对照 B 的 URL 必须由 convertFileSrc 产出").toMatch(
       /convert\(`\$\{p\}\.probe-missing`\)/,
@@ -106,27 +143,40 @@ describe("#350 asset 背景图探针：源级口径守卫", () => {
     expect(probe, "painted 判据必须按期望中心像素比").toMatch(
       /const painted = \(r\) => [^;]*dist\(r\.sampled,\s*expected\.rgba\) <= TOL/,
     );
-    // 三条自检各自命中自己的 finish(2)
-    expect(probe, "对照 A 没画上必须判无效（exit 2）").toMatch(
-      /if \(!out\.controlData\.painted\) \{[\s\S]{0,600}?await finish\(2\)/,
-    );
-    expect(probe, "对照 B 被画上必须判无效（exit 2）").toMatch(
-      /if \(out\.controlNoImage\.painted\) \{[\s\S]{0,600}?await finish\(2\)/,
-    );
-    expect(probe, "探针图中心≈标记色必须判无效（exit 2）").toMatch(
-      /if \(out\.imageCenterIsFallback\) \{[\s\S]{0,600}?await finish\(2\)/,
-    );
+
+    const selfChecks: Array<[string, string]> = [
+      ["对照 A 没画上", "if (!out.controlData.painted) {"],
+      ["对照 B 被画上", "if (out.controlNoImage.painted) {"],
+      ["探针图中心≈标记色", "if (out.imageCenterIsFallback) {"],
+    ];
+    for (const [label, header] of selfChecks) {
+      const block = braceBlock(probe, header);
+      expect(block, `${label} 自检块必须存在：${header}`).not.toBe("");
+      const exits = [...block.matchAll(/await finish\((\d+)\)/g)].map((m) => m[1]);
+      // 恰好一个、且必须是 2：删掉或改成 finish(0)（自检失败却按「判定通过」退出）都要红
+      expect(exits, `${label} 自检块内必须恰好一个 await finish(2)`).toEqual(["2"]);
+    }
   });
 
-  it("诊断 fetch 必须带 5s 超时，且「超时」与「被 CSP 拦」分开归因（#342 同型防护）", () => {
-    // #350 复核实测：删掉超时后本文件其余断言仍全绿 ⇒ 必须单独锁住这一行。
+  it("诊断 fetch 必须带 5s 超时，timeout 标记必须在 corsFetch 的超时分支里", () => {
+    // 缺超时：「asset 协议无响应」会把整轮探针挂死（#342 的同型教训）
     const m =
       /fetch\(assetUrl,\s*\{[\s\S]{0,160}?signal:\s*AbortSignal\.timeout\(\s*(\d+)\s*\)/.exec(probe);
     expect(m, "诊断 fetch 必须带 AbortSignal.timeout(…)").toBeTruthy();
     expect(Number(m?.[1]), "超时毫秒数须与文案「诊断 fetch 超时 5s」一致").toBe(5000);
     expect(probe, "报错文案要写明秒数，别让文案与实现悄悄漂移").toMatch(/诊断 fetch 超时\s*5s/);
-    // 超时必须独立标记，且不许被 cspBlocked 覆盖（否则「没响应」会被读成「被 CSP 拦」）
-    expect(probe, "超时分支必须带 timeout 标记").toMatch(/timeout:\s*true/);
+
+    // 锚定到 `corsFetch = timedOut ? … : …` 这一整段再断言：
+    // 否则 `<img crossOrigin>` 的 8s 兜底也含 `timeout: true`，会替这里「背书」（复核阻塞项 2）
+    const branchStart = probe.indexOf("corsFetch = timedOut");
+    const branchEnd = probe.indexOf(": { ok: false, error: msg };", branchStart);
+    const timeoutBranch =
+      branchStart >= 0 && branchEnd > branchStart ? probe.slice(branchStart, branchEnd) : "";
+    expect(timeoutBranch, "应存在 corsFetch 的超时分支（timedOut 三元的真分支）").not.toBe("");
+    expect(
+      timeoutBranch,
+      "超时分支必须带 timeout: true —— 否则 `!corsFetch.timeout` 恒真，超时会被 cspBlocked 覆盖",
+    ).toMatch(/timeout:\s*true/);
     expect(probe, "cspBlocked 归因必须排除超时分支").toMatch(
       /!corsFetch\.ok &&\s*!corsFetch\.timeout/,
     );
@@ -134,6 +184,28 @@ describe("#350 asset 背景图探针：源级口径守卫", () => {
     expect(probe, "<img crossOrigin> 的 8s 兜底必须保留").toMatch(
       /setTimeout\(\(\) => resolve\(\{ ok: false, timeout: true \}\), 8000\)/,
     );
+  });
+
+  it("runCase 的 html2canvas 必须带 20s 超时，且归因独立（不落进 cspBlocked / exit 4）", () => {
+    // 机制：必须与超时哨兵竞速，而不是裸 await（html2canvas 1.4.1 的 CacheStorage.loadImage 无超时）
+    expect(probe, "html2canvas 调用必须与超时哨兵竞速").toMatch(
+      /Promise\.race\(\[\s*window\.html2canvas\(themeRoot,\s*\{[\s\S]{0,300}?\}\),\s*new Promise\(\(_, reject\) => \{[\s\S]{0,200}?setTimeout\(\(\) => reject\(renderTimeout\(\)\), renderTimeoutMs\)/,
+    );
+    const timeoutMs = Number(/const RENDER_TIMEOUT_MS = (\d+);/.exec(probe)?.[1]);
+    expect(timeoutMs, "渲染超时常量必须是显式毫秒数").toBe(20000);
+    // 秒数文案由常量推导 ⇒ 改常量不会与「20s」文案漂移（文档表那行由 SEMANTICS 的 /20s/ 兜住）
+    expect(probe, "文案秒数必须由 RENDER_TIMEOUT_MS 推导").toMatch(
+      /html2canvas 渲染超时 \$\{RENDER_TIMEOUT_MS \/ 1000\}s/,
+    );
+    expect(probe, "超时必须由独立哨兵标记（否则与「真的丢图」无法区分）").toMatch(
+      /res\.timedOut = e instanceof Error && e\.name === "ProbeRenderTimeout"/,
+    );
+
+    const timeoutBlock = braceBlock(probe, "if (stuck.length > 0) {");
+    expect(timeoutBlock, "必须有渲染超时专属分支").not.toBe("");
+    expect(timeoutBlock, "渲染超时必须是独立退出码 5").toMatch(/await finish\(5\)/);
+    expect(timeoutBlock, "渲染超时不得混入 CSP 归因").not.toMatch(/cspBlocked/);
+    expect(timeoutBlock, "渲染超时不得复用 exit 4 的丢图文案").not.toMatch(/静默丢图复现/);
   });
 
   it("探针必须复刻生产导出参数（useCORS:true / 不开 allowTaint / scale 2）", () => {
