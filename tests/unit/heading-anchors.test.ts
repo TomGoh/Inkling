@@ -127,6 +127,21 @@ describe("#297 matchHeadingAnchor", () => {
     expect(matchHeadingAnchor(withIds, "重复标题-#1")?.index).toBe(1);
   });
 
+  it("序号必须是 ≥1 且无前导零：x-0 / x-#0 / x-01 / x-#01 均返回 null", () => {
+    // Codex P2 第 2 条：GitHub 从不生成 `x-0`，Milkdown 也不生成 `x-#0`；
+    // 它们不能被当成「第 1 处」而误导航（不存在锚点必须静默）。
+    const xs = buildHeadingAnchors([
+      { level: 2, text: "x" },
+      { level: 2, text: "x" },
+    ]);
+    expect(matchHeadingAnchor(xs, "x-0")).toBeNull();
+    expect(matchHeadingAnchor(xs, "x-#0")).toBeNull();
+    expect(matchHeadingAnchor(xs, "x-01")).toBeNull();
+    expect(matchHeadingAnchor(xs, "x-#01")).toBeNull();
+    // 对照：合法序号仍然生效
+    expect(matchHeadingAnchor(xs, "x-1")?.index).toBe(1);
+  });
+
   it("序号越界：只有 2 处 x 时 x-9 返回 null（严格存在，不回退到第 1 处）", () => {
     const xs = buildHeadingAnchors([
       { level: 2, text: "x" },

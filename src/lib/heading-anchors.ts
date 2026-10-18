@@ -19,7 +19,8 @@
 // - 宽容/原始 slug 必须先于序号解析，否则标题 `Step 1`（slug `step-1`）会被误解析成
 //   「`step` 的第 1 个重复」；
 // - 第 4/5 步的 base 必须过 `slugify`，否则 `#Hello, World!-1`（GitHub 原形）不命中；
-// - 序号必须**严格存在**：只有 2 处 `x` 时 `#x-9` 返回 null（GitHub 也没有这个 id）。
+// - 序号必须**严格存在**且 **≥1、无前导零**：只有 2 处 `x` 时 `#x-9` / `#x-0` / `#x-01`
+//   全部返回 null（GitHub 与 Milkdown 都不生成这些 id）。
 
 import { decodeURIComponentSafe } from "./link-target";
 import { slugify } from "./slug";
@@ -105,8 +106,10 @@ export function matchHeadingAnchor(
     if (bySlug) return bySlug;
   }
 
-  // 4) GitHub 序号后缀：`x-1` = 第 2 处（1-based）
-  const githubNumbered = /^(.*)-(\d+)$/.exec(raw);
+  // 4) GitHub 序号后缀：`x-1` = 第 2 处（1-based）。
+  //    后缀必须 ≥ 1 且无前导零：GitHub 不生成 `x-0` / `x-01`，
+  //    若接受它们，`#x-0` 会错误滚到第 1 处，违背「不存在锚点必须静默」。
+  const githubNumbered = /^(.*)-([1-9]\d*)$/.exec(raw);
   if (githubNumbered) {
     const base = slugify(githubNumbered[1]);
     const occurrence = Number(githubNumbered[2]);
@@ -116,8 +119,9 @@ export function matchHeadingAnchor(
     if (hit) return hit;
   }
 
-  // 5) Milkdown 序号后缀：`x-#1` = 第 2 处
-  const milkdownNumbered = /^(.*)-#(\d+)$/.exec(raw);
+  // 5) Milkdown 序号后缀：`x-#N`（N 为 1-based 计数，`-#1` 仅作兼容别名）。
+  //    同样拒绝 0 与前导零（上游不生成 `x-#0` / `x-#01`）。
+  const milkdownNumbered = /^(.*)-#([1-9]\d*)$/.exec(raw);
   if (milkdownNumbered) {
     const base = slugify(milkdownNumbered[1]);
     const occurrence = Number(milkdownNumbered[2]);
