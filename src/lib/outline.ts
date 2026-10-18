@@ -3,7 +3,7 @@
 // Markdown 源文本解析用于导出；编辑器面板使用 ProseMirror 渲染节点。
 
 import type { Node as ProseMirrorNode } from "@milkdown/kit/prose/model";
-import { slugify } from "../components/Editor/link-click";
+import { slugify } from "./slug";
 
 export { slugify };
 

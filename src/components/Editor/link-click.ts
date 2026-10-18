@@ -12,43 +12,16 @@
 
 import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
-import type { Node } from "@milkdown/kit/prose/model";
 import { isTauri } from "@tauri-apps/api/core";
+import {
+  buildHeadingAnchors,
+  matchHeadingAnchor,
+  type HeadingInput,
+} from "../../lib/heading-anchors";
 import { classifyLink } from "../../lib/link-target";
 import { performLinkAction, type LinkNoticeKind } from "./link-actions";
 
 const key = new PluginKey("inkling-link-click");
-
-/**
- * GitHub 风格 slug：转小写、去标点、空格/下划线转连字符。
- * Unicode 感知（\p{L}\p{N}），中文等非 ASCII 字母保留。
- *
- * #298 不改规则：本批次只换入口，锚点匹配口径原样保留（#297 才换锚点表）。
- */
-export function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\p{L}\p{N}\s-]/gu, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-}
-
-/** 在文档中查找 slug 匹配的标题节点位置 */
-function findHeadingPos(doc: Node, anchor: string): number | null {
-  let result: number | null = null;
-  doc.descendants((node, pos) => {
-    if (node.type.name === "heading") {
-      if (slugify(node.textContent) === anchor) {
-        result = pos;
-        return false; // 找到即停止遍历
-      }
-    }
-    return true;
-  });
-  return result;
-}
 
 /** 外部链接：桌面端用 opener 打开系统默认浏览器，浏览器端用 window.open */
 async function openExternal(href: string): Promise<void> {
@@ -69,15 +42,33 @@ function scrollToNode(view: EditorView, pos: number): void {
 }
 
 /**
- * 文档内锚点跳转。未命中返回 false（由动作分派保持静默）。
- * 匹配规则与 #298 之前完全一致：`slugify(fragment)` 与标题 `slugify(textContent)` 相等。
+ * 文档内锚点跳转（#297）。未命中返回 false（由动作分派保持静默）。
+ *
+ * 每次点击现构建锚点表：标题数量在编辑器尺度下很小，O(标题数) 遍历远低于一次点击的预算；
+ * 缓存会引入「文档变更后失效」的同步问题，收益不抵风险。
+ *
+ * 空标题在入表前就被跳过，`positions` 与锚点表下标严格一一对应。
  */
 function scrollToAnchorInView(view: EditorView, fragment: string): boolean {
-  const anchor = slugify(fragment);
-  if (!anchor) return false;
-  const headingPos = findHeadingPos(view.state.doc, anchor);
-  if (headingPos == null) return false;
-  scrollToNode(view, headingPos);
+  const headings: HeadingInput[] = [];
+  const positions: number[] = [];
+
+  view.state.doc.descendants((node, pos) => {
+    if (node.type.name !== "heading") return true;
+    const text = node.textContent.trim();
+    if (!text) return true; // 与 syncHeadingIdPlugin 一致：空标题不参与锚点
+    headings.push({
+      level: node.attrs.level as number,
+      text,
+      id: (node.attrs.id as string | undefined) || undefined,
+    });
+    positions.push(pos);
+    return true;
+  });
+
+  const match = matchHeadingAnchor(buildHeadingAnchors(headings), fragment);
+  if (!match) return false;
+  scrollToNode(view, positions[match.index]);
   return true;
 }
 

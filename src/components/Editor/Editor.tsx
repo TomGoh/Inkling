@@ -9,7 +9,7 @@ import {
   rootCtx,
   serializerCtx,
 } from "@milkdown/kit/core";
-import { commonmark } from "@milkdown/kit/preset/commonmark";
+import { commonmark, headingIdGenerator } from "@milkdown/kit/preset/commonmark";
 import {
   gfm,
   columnResizingPlugin,
@@ -44,6 +44,7 @@ import { placeCursorForRootClick } from "./editor-root-click";
 import { useSettings } from "../../store/settings";
 import { useWorkspace } from "../../store/workspace";
 import type { EditorOutlineSnapshot } from "../../lib/outline";
+import { slugify } from "../../lib/slug";
 import {
   registerWysiwygAnchorSampler,
   unregisterWysiwygAnchorSampler,
@@ -189,6 +190,11 @@ function EditorInner({
           .config((ctx) => {
             ctx.set(rootCtx, container);
             ctx.set(defaultValueCtx, value);
+            // #297：标题 DOM id 与应用 slugify 统一口径。上游默认生成器只替换空白、
+            // 保留标点（`Hello, World!` → `hello,-world!`），会让 TOC / 锚点 / 导出 HTML
+            // 出现与 GitHub 生态不一致的 id。去重后缀仍由 syncHeadingIdPlugin 追加
+            // （1-based 计数：第 2 处为 `-#2`），不 fork 上游实现（见设计文档 D2）。
+            ctx.set(headingIdGenerator.key, (node) => slugify(node.textContent));
             ctx.update(prosePluginsCtx, (ps) => [
               ...ps,
               // 注入选区跟踪插件：光标进入/离开表格时更新 inTable 状态
