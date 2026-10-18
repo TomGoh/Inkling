@@ -102,6 +102,19 @@ describe("#297 matchHeadingAnchor", () => {
     expect(matchHeadingAnchor(single, "hello-world-1")).toBeNull();
   });
 
+  it("精确 DOM id 必须先于宽容 slug：`#foo-#2` 不被 `Foo 2` 抢走", () => {
+    // Codex 评审 P2 场景：重复 `Foo` 的第 2 处 id 是 `foo-#2`，同时存在标题 `Foo 2`（slug `foo-2`）。
+    // 若先做宽容 slugify，`foo-#2` 会被 slugify 成 `foo-2` 并错误命中 `Foo 2`。
+    const anchors = buildHeadingAnchors([
+      { level: 2, text: "Foo", id: "foo" },
+      { level: 2, text: "Foo", id: "foo-#2" },
+      { level: 2, text: "Foo 2", id: "foo-2" },
+    ]);
+    expect(matchHeadingAnchor(anchors, "foo-#2")?.index).toBe(1);
+    expect(matchHeadingAnchor(anchors, "foo-2")?.index).toBe(2);
+    expect(matchHeadingAnchor(anchors, "Foo 2")?.index).toBe(2);
+  });
+
   it("真实 Milkdown DOM id（1-based 计数，第 2 处为 `-#2`）经精确 id 命中", () => {
     const withIds = buildHeadingAnchors([
       { level: 2, text: "重复标题", id: "重复标题" },

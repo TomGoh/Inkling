@@ -11,10 +11,13 @@
 // 真实 DOM id 由第 3 步精确命中，`-#1` 作为文档兼容别名由第 5 步按 occurrence 解析。
 //
 // 这里不靠 DOM 查询，而是把文档标题构建成一张**纯数据表**，按固定优先级匹配：
-// 原始 slug（忽略大小写）→ slugify 后的宽容匹配 → DOM id → GitHub 序号 → Milkdown 序号。
+// 原始 slug（忽略大小写）→ 精确 DOM id → slugify 后的宽容匹配 → GitHub 序号 → Milkdown 序号。
 //
 // 顺序是语义的一部分：
-// - 第 1 步必须先于第 4 步，否则标题 `Step 1`（slug `step-1`）会被误解析成「`step` 的第 1 个重复」；
+// - **精确 DOM id 必须先于宽容 slug 匹配**：`foo-#2` 会被 slugify 成 `foo-2`，
+//   若文档同时存在标题 `Foo 2`，宽容分支会把重复标题的真实 id 抢走（Codex 评审 P2，已复现）；
+// - 宽容/原始 slug 必须先于序号解析，否则标题 `Step 1`（slug `step-1`）会被误解析成
+//   「`step` 的第 1 个重复」；
 // - 第 4/5 步的 base 必须过 `slugify`，否则 `#Hello, World!-1`（GitHub 原形）不命中；
 // - 序号必须**严格存在**：只有 2 处 `x` 时 `#x-9` 返回 null（GitHub 也没有这个 id）。
 
@@ -89,16 +92,18 @@ export function matchHeadingAnchor(
   const exact = anchors.find((anchor) => anchor.baseSlug.toLowerCase() === low);
   if (exact) return exact;
 
-  // 2) 宽容匹配：`#Hello, World!` / `#Hello World` 先 slugify 再比
+  // 2) 精确 DOM id（含 Milkdown 的 `-#N` 形态）。
+  //    必须**先于**宽容 slug 匹配：`foo-#2` 会被 slugify 成 `foo-2`，
+  //    若文档里同时存在标题 `Foo 2`，宽容分支会把真实 DOM id 抢走。
+  const byDomId = anchors.find((anchor) => anchor.domId.toLowerCase() === low);
+  if (byDomId) return byDomId;
+
+  // 3) 宽容匹配：`#Hello, World!` / `#Hello World` 先 slugify 再比
   const slugged = slugify(raw);
   if (slugged) {
     const bySlug = anchors.find((anchor) => anchor.baseSlug === slugged);
     if (bySlug) return bySlug;
   }
-
-  // 3) 手抄 DOM id（含 Milkdown 的 `-#N` 形态）
-  const byDomId = anchors.find((anchor) => anchor.domId.toLowerCase() === low);
-  if (byDomId) return byDomId;
 
   // 4) GitHub 序号后缀：`x-1` = 第 2 处（1-based）
   const githubNumbered = /^(.*)-(\d+)$/.exec(raw);
