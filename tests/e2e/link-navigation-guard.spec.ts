@@ -97,16 +97,25 @@ test.describe("链接导航守卫", () => {
     await expectNoNavigation(page, navigations, urlBefore);
   });
 
-  test("H4 中键点击 html 外链：不导航", async ({ page }) => {
+  test("H4 中键点击 html 外链：不新开页、不导航", async ({ page, context }) => {
     const link = page.locator('.html-inline a[href="https://example.com"]');
     await expect(link).toBeVisible({ timeout: 10_000 });
+
+    // 中键的默认后果是「在新页打开」：它既不改变当前 page.url()，也不触发当前 frame 的
+    // framenavigated。只断言这两项对 auxclick 分支等于零覆盖，必须直接盯 context 的页数。
+    const openedPages: Page[] = [];
+    context.on("page", (p) => openedPages.push(p));
 
     await stubWindowOpen(page);
     const navigations = trackNavigations(page);
     const urlBefore = page.url();
 
     await link.click({ button: "middle" });
+    // 新页由浏览器异步创建，留一个明确的观察窗口
+    await page.waitForTimeout(600);
 
+    expect(openedPages).toHaveLength(0);
+    expect(context.pages()).toHaveLength(1);
     await expectNoNavigation(page, navigations, urlBefore);
     expect(await openedUrls(page)).toEqual([]);
   });
@@ -122,8 +131,12 @@ test.describe("链接导航守卫", () => {
     const navigations = trackNavigations(page);
     const urlBefore = page.url();
 
+    // 说明（评审阻塞项 2）：这半条在浏览器端是**端状态记录**，不是防线——
+    // 该 <a> 是 contenteditable 内的 link mark，Chromium 会抑制其激活（PR #354 变异 C 实测），
+    // 即使 capture 层不 preventDefault 也不会产生导航。真正有杀伤力的是下面 Ctrl+点击的
+    // 提示断言（验证 DOM href 为空时回落到 mark 的 attrs.href）；桌面端 WebView2 的实际
+    // 行为归 PR「证据边界」的人工核对清单。
     await fileLink.click();
-    // 空 href 的 <a> 默认行为是重载当前文档；若未阻断，framenavigated 会记到一条
     await expectNoNavigation(page, navigations, urlBefore);
 
     await fileLink.click({ modifiers: [CLICK_MODIFIER] });
@@ -156,6 +169,22 @@ test.describe("链接导航守卫", () => {
     await page.keyboard.type("回归");
 
     await expect(page.locator(".ProseMirror")).toContainText("回归");
+    await expectNoNavigation(page, navigations, urlBefore);
+  });
+
+  test("H8 html 空 href 链接裸点击：绝不回落到当前 URL 导航", async ({ page }) => {
+    const link = page.locator('.html-inline a[href=""]');
+    await expect(link).toHaveCount(1);
+    await expect(link).toHaveText("HTML 空链接");
+
+    const navigations = trackNavigations(page);
+    const urlBefore = page.url();
+
+    await link.click();
+
+    // 设计 §3 末行：DOM href 与 mark href 都为空时必须「无动作」，绝不回落到当前 URL。
+    // 该 <a> 位于 html 块（contenteditable=false），浏览器默认行为是整页重载 ——
+    // 删掉 capture 层 preventDefault 后这条会转红（见 PR 的变异记录）。
     await expectNoNavigation(page, navigations, urlBefore);
   });
 });

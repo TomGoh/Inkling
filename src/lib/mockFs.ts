@@ -176,6 +176,10 @@ ${LINK_ANCHOR_FILLER}
  *
  * **不要写相对 href**（如 `readme.md`）：render 模式会把无协议相对 href 直接丢弃（F8），
  * 断言会恒真。外层用 `<div>` 让整段成为 HTML 块，确保走 html-view 的 contenteditable=false 子树。
+ *
+ * `href=""` 是设计 §3 末行「DOM href 与 mark href 都为空 → 绝不回落到当前 URL」的固定装置：
+ * 空串能通过 `isSafeUrl`，`<a href="">` 的默认行为是整页重载，因此在 contenteditable=false
+ * 子树里**可被变异打红**（与 link mark 的 file:// 不同，后者被 Chromium 抑制激活）。
  */
 const LINK_HTML_DEMO = `# HTML 链接示例
 
@@ -185,6 +189,7 @@ HTML 块内的链接（渲染为真实 a 标签）：
   <a href="https://example.com">HTML 外链</a>
   <a href="/readme.md">HTML 根路径链接</a>
   <a href="#重复标题-1">HTML 锚点链接</a>
+  <a href="">HTML 空链接</a>
 </div>
 
 ## 重复标题
