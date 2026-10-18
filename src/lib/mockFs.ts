@@ -83,6 +83,18 @@ export const MOCK_TREE: FileNode = {
           is_dir: false,
           children: [],
         },
+        {
+          name: "link-html-demo.md",
+          path: "/mock-workspace/notes/link-html-demo.md",
+          is_dir: false,
+          children: [],
+        },
+        {
+          name: "link-file-demo.md",
+          path: "/mock-workspace/notes/link-file-demo.md",
+          is_dir: false,
+          children: [],
+        },
       ],
     },
     {
@@ -154,6 +166,48 @@ ${LINK_ANCHOR_FILLER}
 版本号标题（slug 为 v20-release）。
 `;
 
+/**
+ * 导航守卫 fixture（#298）。
+ *
+ * 三类 href 都是 render 模式**确实会保留**的形态（`isSafeUrl` 只放行绝对 URL、`/` 开头与 `#`）：
+ * - `https://example.com`：裸点击若不被阻断会真的把 WebView 导航走；
+ * - `/readme.md`：导航到同源路径（SPA 会整页重载）；
+ * - `#重复标题-1`：即使没有同 id 元素，浏览器也会改 `location.hash`。
+ *
+ * **不要写相对 href**（如 `readme.md`）：render 模式会把无协议相对 href 直接丢弃（F8），
+ * 断言会恒真。外层用 `<div>` 让整段成为 HTML 块，确保走 html-view 的 contenteditable=false 子树。
+ */
+const LINK_HTML_DEMO = `# HTML 链接示例
+
+HTML 块内的链接（渲染为真实 a 标签）：
+
+<div class="html-link-demo">
+  <a href="https://example.com">HTML 外链</a>
+  <a href="/readme.md">HTML 根路径链接</a>
+  <a href="#重复标题-1">HTML 锚点链接</a>
+</div>
+
+## 重复标题
+
+第一处重复标题。
+
+## 重复标题
+
+第二处重复标题。
+`;
+
+/**
+ * 被上游 `sanitizeLinkHref` 抹掉 DOM href 的形态（#298 / F5）。
+ *
+ * `file:` 不在 SAFE_PROTOCOLS 里，渲染出的 `<a>` 的 href 是空串，但 link mark 的
+ * `attrs.href` 保留 `file:///…`；点击处理必须回落到 mark 才能给出「不支持 file://」提示。
+ * 这也是唯一能在浏览器端验证该回落的固定装置。
+ */
+const LINK_FILE_DEMO = `# 本地文件链接示例
+
+本地文件：[本地文件](file:///C:/tmp/inkling-demo.md)
+`;
+
 export const MOCK_FILE_CONTENT: Record<string, string> = {
   "/mock-workspace/notes/readme.md":
     "# Readme\n\n这是浏览器 mock 环境的示例文件。\n\n- 桌面端会调用真实文件系统\n- 浏览器端用此 mock 验证 UI\n",
@@ -178,6 +232,8 @@ export const MOCK_FILE_CONTENT: Record<string, string> = {
   "/mock-workspace/notes/link-demo.md":
     "# 链接示例\n\n外部链接：[Example](https://example.com)\n\n锚点链接：[跳转标题](#锚点目标)\n\n## 锚点目标\n\n目标段落内容。\n",
   "/mock-workspace/notes/link-anchor-demo.md": LINK_ANCHOR_DEMO,
+  "/mock-workspace/notes/link-html-demo.md": LINK_HTML_DEMO,
+  "/mock-workspace/notes/link-file-demo.md": LINK_FILE_DEMO,
 };
 
 /** 递归查找路径对应的节点（返回引用，可就地修改） */

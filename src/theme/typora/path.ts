@@ -8,11 +8,13 @@
  * - `.` / `..` 一律折叠；Windows 盘符（`C:` / `C:/` / `C:\`）与 UNC（`\\srv\share`）视为绝对。
  */
 
-/** 绝对路径：Windows 盘符（`C:\` / `C:/`）、UNC（`\\srv\share`）、POSIX 根（`/…`）。 */
-export function isAbsolutePath(p: string): boolean {
-  const n = p.replace(/\\/g, "/");
-  return /^[a-zA-Z]:\//.test(n) || n.startsWith("//") || n.startsWith("/");
-}
+// 绝对路径判定自 #298 起只有一份实现（lib/path-utils），此处仅 re-export 兼容既有 import。
+// 注意：本文件其余导出（normalizePath / resolvePath）**保持原实现**——theme 的
+// normalizePath 会折叠 `.`/`..`，与 lib 版本语义不同，整文件 re-export 会静默换掉
+// assets.ts / disk.ts / rewrite.ts 的路径语义（见 tests/theme/typora-boundaries.test.ts）。
+import { isAbsolutePath } from "../../lib/path-utils";
+
+export { isAbsolutePath };
 
 /** 取所在目录（同为绝对路径时返回同级目录；已是根则返回根）。 */
 export function dirname(p: string): string {

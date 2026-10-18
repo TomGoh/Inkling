@@ -8,6 +8,7 @@ import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { saveImageAsset, genAssetName } from "../../lib/assetStore";
 import { showMessage } from "../../lib/dialogs";
+import { isUntitledPath } from "../../lib/path-utils";
 
 const key = new PluginKey("inkling-image-upload");
 
@@ -40,13 +41,9 @@ function fileToDataUrl(file: File): Promise<string> {
 
 /**
  * 是否为无法落盘的虚拟路径（未保存草稿）。
- * 草稿 tab 的 path 形如 "untitled-N"（见 tabs.ts newTab），并非空字符串，
- * 仅判空会漏掉草稿场景，导致 resolvePathFromDocument 按 CWD 解析出错误路径。
+ * 判定实现已迁至 `lib/path-utils.ts`（#298 单一真值源），此处重新导出保持既有 import 可用。
  */
-export function isUntitledPath(documentPath: string): boolean {
-  const p = documentPath.trim();
-  return !p || p.startsWith("untitled-");
-}
+export { isUntitledPath };
 
 /**
  * 将图片文件写入当前 Markdown 同目录的 assets/ 并在编辑器中插入图片节点。

@@ -137,6 +137,30 @@ function EditorInner({
   // 光标是否位于表格内，用于控制表格工具栏的上下文按钮组
   const [inTable, setInTable] = useState(false);
   const inTableRef = useRef(false);
+
+  // 链接跟随失败提示（#298）：非阻塞，4s 自动消失（范式同 SearchPanel 的 role="status"）。
+  // 插件在非 React 的点击回调里触发，因此用 ref 持有最新回调，避免保存/重建编辑器。
+  const [linkNotice, setLinkNotice] = useState<{
+    message: string;
+    kind: "info" | "warning";
+  } | null>(null);
+  const linkNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notifyLink = (message: string, kind: "info" | "warning") => {
+    if (linkNoticeTimerRef.current !== null) clearTimeout(linkNoticeTimerRef.current);
+    setLinkNotice({ message, kind });
+    linkNoticeTimerRef.current = setTimeout(() => {
+      linkNoticeTimerRef.current = null;
+      setLinkNotice(null);
+    }, 4000);
+  };
+  const notifyLinkRef = useRef(notifyLink);
+  notifyLinkRef.current = notifyLink;
+  useEffect(
+    () => () => {
+      if (linkNoticeTimerRef.current !== null) clearTimeout(linkNoticeTimerRef.current);
+    },
+    [],
+  );
   // inTable 变化时通知外部（工具栏已提升到 App.tsx）
   const onInTableChangeRef = useRef(onInTableChange);
   onInTableChangeRef.current = onInTableChange;
@@ -188,8 +212,13 @@ function EditorInner({
               smartPastePlugin({ parseMarkdown: (md) => ctx.get(parserCtx)(md) }),
               // 粘贴进来的远程图片后台下载落盘到 assets/（#220）
               remoteImagePlugin({ documentPath: filePath }),
-              // 链接跟随：Ctrl/Cmd+点击打开外部链接或跳转内部锚点
-              linkClickPlugin(),
+              // 链接跟随：Ctrl/Cmd+点击打开外部链接或跳转内部锚点。
+              // #298：DOM 捕获层统一接管，link mark 与 html-view 的 <a> 走同一条通路。
+              linkClickPlugin({
+                documentPath: filePath,
+                workspaceRoot: () => useWorkspace.getState().rootPath,
+                notify: (message, kind) => notifyLinkRef.current(message, kind),
+              }),
               // 仅主编辑器发布大纲；分屏编辑器不传回调，避免覆盖主面板。
               ...(onOutlineChange
                 ? [
@@ -519,6 +548,14 @@ function EditorInner({
         )}
         <Milkdown />
       </div>
+      {linkNotice && (
+        <div
+          className={`md-editor-link-notice md-editor-link-notice--${linkNotice.kind}`}
+          role="status"
+        >
+          {linkNotice.message}
+        </div>
+      )}
       {sourceMode && enterSnapshot && (
         <SourceModeEditor
           filePath={filePath}

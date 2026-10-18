@@ -1467,6 +1467,31 @@ button.save-indicator:focus-visible {
   font-size: 13px;
   display: inline-block;
 }
+/* 链接跟随失败提示（#298）：非阻塞浮层，4s 自动消失，不拦截点击 */
+.md-editor-link-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: min(520px, 80vw);
+  padding: 8px 14px;
+  border: 1px solid var(--shell-warning-border);
+  border-radius: 6px;
+  background: var(--shell-warning-bg);
+  color: var(--shell-warning-fg);
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: var(--shadow-lg);
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+.md-editor-link-notice--info {
+  border-color: var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
 .md-editor-fallback-textarea {
   width: 100%;
   min-height: 60vh;

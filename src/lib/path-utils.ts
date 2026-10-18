@@ -21,6 +21,85 @@ export function normalizePath(path: string): string {
 }
 
 /**
+ * 绝对路径：Windows 盘符（`C:\` / `C:/`）、UNC（`\\srv\share`）、POSIX 根（`/…`）。
+ *
+ * 注意 `c:notes`（盘符相对）**不是**绝对路径——判定要求盘符后紧跟分隔符。
+ * 本函数是**判定**的单一实现（#298）：`theme/typora/path.ts` 从这里 re-export，
+ * `components/Editor/image-upload.ts` / `remote-image.ts` 也统一从这里取，
+ * 不允许再出现第二份。
+ */
+export function isAbsolutePath(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/");
+  return /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith("//") || normalized.startsWith("/");
+}
+
+/**
+ * 是否为无法落盘的虚拟路径（未保存草稿）。
+ * 草稿 tab 的 path 形如 "untitled-N"（见 store/workspace/tabs.ts newTab），并非空字符串，
+ * 仅判空会漏掉草稿场景，导致相对路径按 CWD 解析出错误目标。
+ *
+ * 单一实现（#298）：原在 `components/Editor/image-upload.ts`，现集中于此，
+ * `image-upload.ts` / `remote-image.ts` / 链接分类器共用。
+ */
+export function isUntitledPath(documentPath: string): boolean {
+  const p = documentPath.trim();
+  return !p || p.startsWith("untitled-");
+}
+
+/** 分隔符跟随基准路径：含反斜杠即按 Windows 风格产出。 */
+function separatorOf(path: string): "\\" | "/" {
+  return path.includes("\\") ? "\\" : "/";
+}
+
+/**
+ * 折叠 `.` / `..`，保留盘符根（`C:/`）与 UNC 双前导斜杠（`//srv`），最后按 `sep` 还原分隔符。
+ *
+ * 与 `normalizePath` 的分工：`normalizePath` 只统一分隔符与盘符大小写、**不折叠 `..`**
+ * （文件树展示等场景依赖这一语义）；`resolvePath` 需要真正的语义归算，故在此单独折叠。
+ */
+function foldSegments(raw: string, sep: "\\" | "/"): string {
+  const n = raw.replace(/\\/g, "/");
+  const drive = /^([a-zA-Z]:)(\/|$)/.exec(n);
+  // UNC：`//srv/share/...`（`//` 之后必须是主机名）
+  const unc = !drive && /^\/\/[^/]/.test(n);
+  const prefix = drive ? drive[1] : unc ? "//" : "";
+  const rest = drive ? n.slice(drive[1].length) : unc ? n.slice(2) : n;
+  const absolute = Boolean(drive) || unc || rest.startsWith("/");
+  const out: string[] = [];
+  for (const seg of rest.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      if (out.length > 0 && out[out.length - 1] !== "..") out.pop();
+      else if (!absolute) out.push("..");
+      continue;
+    }
+    out.push(seg);
+  }
+  const joined = out.join("/");
+  const head = drive ? `${prefix}/` : unc ? prefix : absolute ? "/" : "";
+  const result = head + joined || "/";
+  return sep === "\\" ? result.replace(/\//g, "\\") : result;
+}
+
+/**
+ * 以 `baseDir` 为基准解析 `target`（纯函数，链接分类器专用，#298）。
+ *
+ * - 绝对目标（`C:\…` / `C:/…` / `/…` / UNC）→ 直接折叠归一，基准目录不参与；
+ * - 相对目标 → 拼到 `baseDir` 后折叠 `.` / `..`，分隔符**跟随 `baseDir`**；
+ * - `baseDir` 为空时按相对路径折叠（保留前导 `..`），避免凭空造出根路径。
+ *
+ * 与 `theme/typora/path.resolvePath` 的关系：那套与 theme 自己的 `normalizePath` 绑定、
+ * 服务于主题资源重写；两套**不得互相替换**（见设计文档边界 6）。
+ */
+export function resolvePath(baseDir: string, target: string): string {
+  if (isAbsolutePath(target)) return foldSegments(target, separatorOf(target));
+  const sep = separatorOf(baseDir);
+  if (!baseDir) return foldSegments(target, sep);
+  const base = baseDir.replace(/[\\/]+$/, "");
+  return foldSegments(`${base}/${target}`, sep);
+}
+
+/**
  * 获取路径的文件名或最后一级目录名
  */
 export function baseName(path: string): string {
