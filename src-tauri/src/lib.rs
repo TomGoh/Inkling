@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod commands;
+mod navigation_guard;
 
 use commands::{
     allow_asset_dir, copy_path, create_dir, create_file, delete_path, download_remote_image,
@@ -101,6 +102,8 @@ pub fn run() {
     }
 
     builder
+        // #298：导航兜底——任何 webview 都不得被导航到应用自身 origin 之外
+        .plugin(navigation_guard::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {

@@ -20,7 +20,7 @@ import type { Node as PMNode } from "@milkdown/kit/prose/model";
 import { downloadRemoteImage, mapRemoteImageError, type RemoteImage } from "../../lib/fs";
 import { extensionForMime, genAssetName, saveImageAsset } from "../../lib/assetStore";
 import { showMessage } from "../../lib/dialogs";
-import { isUntitledPath } from "./image-upload";
+import { isUntitledPath } from "../../lib/path-utils";
 
 /** 单次粘贴最多下载的远程图片数（超出部分保留远程引用） */
 export const MAX_REMOTE_IMAGES_PER_PASTE = 30;
