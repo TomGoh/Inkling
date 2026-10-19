@@ -156,15 +156,58 @@ export function joinPath(base: string, ...parts: string[]): string {
 }
 
 /**
- * 判断 targetPath 是否在 parentPath 目录下（或两者相等）
+ * 路径是否按 Windows 语义比较（盘符 / UNC / 含反斜杠）。
+ *
+ * 判定口径与 `theme/typora/path.ts` 的 `isWithinRoot` 一致：**按路径形态**决定是否折叠大小写，
+ * 不依赖运行平台——同一输入在任何平台上结论一致（#296）。
+ */
+function usesWindowsSemantics(path: string): boolean {
+  return /^[a-zA-Z]:/.test(path) || path.startsWith("\\\\") || path.includes("\\");
+}
+
+/** normalizePath + 按需折叠大小写（Windows 语义不敏感，POSIX 敏感） */
+function canonicalPath(path: string, foldCase: boolean): string {
+  const normalized = normalizePath(path);
+  return foldCase ? normalized.toLowerCase() : normalized;
+}
+
+/**
+ * 判断 targetPath 是否在 parentPath 目录下（或两者相等）。
+ *
+ * 大小写口径按路径形态判定：`C:\Work\Notes` 与 `c:\work\notes\x.md` 视为同一棵树；
+ * 纯 POSIX 路径保持大小写敏感（`/a/B` ≠ `/a/b`）。
  */
 export function isPathWithin(targetPath: string, parentPath: string): boolean {
   if (!parentPath || !targetPath) return false;
-  const normParent = normalizePath(parentPath);
-  const normTarget = normalizePath(targetPath);
-  if (normParent === normTarget) return true;
-  const prefix = normParent.endsWith("/") ? normParent : normParent + "/";
-  return normTarget.startsWith(prefix);
+  const foldCase = usesWindowsSemantics(targetPath) || usesWindowsSemantics(parentPath);
+  const target = canonicalPath(targetPath, foldCase);
+  const parent = canonicalPath(parentPath, foldCase);
+  if (target === parent) return true;
+  const prefix = parent.endsWith("/") ? parent : parent + "/";
+  return target.startsWith(prefix);
+}
+
+/**
+ * 查表用的规范键：`normalizePath` + Windows 语义折叠大小写。
+ *
+ * 用于 `pending-anchor` 这类「先登记、后消费」的映射表：两侧路径可能一个来自链接解析、
+ * 一个来自已打开 tab，Windows 上仅大小写不同也必须命中同一条记录。
+ */
+export function pathKey(path: string): string {
+  if (!path) return "";
+  return canonicalPath(path, usesWindowsSemantics(path));
+}
+
+/**
+ * 两个路径是否指向同一文件/目录（#296 自链接判定）。
+ *
+ * 与 `isPathWithin` 同一套大小写口径：Windows 语义折叠、POSIX 敏感；分隔符差异不影响结果。
+ * 空路径一律返回 false（草稿的 `untitled-N` 不会与任何真实文件相同）。
+ */
+export function isSamePath(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const foldCase = usesWindowsSemantics(a) || usesWindowsSemantics(b);
+  return canonicalPath(a, foldCase) === canonicalPath(b, foldCase);
 }
 
 /**

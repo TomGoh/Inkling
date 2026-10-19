@@ -49,7 +49,7 @@ function scrollToNode(view: EditorView, pos: number): void {
  *
  * 空标题在入表前就被跳过，`positions` 与锚点表下标严格一一对应。
  */
-function scrollToAnchorInView(view: EditorView, fragment: string): boolean {
+export function scrollToAnchorInView(view: EditorView, fragment: string): boolean {
   const headings: HeadingInput[] = [];
   const positions: number[] = [];
 
@@ -93,6 +93,16 @@ export interface LinkClickPluginOptions {
   workspaceRoot: () => string | null;
   /** 失败提示（Editor.tsx 的 LinkNotice） */
   notify: (message: string, kind: LinkNoticeKind) => void;
+  /** 打开工作区文件（已打开则切 tab）；失败 reject 并写入 fileOpenErrors */
+  openWorkspaceFile: (absPath: string) => Promise<void>;
+  /** 打开前登记目标文件的待滚动锚点 */
+  requestPendingAnchor: (absPath: string, fragment: string) => void;
+  /** 打开失败时撤销登记 */
+  cancelPendingAnchor: (absPath: string) => void;
+  /** 路径同一性（normalize + Windows 大小写折叠），用于自链接判定 */
+  isSamePath: (a: string, b: string) => boolean;
+  /** 打开失败的后端原因（fileOpenErrors） */
+  getOpenError: (absPath: string) => string | undefined;
 }
 
 /** 捕获阶段的统一入口（导出仅便于单测按需调用，生产路径只经由插件注册） */
@@ -130,6 +140,12 @@ export function handleLinkClick(
     openExternal,
     notify: opts.notify,
     scrollToAnchor: (fragment) => scrollToAnchorInView(view, fragment),
+    openWorkspaceFile: opts.openWorkspaceFile,
+    requestPendingAnchor: opts.requestPendingAnchor,
+    cancelPendingAnchor: opts.cancelPendingAnchor,
+    selfPath: opts.documentPath,
+    isSamePath: opts.isSamePath,
+    getOpenError: opts.getOpenError,
   });
 }
 

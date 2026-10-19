@@ -27,7 +27,7 @@ import { imageView } from "./image-node-view";
 import { imageUploadPlugin } from "./image-upload";
 import { smartPastePlugin } from "./smart-paste";
 import { remoteImagePlugin } from "./remote-image";
-import { linkClickPlugin } from "./link-click";
+import { linkClickPlugin, scrollToAnchorInView } from "./link-click";
 import { outlineTrackerPlugin } from "./outline-tracker";
 import { markdownPublisherPlugin } from "./markdown-publisher";
 import { normalizeListPlaceholders } from "./markdown-serialize";
@@ -45,6 +45,12 @@ import { useSettings } from "../../store/settings";
 import { useWorkspace } from "../../store/workspace";
 import type { EditorOutlineSnapshot } from "../../lib/outline";
 import { slugify } from "../../lib/slug";
+import { isSamePath } from "../../lib/path-utils";
+import {
+  cancelPendingAnchor,
+  consumePendingAnchor,
+  requestPendingAnchor,
+} from "../../lib/pending-anchor";
 import {
   registerWysiwygAnchorSampler,
   unregisterWysiwygAnchorSampler,
@@ -224,6 +230,12 @@ function EditorInner({
                 documentPath: filePath,
                 workspaceRoot: () => useWorkspace.getState().rootPath,
                 notify: (message, kind) => notifyLinkRef.current(message, kind),
+                // #296：workspace-file 臂依赖。全部走 getState 实时读取，避免闭包拿到旧 store。
+                openWorkspaceFile: (path) => useWorkspace.getState().openFile(path),
+                requestPendingAnchor,
+                cancelPendingAnchor,
+                isSamePath,
+                getOpenError: (path) => useWorkspace.getState().fileOpenErrors.get(path),
               }),
               // 仅主编辑器发布大纲；分屏编辑器不传回调，避免覆盖主面板。
               ...(onOutlineChange
@@ -417,6 +429,33 @@ function EditorInner({
       onReady?.(null);
     };
   }, [loading, getEditor, onReady]);
+
+  // #296：消费「打开文件后滚到锚点」的一次性登记。必须等编辑器就绪再消费（doc 为空时
+  // 锚点表匹配不到）；消费即删，切 tab 重挂不会重复滚动。同文件自链接不经过这里——打开臂
+  // 会直接滚动（目标编辑器不会重挂，登记永远不会被消费）。
+  //
+  // 双 rAF 的原因：`useCursorStateRestore` 在挂载时会「立即 + 逐帧」把 scrollTop 写回 0
+  // （新文件没有记忆值，issue #30）。若在 layout effect 里同步滚动，会被它随后的一帧覆盖。
+  // 它的 settle 循环在目标值 0 达成后即停止，故延后两帧再滚动即可稳定生效。
+  useLayoutEffect(() => {
+    if (loading) return;
+    const editor = getEditor();
+    if (!editor) return;
+    const fragment = consumePendingAnchor(filePath);
+    if (!fragment) return;
+
+    // 不做 cleanup 取消：登记已消费，effect 重跑不会重复滚动；若编辑器已销毁，
+    // action 会抛错并被 catch，不会影响后续文件。
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        try {
+          editor.action((ctx) => scrollToAnchorInView(ctx.get(editorViewCtx), fragment));
+        } catch {
+          // 滚动失败不影响文件已打开
+        }
+      });
+    });
+  }, [loading, getEditor, filePath]);
 
   // 公式自动编号 / 专注模式开关切换时，dispatch 空 tr 触发重算（appendTransaction + decorations）
   const getEditorRef = useRef(getEditor);

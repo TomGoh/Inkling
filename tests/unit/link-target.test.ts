@@ -126,6 +126,25 @@ describe("#298 classifyLink", () => {
       { documentPath: "untitled-1", workspaceRoot: "C:\\ws" },
       { kind: "workspace-file", path: "C:\\ws\\x.md", fragment: "" },
     ],
+    // —— #296：Windows 大小写折叠（仅目录大小写不同仍属工作区内）——
+    [
+      "绝对路径与根仅目录大小写不同（#296）",
+      "C:\\Work\\Notes\\other.md",
+      { documentPath: "C:\\Work\\Notes\\a.md", workspaceRoot: "C:\\Work\\Notes" },
+      { kind: "workspace-file", path: "C:\\Work\\Notes\\other.md", fragment: "" },
+    ],
+    [
+      "文档路径与根目录大小写不同时的相对链接（#296）",
+      "./b.md",
+      { documentPath: "c:\\work\\notes\\a.md", workspaceRoot: "C:\\Work\\Notes" },
+      { kind: "workspace-file", path: "c:\\work\\notes\\b.md", fragment: "" },
+    ],
+    [
+      "大小写折叠不得放过前缀相似目录（#296）",
+      "C:\\Work\\Notes-other\\x.md",
+      { documentPath: "C:\\Work\\Notes\\a.md", workspaceRoot: "C:\\Work\\Notes" },
+      { kind: "unsupported", reason: "outside-workspace", raw: "C:\\Work\\Notes-other\\x.md" },
+    ],
 
     // —— unsupported：6 个 reason 全可达 ——
     ["file:// 一律不打开", "file:///C:/tmp/x.md", POSIX, { kind: "unsupported", reason: "local-file", raw: "file:///C:/tmp/x.md" }],
