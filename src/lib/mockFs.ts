@@ -107,6 +107,12 @@ export const MOCK_TREE: FileNode = {
           is_dir: false,
           children: [],
         },
+        {
+          name: "toc-long.md",
+          path: "/mock-workspace/notes/toc-long.md",
+          is_dir: false,
+          children: [],
+        },
       ],
     },
     {
@@ -255,6 +261,28 @@ const MY_NOTE = `# 带空格文件名
 
 通过 %20 解码后打开。`;
 
+/**
+ * TOC 跳转的固定装置（#358）。
+ *
+ * `toc-demo.md` 只有 3 个标题、目标都在首屏，`scrollTop` 恒为 0，无法验证「点击目录项
+ * 是否真的跳转」。本文件用 `LINK_ANCHOR_FILLER` 把目标标题推到首屏之外，并把 `[TOC]`
+ * 放在填充正文之前，保证目录项与目标标题不在同一屏。
+ */
+const TOC_LONG_DEMO = `# 长目录示例
+
+[TOC]
+
+${LINK_ANCHOR_FILLER}
+
+## 第一节
+
+第一节内容。
+
+## 目标标题
+
+目标段落内容。
+`;
+
 export const MOCK_FILE_CONTENT: Record<string, string> = {
   "/mock-workspace/notes/readme.md":
     "# Readme\n\n这是浏览器 mock 环境的示例文件。\n\n- 桌面端会调用真实文件系统\n- 浏览器端用此 mock 验证 UI\n",
@@ -283,6 +311,7 @@ export const MOCK_FILE_CONTENT: Record<string, string> = {
   "/mock-workspace/notes/link-file-demo.md": LINK_FILE_DEMO,
   "/mock-workspace/notes/link-relative.md": LINK_RELATIVE_DEMO,
   "/mock-workspace/notes/my note.md": MY_NOTE,
+  "/mock-workspace/notes/toc-long.md": TOC_LONG_DEMO,
 };
 
 /** 递归查找路径对应的节点（返回引用，可就地修改） */

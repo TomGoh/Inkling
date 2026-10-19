@@ -1,8 +1,23 @@
 // E2E：[TOC] 目录自动生成
 // 覆盖：TOC 块渲染、目录项、标题跳转、层级缩进、空状态
+//
+// #358：TOC3 原断言是 `typeof after === "number"`（恒真，`before` 还被 `void` 丢弃）；
+// TOC4 在「目录项已存在、层级缩进尚未生效」时采样，高并发下会偶发假红。
+// 这里改为：TOC3 用「与目标标题预期落点比较」，TOC4 用轮询等缩进真正生效。
 
-import { test, expect } from "@playwright/test";
-import { openMockWorkspace, openFile } from "./helpers";
+import { test, expect, type Page } from "@playwright/test";
+import { openMockWorkspace, openFile, waitScrollConverged } from "./helpers";
+
+const TARGET_HEADING = "目标标题";
+/** 允许的最终滚动位置误差（smooth 滚动 + 分数像素） */
+const SCROLL_TOLERANCE = 60;
+
+async function readScrollTop(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const el = document.querySelector(".editor-scroll");
+    return el ? el.scrollTop : -1;
+  });
+}
 
 test.describe("TOC 目录", () => {
   test.beforeEach(async ({ page }) => {
@@ -25,34 +40,76 @@ test.describe("TOC 目录", () => {
     await expect(items.filter({ hasText: "二级标题 B" })).toBeVisible();
   });
 
-  test("TOC3 目录项可点击跳转", async ({ page }) => {
+  test("TOC3 目录项可点击跳转（按目标标题预期落点断言）", async ({ page }) => {
+    // toc-demo.md 的目标都在首屏（scrollTop 恒 0），必须换成长文档才可观测滚动
+    await openFile(page, "toc-long.md");
     await expect(page.locator(".toc-block")).toBeVisible({ timeout: 10_000 });
-    const scroll = page.locator(".editor-scroll");
-    const before = await scroll.evaluate((el) => el.scrollTop);
-    void before;
-    // 点击最后一个 TOC 项
-    const lastItem = page.locator(".toc-list .toc-item a").last();
-    await lastItem.click();
-    await page.waitForTimeout(400);
-    const after = await scroll.evaluate((el) => el.scrollTop);
-    // 短文档可能已在底部，after 可等于 before；但点击不应报错
-    expect(typeof after).toBe("number");
+
+    const targetItem = page
+      .locator(".toc-list .toc-item a")
+      .filter({ hasText: TARGET_HEADING });
+    await expect(targetItem).toBeVisible();
+
+    // 目标标题相对滚动容器内容顶部的文档偏移（与当前滚动量无关）
+    const before = await page.evaluate((headingText) => {
+      const scroll = document.querySelector(".editor-scroll") as HTMLElement | null;
+      if (!scroll) return null;
+      const containerRect = scroll.getBoundingClientRect();
+      const heading = Array.from(document.querySelectorAll(".ProseMirror h2")).find(
+        (el) => (el.textContent ?? "").trim() === headingText,
+      );
+      if (!heading) return null;
+      return {
+        scrollTop: scroll.scrollTop,
+        maxScroll: scroll.scrollHeight - scroll.clientHeight,
+        docTop: heading.getBoundingClientRect().top - containerRect.top + scroll.scrollTop,
+      };
+    }, TARGET_HEADING);
+    expect(before).not.toBeNull();
+
+    // 点击目标对齐容器顶；文档末尾滚动受限时取 maxScroll
+    const expected = Math.min(before!.docTop, before!.maxScroll);
+    // 前置条件：目标必须在首屏之外，否则「是否滚动」无从观测
+    expect(expected).toBeGreaterThan(before!.scrollTop + 100);
+
+    await targetItem.click();
+    await waitScrollConverged(page, ".editor-scroll", 10_000);
+
+    const actual = await readScrollTop(page);
+    expect(
+      Math.abs(actual - expected),
+      `应滚到「${TARGET_HEADING}」（预期 ${expected}，实际 ${actual}）`,
+    ).toBeLessThanOrEqual(SCROLL_TOLERANCE);
+
+    // 目标标题必须真的进入视口
+    const headingInViewport = await page.evaluate((headingText) => {
+      const heading = Array.from(document.querySelectorAll(".ProseMirror h2")).find(
+        (el) => (el.textContent ?? "").trim() === headingText,
+      );
+      if (!heading) return false;
+      const top = heading.getBoundingClientRect().top;
+      return top >= -1 && top < window.innerHeight;
+    }, TARGET_HEADING);
+    expect(headingInViewport).toBe(true);
   });
 
-  test("TOC4 目录项有层级缩进", async ({ page }) => {
+  test("TOC4 目录项有层级缩进（轮询等样式生效）", async ({ page }) => {
     await expect(page.locator(".toc-block")).toBeVisible({ timeout: 10_000 });
     const items = page.locator(".toc-list .toc-item");
-    expect(await items.count()).toBeGreaterThanOrEqual(2);
-    // H1 项 paddingLeft=0，H2 项 paddingLeft>0；对比首项与次项缩进差异
-    const pads = await items.evaluateAll((els) =>
-      els.map((el) => parseFloat(getComputedStyle(el).paddingLeft)),
-    );
-    // 至少有一项（H2）的 paddingLeft > 0
-    expect(pads.some((p) => p > 0)).toBe(true);
-    // 次项（H2）缩进应大于首项（H1）
-    if (pads.length >= 2) {
-      expect(pads[1]).toBeGreaterThan(pads[0]);
-    }
+
+    // 「目录项已存在」不等于「层级缩进已生效」；必须轮询到 H2 的缩进真正大于 H1。
+    // 直接采样在高并发下会读到「列表已渲染、样式尚未计算」的中间态（#358 实测假红）。
+    await expect
+      .poll(
+        async () => {
+          const pads = await items.evaluateAll((els) =>
+            els.map((el) => parseFloat(getComputedStyle(el).paddingLeft)),
+          );
+          return pads.length >= 2 && pads[0] === 0 && pads[1] > 0;
+        },
+        { timeout: 10_000, intervals: [50, 100, 150, 200] },
+      )
+      .toBe(true);
   });
 
   test("TOC5 编辑标题后目录项实时刷新", async ({ page }) => {
