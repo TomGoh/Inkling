@@ -9,7 +9,7 @@ import type { NodeView, NodeViewConstructor } from "@milkdown/kit/prose/view";
 import type { Node } from "@milkdown/kit/prose/model";
 import type { EditorView as PMView } from "@milkdown/kit/prose/view";
 import { Plugin, PluginKey } from "@milkdown/kit/prose/state";
-import { slugify } from "./link-click";
+import { slugify } from "../../lib/slug";
 
 /**
  * toc 块节点：仅作为占位，渲染内容由 NodeView 根据文档动态生成。
