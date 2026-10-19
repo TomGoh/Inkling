@@ -94,7 +94,12 @@ export async function readTextFile(filePath: string): Promise<string> {
   }
   const { MOCK_FILE_CONTENT } = await import("./mockFs");
   await new Promise((r) => setTimeout(r, 50));
-  return MOCK_FILE_CONTENT[filePath] ?? "";
+  // issue #296：mock 必须复现「文件不存在」，否则「打开失败 → 提示」这条路径在 E2E 里
+  // 没有断言对象（旧实现返回空串，会开出一个空 tab，掩盖失败）。
+  if (!Object.prototype.hasOwnProperty.call(MOCK_FILE_CONTENT, filePath)) {
+    throw new Error("文件不存在");
+  }
+  return MOCK_FILE_CONTENT[filePath];
 }
 
 /** 写入文本文件 */
@@ -110,10 +115,14 @@ export async function writeTextFile(
   MOCK_FILE_CONTENT[filePath] = content;
 }
 
-/** 读取文件最后修改时间（Unix 毫秒时间戳）。浏览器 mock 返回当前时间毫秒 */
+/** 读取文件最后修改时间（Unix 毫秒时间戳）。浏览器 mock 对不存在的文件抛错（#296） */
 export async function fileMtime(filePath: string): Promise<number> {
   if (isTauri()) {
     return invoke<number>("file_mtime", { filePath });
+  }
+  const { MOCK_FILE_CONTENT } = await import("./mockFs");
+  if (!Object.prototype.hasOwnProperty.call(MOCK_FILE_CONTENT, filePath)) {
+    throw new Error("文件不存在");
   }
   return Date.now();
 }

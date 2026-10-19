@@ -95,6 +95,18 @@ export const MOCK_TREE: FileNode = {
           is_dir: false,
           children: [],
         },
+        {
+          name: "link-relative.md",
+          path: "/mock-workspace/notes/link-relative.md",
+          is_dir: false,
+          children: [],
+        },
+        {
+          name: "my note.md",
+          path: "/mock-workspace/notes/my note.md",
+          is_dir: false,
+          children: [],
+        },
       ],
     },
     {
@@ -213,6 +225,36 @@ const LINK_FILE_DEMO = `# 本地文件链接示例
 本地文件：[本地文件](file:///C:/tmp/inkling-demo.md)
 `;
 
+/**
+ * 相对路径 → 工作区打开（#296）的固定装置。
+ *
+ * 链接覆盖：同目录、上一级、带锚点、自链接、不存在、非 md、越界、百分号编码空格。
+ * 目标标题必须落在首屏之外（复用 `LINK_ANCHOR_FILLER`），否则「自链接是否滚动」无法观测。
+ * **不要**写成绝对路径：本文件的目的是验证相对路径归算与 openFile 通路。
+ */
+const LINK_RELATIVE_DEMO = `# 相对路径链接示例
+
+- [同目录](readme.md)
+- [上级](../intro.md)
+- [带锚点](link-anchor-demo.md#hello-world)
+- [自链接（相对+锚点）](link-relative.md#相对小节)
+- [不存在](nope.md)
+- [非 md](attachment.txt)
+- [越界](../../outside.md)
+- [空格](my%20note.md)
+
+${LINK_ANCHOR_FILLER}
+
+## 相对小节
+
+自链接目标段落。
+`;
+
+/** 百分号编码空格的目标文件（#296） */
+const MY_NOTE = `# 带空格文件名
+
+通过 %20 解码后打开。`;
+
 export const MOCK_FILE_CONTENT: Record<string, string> = {
   "/mock-workspace/notes/readme.md":
     "# Readme\n\n这是浏览器 mock 环境的示例文件。\n\n- 桌面端会调用真实文件系统\n- 浏览器端用此 mock 验证 UI\n",
@@ -239,6 +281,8 @@ export const MOCK_FILE_CONTENT: Record<string, string> = {
   "/mock-workspace/notes/link-anchor-demo.md": LINK_ANCHOR_DEMO,
   "/mock-workspace/notes/link-html-demo.md": LINK_HTML_DEMO,
   "/mock-workspace/notes/link-file-demo.md": LINK_FILE_DEMO,
+  "/mock-workspace/notes/link-relative.md": LINK_RELATIVE_DEMO,
+  "/mock-workspace/notes/my note.md": MY_NOTE,
 };
 
 /** 递归查找路径对应的节点（返回引用，可就地修改） */
