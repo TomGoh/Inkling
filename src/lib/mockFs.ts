@@ -208,6 +208,8 @@ HTML 块内的链接（渲染为真实 a 标签）：
   <a href="/readme.md">HTML 根路径链接</a>
   <a href="#重复标题-1">HTML 锚点链接</a>
   <a href="">HTML 空链接</a>
+  <a href="readme.md">HTML 相对链接</a>
+  <a href="nope-html.md">HTML 相对链接-不存在</a>
 </div>
 
 ## 重复标题

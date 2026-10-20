@@ -159,6 +159,55 @@ test.describe("相对路径链接", () => {
     expect(await tabCount(page)).toBe(2);
   });
 
+  test("R11 html 相对链接：属性保留且 Ctrl+点击打开目标", async ({ page }) => {
+    // #360 窄口径：渲染模式仅对 <a href> 放行无协议相对值
+    await openFile(page, "link-html-demo.md");
+    const link = page.locator('.html-inline a[href="readme.md"]');
+    await expect(link).toBeVisible({ timeout: 10_000 });
+    const before = await tabCount(page);
+
+    await ctrlClick(link);
+
+    await expect(page.locator(".tab-active")).toContainText("readme.md", { timeout: 10_000 });
+    expect(await tabCount(page)).toBe(before + 1);
+  });
+
+  test("R12 html 相对链接裸点击：不导航、不新增 tab", async ({ page }) => {
+    await openFile(page, "link-html-demo.md");
+    const link = page.locator('.html-inline a[href="readme.md"]');
+    await expect(link).toBeVisible({ timeout: 10_000 });
+
+    const navigations: string[] = [];
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame()) navigations.push(frame.url());
+    });
+    const before = await tabCount(page);
+    const urlBefore = page.url();
+
+    await link.click();
+    await page.waitForTimeout(400);
+
+    expect(navigations).toEqual([]);
+    expect(page.url()).toBe(urlBefore);
+    expect(await page.evaluate(() => window.location.hash)).toBe("");
+    expect(await tabCount(page)).toBe(before);
+  });
+
+  test("R13 html 相对链接目标不存在：提示「无法打开」，不新增 tab", async ({ page }) => {
+    await openFile(page, "link-html-demo.md");
+    const link = page.locator('.html-inline a[href="nope-html.md"]');
+    await expect(link).toBeVisible({ timeout: 10_000 });
+    const before = await tabCount(page);
+
+    await ctrlClick(link);
+
+    await expect(page.locator(".md-editor-link-notice")).toContainText("无法打开", {
+      timeout: 5_000,
+    });
+    await expect(page.locator(".md-editor-link-notice")).toContainText("文件不存在");
+    expect(await tabCount(page)).toBe(before);
+  });
+
   test("R10 源码 href 保真：不被改写成绝对路径", async ({ page }) => {
     await page.locator('.topbar-btn[title*="源代码模式"]').click();
     const content = page.getByTestId("source-mode-editor").locator(".cm-content");

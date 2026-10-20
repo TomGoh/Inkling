@@ -275,8 +275,14 @@ export function sanitizeHTML(value: string, options: SanitizeOptions = {}): glob
       if (!allowed) continue;
 
       let val = attr.value;
-      // href/src/xlink:href 做协议检查
-      if ((lowerName === "href" || lowerName === "src" || lowerName === "xlink:href") && !isSafeUrl(val, paste)) continue;
+      // href/src/xlink:href 做协议检查。
+      // #360 窄口径：渲染模式只对 `<a href>` 放行「无协议相对值」，让原始 HTML 里的
+      // 相对链接可以跟随；**绝不**放宽 `src` / `xlink:href`——那会扩大资源加载面
+      // （`img src="../../secret"` / `<use xlink:href="...">`），属安全白名单变更。
+      if (lowerName === "href" || lowerName === "src" || lowerName === "xlink:href") {
+        const allowRelative = paste || (lowerTag === "a" && lowerName === "href");
+        if (!isSafeUrl(val, allowRelative)) continue;
+      }
       // style 单独过滤
       if (lowerName === "style") {
         val = sanitizeStyle(val);
