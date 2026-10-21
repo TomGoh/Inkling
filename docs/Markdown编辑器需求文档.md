@@ -1,7 +1,7 @@
 # Markdown 所见即所得编辑器 —— 产品需求文档（PRD）
 
 > 对标产品：Typora
-> 文档版本：v3.5.0
+> 文档版本：v3.6.0
 > 用途：作为 AI 辅助编程（vibe coding）的开发依据
 
 ---
@@ -156,6 +156,10 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 | PRD 章节 | 需求 | 状态 | 落地版本 | 说明 |
 |---|---|---|---|---|
+| 3.1 编辑器内核 | 链接跟随：工作区内相对路径与带锚点文件打开 | ✅ | v3.6.0 | #296（PR #357）：按当前文档目录解析、工作区根校验；`x.md#frag` 打开后消费 pending 锚点滚动；自链接只滚动、分屏按实例 selfPath 判定；失败提示「无法打开：<后端原因>」；Windows 路径大小写折叠 |
+| 3.1 编辑器内核 | 链接跟随：锚点统一与重复标题匹配 | ✅ | v3.6.0 | #297（PR #356）：`headingIdGenerator` 覆写为应用 slug，锚点表五级匹配（原始 / 精确 DOM id / 宽容 / GitHub `-1` / Milkdown `-#2`），支持中文、标点、URL 编码；序号严格存在且拒绝 0 / 前导零 |
+| 3.1 编辑器内核 | 链接跟随：点击统一入口与 WebView 导航兜底 | ✅ | v3.6.0 | #298（PR #355）：DOM capture 层统一接管 link mark 与原始 HTML `<a>`，先 preventDefault 再分派；Rust `on_navigation` 白名单；`file://` / 非 md / 越界均有非阻塞提示。原始 HTML 相对链接（#360，PR #361）仅放行 `<a href>`，`src` / `xlink:href` 仍拒绝 |
+| 3.5 测试质量 | 链接与 TOC 断言强度修复 | ✅ | v3.6.0 | #299（PR #354）L3 强断言 + L3b 反向 + L4 URL；#358（PR #359）TOC3 按预期落点、TOC4 轮询等层级缩进；两处均以变异验证确认可打红 |
 | 3.1 编辑器内核 | 模式切换内容锚点还原阅读位置与光标 | ✅ | v2.8.0 | issue #136：进入方向采集视口顶部块内容锚点（code_block 吸附），退出方向 resolveAnchorProsePos 精确文本匹配；单一写者 + settle 收敛 + rAF 合帧 |
 | 3.1 编辑器内核 | 模式切换视口与滚动比例映射还原 | ✅ | v2.7.0 | issue #121：恢复 sourceMode 快照守卫，缓存 wysiwygScrollTopRef，退出模式按两端 scrollHeight 用 mapScrollTop 比例映射恢复 |
 | 3.1 编辑器内核 | Ctrl+K 应用内插入链接对话框 | ✅ | v2.7.0 | issue #122：新增 LinkDialog.tsx，文本与 URL 双输入、选中预填、Esc/backdrop 关闭，替换原生 window.prompt |
@@ -378,6 +382,19 @@ Typora 是一款"所见即所得"（WYSIWYG）的 Markdown 编辑器，核心卖
 
 ### 8.2 发布版本
 
+- **v3.6.0** 链接跟随闭环（**18 个提交（含 6 个 merge，6 个 PR）/ 70 个文件（+3523−841）**）。从「点链接」这一条链路出发，把相对路径、锚点、导航安全与回归测试一起收口。
+
+  ①**相对路径打开**（#296，PR #357）：工作区内 `notes/a.md` / `../index.md` / `a.md#小结` 都能打开并按需滚动；自链接只滚动不重开，分屏按实例 `selfPath` 判定不抢主标签；打开失败撤销 pending 并提示「无法打开：<后端原因>」；Windows 上仅目录大小写不同不再误判越界。
+
+  ②**锚点统一**（#297，PR #356）：标题 DOM id 与应用 slug 对齐（`Hello, World!` → `hello-world`）；锚点表五级匹配（原始 slug / 精确 DOM id / 宽容 slug / GitHub `-1` / Milkdown `-#2`），覆盖中文、含标点、重复标题与 URL 编码；序号严格存在且拒绝 0 / 前导零。
+
+  ③**导航兜底**（#298，PR #355）：DOM capture 层统一接管 link mark 与原始 HTML `<a>`，先 `preventDefault` 再判定分派；Rust `on_navigation` 白名单阻止任何 webview 离开应用 origin；`file://` / 非 md / 越界 / 无工作区均有非阻塞提示。
+
+  ④**原始 HTML 相对链接**（#360，PR #361）：渲染模式仅对 `<a href>` 放行无协议相对值，`src` / `xlink:href` 仍拒绝；`javascript:` / `data:` / `file:` / `vbscript:` / `C:\...` 继续拦截。
+
+  ⑤**测试防线**（#299 / #358，PR #354 / #359）：链接 L3 改「滚动量 + 标题进入视口」强断言、L3b 反向、L4 补 URL；TOC3 改按预期落点、TOC4 轮询等缩进生效；每条修复均以变异验证可打红。
+
+  **质量门禁**：Vitest 176 文件 / 1983 用例、E2E 265（ubuntu / windows 双平台）、Rust 118 passed / 1 ignored、桌面 WebView2（CDP）15/15，`tsc` 与 `vite build` 通过。详见 `docs/v3.6.0 设计文档.md`。
 - **v3.5.0** 主题系统（Theme Epic #221）交付 + asset 协议真机探针与口径守卫（**92 个提交（含 25 个 merge，25 个 PR）/ 181 个文件（+24117−1824）**）。本版以 #221 主题系统为主线，完成从设计令牌到兼容层、导入、预装、自研、导出一致性的全链路，并补齐与之配套的真机探针与主题断言防线。
 
   ①**内容级令牌 + 级联层收敛**（#223 / #224，PR #310）：层序 `@layer base, theme, user` 唯一声明在 `index.html`；18 个样式入口全部入 `@layer base`；内容级 `--content-*` 与外壳级 `--shell-*` token 分族，白名单与 App.css 自动对账；S9 零硬编码色断言。CodeMirror 宿主外观只能写在 `EditorView.theme`（style-mod 运行时注入未分层样式，应用 CSS 的 `.cm-*` 必然失效）。
