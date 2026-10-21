@@ -77,7 +77,7 @@ export function scrollToAnchorInView(view: EditorView, fragment: string): boolea
  *
  * 上游 `sanitizeLinkHref` 会把 `file:` 等协议的 DOM href 抹成空串，但 mark attrs 保留原文；
  * 只读 `getAttribute("href")` 会把这些链接当成「没有 href」而漏掉提示。
- * html atom 没有 marks，因此该回落只对 link mark 生效（html 的相对 href 在渲染阶段已被丢弃）。
+ * html atom 没有 marks，因此该回落只对 link mark 生效（html 的 `a[href]` 相对值自 #360 起会被保留）。
  */
 function linkHrefFromMark(view: EditorView, event: MouseEvent): string {
   const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });

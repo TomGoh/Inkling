@@ -3,7 +3,7 @@
 // 粘贴路径是本特性最大的攻击面：接入前 HTML 粘贴是「裸的」。这里分三层锁定：
 // 1. sanitizeHTML 粘贴模式：script / on* / javascript: / data:（非图片）/ expression() 全部被拦，
 //    含常见混淆写法；相对路径按需求放行
-// 2. 渲染模式行为不变（粘贴模式的放宽不能泄漏到 HTML 嵌入渲染路径）
+// 2. 渲染模式：仅 `<a href>` 放行无协议相对值（#360），`src` / `xlink:href` 仍拒绝
 // 3. 端到端：经真实粘贴链路进入文档后，不存在危险链接/图片地址，也不会生成 html 节点
 //
 // 注意：happy-dom 的 DOMParser 会执行 <script>（真实浏览器不会），所以脚本体一律用无副作用
@@ -146,11 +146,43 @@ describe("isSafeUrl", () => {
   });
 });
 
-describe("渲染模式（HTML 嵌入）行为不变", () => {
-  it("相对路径在渲染模式下仍被拒绝", () => {
+describe("渲染模式（HTML 嵌入）：仅 a[href] 窄口径放行相对路径（#360）", () => {
+  function render(html: string): HTMLElement {
     const div = document.createElement("div");
-    div.appendChild(sanitizeHTML('<a href="docs/a.md">x</a>'));
-    expect(div.querySelector("a")?.hasAttribute("href")).toBe(false);
+    div.appendChild(sanitizeHTML(html));
+    return div;
+  }
+
+  it("a[href] 的无协议相对路径保留", () => {
+    const dom = render(
+      '<a href="docs/a.md">g</a><a href="./a b.md">s</a><a href="../up.md">u</a>',
+    );
+    expect(Array.from(dom.querySelectorAll("a")).map((a) => a.getAttribute("href"))).toEqual([
+      "docs/a.md",
+      "./a b.md",
+      "../up.md",
+    ]);
+  });
+
+  it("a[href] 的危险/未知协议仍拒绝", () => {
+    for (const href of [
+      "javascript:alert(1)",
+      "data:text/html,x",
+      "file:///C:/x.md",
+      "vbscript:x",
+      "C:\\ws\\x.md",
+    ]) {
+      const dom = render(`<a href="${href}">x</a>`);
+      expect(dom.querySelector("a")?.hasAttribute("href"), href).toBe(false);
+    }
+  });
+
+  it("img src / use xlink:href 的相对路径仍被拒绝（资源面不放宽）", () => {
+    const dom = render(
+      '<img src="../../secret.png"><svg><use xlink:href="./sprite.svg#x"></use></svg>',
+    );
+    expect(dom.querySelector("img")?.hasAttribute("src")).toBe(false);
+    expect(dom.querySelector("use")?.hasAttribute("xlink:href")).toBe(false);
   });
 
   it("未知标签在渲染模式下仍连同子节点丢弃", () => {

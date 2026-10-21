@@ -73,8 +73,10 @@ function isDangerousAttr(name: string): boolean {
 /**
  * 检查 URL 是否安全（禁止 javascript: data: 协议，允许 http/https/mailto/锚点/相对路径）
  *
- * allowRelative（仅粘贴路径开启，#219）：无协议头的相对路径（`docs/a.md`、`./x.png`）
- * 按原样保留（与 Typora 一致）。判定前先按 URL 解析器的做法剔除 C0 控制字符与空白，
+ * allowRelative：无协议头的相对路径（`docs/a.md`、`./x.png`）按原样保留（与 Typora 一致）。
+ * 调用方控制口径：粘贴模式对所有属性开启（#219）；渲染模式**仅 `<a href>`** 开启（#360），
+ * `src` / `xlink:href` 仍不开启，避免扩大资源加载面。
+ * 判定前先按 URL 解析器的做法剔除 C0 控制字符与空白，
  * 防止 `java\nscript:` 这类「拆开协议头」的写法被误当成相对路径放行。
  */
 export function isSafeUrl(url: string, allowRelative = false): boolean {
@@ -275,8 +277,14 @@ export function sanitizeHTML(value: string, options: SanitizeOptions = {}): glob
       if (!allowed) continue;
 
       let val = attr.value;
-      // href/src/xlink:href 做协议检查
-      if ((lowerName === "href" || lowerName === "src" || lowerName === "xlink:href") && !isSafeUrl(val, paste)) continue;
+      // href/src/xlink:href 做协议检查。
+      // #360 窄口径：渲染模式只对 `<a href>` 放行「无协议相对值」，让原始 HTML 里的
+      // 相对链接可以跟随；**绝不**放宽 `src` / `xlink:href`——那会扩大资源加载面
+      // （`img src="../../secret"` / `<use xlink:href="...">`），属安全白名单变更。
+      if (lowerName === "href" || lowerName === "src" || lowerName === "xlink:href") {
+        const allowRelative = paste || (lowerTag === "a" && lowerName === "href");
+        if (!isSafeUrl(val, allowRelative)) continue;
+      }
       // style 单独过滤
       if (lowerName === "style") {
         val = sanitizeStyle(val);
