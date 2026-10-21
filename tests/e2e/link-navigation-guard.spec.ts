@@ -8,7 +8,8 @@
 // 1) `framenavigated` 事件一次都没有（同文档 hash 跳转也会触发，比只看 page.url() 更严）；
 // 2) URL 与 hash 未变。
 //
-// 注意 fixture 里不写相对 href：render 模式会把无协议相对 href 丢弃（F8），断言会恒真。
+// fixture 自 #360 起含相对 href（render 模式仅 `<a href>` 保留），但 H1/H2/H8 只针对
+// 绝对 URL / 根路径 / 空 href；相对链接的打开与提示由 link-relative-path.spec.ts 覆盖。
 
 import { test, expect, type Page } from "@playwright/test";
 import { openMockWorkspace, openFile, MOD } from "./helpers";
