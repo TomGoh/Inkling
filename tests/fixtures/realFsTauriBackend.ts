@@ -5,6 +5,7 @@
 // 契约以 Rust 实现为准，Rust 侧由 commands/mod.rs 的单元测试覆盖；这里只复刻
 // 前端可观察的行为：
 // - write_text_file：父目录缺失 → PARENT_MISSING（createParents=true 时 create_dir_all）；
+//   父目录或祖先被普通文件占据 → PARENT_NOT_DIR；
 //   目标存在但不是普通文件 → NOT_A_FILE；mustExist=true 且目标缺失 → TARGET_MISSING；
 //   写临时文件 + rename 原子替换
 // - write_binary_file：父目录缺失时仅在 createParentDir=true 且祖父目录存在时建一层
@@ -17,6 +18,7 @@ import * as nodePath from "node:path";
 const WRITE_ERROR_TARGET_MISSING = "TARGET_MISSING";
 const WRITE_ERROR_PARENT_MISSING = "PARENT_MISSING";
 const WRITE_ERROR_NOT_A_FILE = "NOT_A_FILE";
+const WRITE_ERROR_PARENT_NOT_DIR = "PARENT_NOT_DIR";
 
 export interface InvokeCall {
   cmd: string;
@@ -29,6 +31,17 @@ function isDir(p: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** 父目录或最近的已存在祖先被普通文件占据（ensure_parent_dir 的 PARENT_NOT_DIR） */
+function parentBlockedByFile(parent: string): boolean {
+  let p = parent;
+  while (!nodeFs.existsSync(p)) {
+    const up = nodePath.dirname(p);
+    if (up === p) return false;
+    p = up;
+  }
+  return !isDir(p);
 }
 
 function atomicWrite(filePath: string, bytes: Buffer): void {
@@ -67,7 +80,10 @@ export function createRealFsBackend() {
     write_text_file: ({ filePath, content, mustExist, createParents }) => {
       const parent = nodePath.dirname(filePath);
       if (!isDir(parent)) {
-        if (createParents && !nodeFs.existsSync(parent)) {
+        if (parentBlockedByFile(parent)) {
+          throw `${WRITE_ERROR_PARENT_NOT_DIR}: 所在文件夹路径已被文件占用: ${parent}`;
+        }
+        if (createParents) {
           nodeFs.mkdirSync(parent, { recursive: true });
         } else {
           throw `${WRITE_ERROR_PARENT_MISSING}: 所在目录已不存在: ${parent}`;
@@ -79,7 +95,10 @@ export function createRealFsBackend() {
     write_binary_file: ({ filePath, data, createParentDir }) => {
       const parent = nodePath.dirname(filePath);
       if (!isDir(parent)) {
-        if (createParentDir && !nodeFs.existsSync(parent) && isDir(nodePath.dirname(parent))) {
+        if (parentBlockedByFile(parent)) {
+          throw `${WRITE_ERROR_PARENT_NOT_DIR}: 所在文件夹路径已被文件占用: ${parent}`;
+        }
+        if (createParentDir && isDir(nodePath.dirname(parent))) {
           nodeFs.mkdirSync(parent);
         } else {
           throw `${WRITE_ERROR_PARENT_MISSING}: 所在目录已不存在: ${parent}`;

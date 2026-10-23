@@ -365,14 +365,15 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
     const RECREATE = "重新创建";
     const SAVE_AS = "另存为…";
     const CANCEL = "取消";
-    // 原路径被同名目录等占用时无法原地重建，只提供另存为
-    const canRecreate = code !== "NOT_A_FILE";
-    const reason =
-      code === "PARENT_MISSING"
-        ? `「${name}」所在的文件夹已不存在（可能已被删除、移动，或磁盘已断开）。`
-        : code === "NOT_A_FILE"
-          ? `「${name}」的原路径已被其他内容（如同名文件夹）占用。`
-          : `「${name}」已不在原位置（可能已被删除、移动或重命名）。`;
+    // 原路径或其所在文件夹路径被占用时无法原地重建，只提供另存为
+    const canRecreate = code !== "NOT_A_FILE" && code !== "PARENT_NOT_DIR";
+    const reasons: Record<WriteErrorCode, string> = {
+      TARGET_MISSING: `「${name}」已不在原位置（可能已被删除、移动或重命名）。`,
+      PARENT_MISSING: `「${name}」所在的文件夹已不存在（可能已被删除、移动，或磁盘已断开）。`,
+      NOT_A_FILE: `「${name}」的原路径已被其他内容（如同名文件夹）占用。`,
+      PARENT_NOT_DIR: `「${name}」所在的文件夹路径已被同名文件占用。`,
+    };
+    const reason = reasons[code];
     const options = canRecreate
       ? `你可以在原位置重新创建${code === "PARENT_MISSING" ? "（将同时重建文件夹）" : ""}、另存为到其他位置，或取消（保留编辑内容，暂不写入磁盘）。`
       : "你可以另存为到其他位置，或取消（保留编辑内容，暂不写入磁盘）。";
@@ -818,7 +819,10 @@ export const createTabsSlice: StateCreator<WorkspaceState, [], [], TabsSlice> = 
       if (!tab) return;
       // 保存互斥按 tab 判定（issue #148）：其他 tab 的保存挂在对话框期间，
       // 不应吞掉本 tab 的保存；同一 tab 的重复保存仍被拦截防重入
-      if (!dirty || tab.saving) return;
+      // 文件已不在原处时，干净 tab 的交互保存也要放行：用户可借此重新创建
+      // 或另存为被误删的文件（Codex 复审：否则状态栏「文件已删除」入口点了没反应）
+      const recoveringDeleted = interactive && !!tab.deletedOnDisk;
+      if ((!dirty && !recoveringDeleted) || tab.saving) return;
       // issue #363：文件已不在原处时自动保存暂停，等用户处理（Ctrl+S / 状态栏入口）
       // 或文件恢复后由监听器解除标记
       if (!interactive && tab.deletedOnDisk) return;

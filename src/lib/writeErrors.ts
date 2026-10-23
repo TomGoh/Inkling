@@ -2,14 +2,20 @@
 // 独立于 fs.ts：调用方据 code 区分「文件已不在原处」与普通 IO 失败，
 // 不随 fs 封装层一起被替换（测试常整体 mock fs.ts）。
 
-export type WriteErrorCode = "TARGET_MISSING" | "PARENT_MISSING" | "NOT_A_FILE";
+export type WriteErrorCode = "TARGET_MISSING" | "PARENT_MISSING" | "NOT_A_FILE" | "PARENT_NOT_DIR";
 
-const WRITE_ERROR_CODES: readonly WriteErrorCode[] = ["TARGET_MISSING", "PARENT_MISSING", "NOT_A_FILE"];
+const WRITE_ERROR_CODES: readonly WriteErrorCode[] = [
+  "TARGET_MISSING",
+  "PARENT_MISSING",
+  "NOT_A_FILE",
+  "PARENT_NOT_DIR",
+];
 
 export const WRITE_ERROR_MESSAGES: Record<WriteErrorCode, string> = {
   TARGET_MISSING: "文件已不在原位置（可能已被删除或移动）",
   PARENT_MISSING: "文件所在的文件夹已不存在（可能已被删除、移动，或磁盘已断开）",
   NOT_A_FILE: "原路径已被其他内容（如同名文件夹）占用",
+  PARENT_NOT_DIR: "文件所在的文件夹路径已被同名文件占用",
 };
 
 /** 带结构化标记的写盘错误 */

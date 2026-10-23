@@ -319,6 +319,57 @@ describe("issue #363：手动保存与退出流程", () => {
     hooks.unmount();
   });
 
+  it("干净 tab 的文件被删（未做任何编辑）：Ctrl+S 仍弹出选择，可在原位置重新创建（Codex 复审）", async () => {
+    nodeFs.writeFileSync(W("a.md"), "原文");
+    const hooks = mountHooks();
+    await open(W("a.md"));
+    nodeFs.rmSync(W("a.md"));
+    await tick(POLL);
+    expect(tabOf(W("a.md"))?.dirty).toBe(false);
+    expect(tabOf(W("a.md"))?.deletedOnDisk).toBe(true);
+
+    h.messageMock.mockResolvedValue("Yes");
+    await pressCtrlS();
+
+    expect(h.messageMock).toHaveBeenCalledTimes(1);
+    expect(read(W("a.md"))).toBe("原文");
+    expect(tabOf(W("a.md"))?.deletedOnDisk).toBeFalsy();
+    hooks.unmount();
+  });
+
+  it("干净 tab 未被删除时 Ctrl+S 仍是无操作（不因放行已删除文件而多写盘）", async () => {
+    nodeFs.writeFileSync(W("a.md"), "原文");
+    const hooks = mountHooks();
+    await open(W("a.md"));
+    await pressCtrlS();
+    expect(h.backend!.writesTo(W("a.md"))).toHaveLength(0);
+    expect(h.messageMock).not.toHaveBeenCalled();
+    hooks.unmount();
+  });
+
+  it("所在文件夹路径被同名文件占用：不提供「重新创建」（必然失败），只能另存为或取消（Codex 复审）", async () => {
+    nodeFs.mkdirSync(W("dir"));
+    nodeFs.writeFileSync(W("dir/a.md"), "A");
+    const hooks = mountHooks();
+    await open(W("dir/a.md"));
+    nodeFs.rmSync(W("dir"), { recursive: true });
+    nodeFs.writeFileSync(W("dir"), "我是文件");
+    await tick(POLL);
+    act(() => useWorkspace.getState().setContent("A2"));
+
+    h.messageMock.mockResolvedValue("Ok");
+    h.saveDialogMock.mockResolvedValue(W("elsewhere.md"));
+    await pressCtrlS();
+
+    const [text, opts] = h.messageMock.mock.calls[0] as [string, { buttons: Record<string, string> }];
+    expect(text).toContain("所在的文件夹路径已被同名文件占用");
+    expect(opts.buttons).not.toHaveProperty("yes");
+    expect(Object.values(opts.buttons)).not.toContain("重新创建");
+    expect(read(W("elsewhere.md"))).toBe("A2");
+    expect(read(W("dir"))).toBe("我是文件");
+    hooks.unmount();
+  });
+
   it("退出时 dirty 文件已被删：不静默写回；用户取消则不退出", async () => {
     nodeFs.writeFileSync(W("a.md"), "A");
     nodeFs.writeFileSync(W("b.md"), "B");

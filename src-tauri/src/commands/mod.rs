@@ -855,8 +855,41 @@ mod tests {
             WriteTextOptions::default(),
         )
         .unwrap_err();
-        assert!(err.starts_with(WRITE_ERROR_PARENT_MISSING), "{err}");
+        assert!(err.starts_with(WRITE_ERROR_PARENT_NOT_DIR), "{err}");
         assert_eq!(fs::read_to_string(&blocker).unwrap(), "file");
+
+        // 更上层的祖先被文件占据：即便允许补建目录也无法重建，同样报 PARENT_NOT_DIR
+        for options in [
+            WriteTextOptions::default(),
+            WriteTextOptions { must_exist: false, create_parents: true },
+        ] {
+            let err = write_text_file_sync(
+                blocker.join("deeper/doc.md").to_string_lossy().to_string(),
+                "x".into(),
+                options,
+            )
+            .unwrap_err();
+            assert!(err.starts_with(WRITE_ERROR_PARENT_NOT_DIR), "{err}");
+        }
+        assert_eq!(fs::read_to_string(&blocker).unwrap(), "file");
+        assert_no_temp_files(&temp.path);
+    }
+
+    #[test]
+    fn write_text_must_exist_rechecks_target_right_before_replace() {
+        // Codex 复审 P1：存在性检查须紧贴最终替换，不能只做写临时文件之前的预检
+        let temp = TestDir::new("write_recheck");
+        let file = temp.path.join("doc.md");
+        fs::write(&file, "original").unwrap();
+        let file_str = file.to_string_lossy().to_string();
+
+        // 模拟「写临时文件 + fsync 期间目标被外部删除」
+        let err = write_text_file_with(file_str, "resurrected".into(), MUST_EXIST, || {
+            fs::remove_file(&file).unwrap();
+        })
+        .unwrap_err();
+        assert!(err.starts_with(WRITE_ERROR_TARGET_MISSING), "{err}");
+        assert!(!file.exists(), "替换前目标已被删除时不得写回");
         assert_no_temp_files(&temp.path);
     }
 
@@ -1042,6 +1075,8 @@ pub const WRITE_ERROR_TARGET_MISSING: &str = "TARGET_MISSING";
 pub const WRITE_ERROR_PARENT_MISSING: &str = "PARENT_MISSING";
 /// 目标路径存在但不是普通文件（如被同名目录占据）
 pub const WRITE_ERROR_NOT_A_FILE: &str = "NOT_A_FILE";
+/// 父目录（或更上层的祖先）路径被普通文件占据：补建目录也无法恢复
+pub const WRITE_ERROR_PARENT_NOT_DIR: &str = "PARENT_NOT_DIR";
 
 /// 文本写入意图（issue #363）：默认既不创建目录、也不要求目标已存在。
 /// 「保存已有文档」必须 must_exist——文件被外部删除/改名后不得被悄悄写回；
@@ -1053,12 +1088,25 @@ struct WriteTextOptions {
 }
 
 /// 写入前校验父目录：缺失时仅在 create_parents 下 create_dir_all，否则返回结构化错误。
-/// 不再无条件补建目录——外接卷卸载后挂载点为空目录，补建会把文档写进系统盘
+/// 不再无条件补建目录——外接卷卸载后挂载点为空目录，补建会把文档写进系统盘。
+/// 父目录或最近的已存在祖先被普通文件占据时报 PARENT_NOT_DIR（补建也救不回来，
+/// 前端据此不提供「重新创建」，Codex 复审 P2）
 fn ensure_parent_dir(parent: &Path, create_parents: bool) -> Result<(), String> {
     if parent.is_dir() {
         return Ok(());
     }
-    if create_parents && !parent.exists() {
+    let blocked_by_file = parent
+        .ancestors()
+        .find(|p| p.exists())
+        .is_some_and(|existing| !existing.is_dir());
+    if blocked_by_file {
+        return Err(format!(
+            "{}: 所在文件夹路径已被文件占用: {}",
+            WRITE_ERROR_PARENT_NOT_DIR,
+            parent.display()
+        ));
+    }
+    if create_parents {
         return fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {}", e));
     }
     Err(format!(
@@ -1115,9 +1163,20 @@ fn write_text_file_sync(
     content: String,
     options: WriteTextOptions,
 ) -> Result<(), String> {
+    write_text_file_with(file_path, content, options, || {})
+}
+
+/// before_replace 在临时文件落盘之后、最终替换之前调用（测试注入外部删除的接缝）
+fn write_text_file_with(
+    file_path: String,
+    content: String,
+    options: WriteTextOptions,
+    before_replace: impl FnOnce(),
+) -> Result<(), String> {
     let path = Path::new(&file_path);
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     ensure_parent_dir(parent, options.create_parents)?;
+    // 预检：目标缺失时不必白写一份临时文件
     check_write_target(path, options.must_exist)?;
 
     let file_name = path
@@ -1137,6 +1196,15 @@ fn write_text_file_sync(
         return Err(format!("临时文件物理落盘(sync_all)失败 {}: {}", temp_path.display(), e));
     }
     drop(temp_file);
+    before_replace();
+
+    // Codex 复审 P1：写临时文件 + sync_all 可能耗时数百毫秒（大文件 / 慢盘），
+    // 预检之后目标被删除时 rename 会把它重建。紧贴替换前复检，把窗口压到
+    // 两个相邻系统调用之间
+    if let Err(e) = check_write_target(path, options.must_exist) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(e);
+    }
 
     // 重命名原子替换目标文件
     if let Err(e) = fs::rename(&temp_path, path) {
