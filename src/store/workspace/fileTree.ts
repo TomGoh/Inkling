@@ -265,9 +265,12 @@ export const createFileTreeSlice: StateCreator<
       fileOpenErrors,
     } = get();
 
-    const nextTabs = openTabs.map((t) =>
-      t.path === from ? { ...t, path: to } : t,
-    );
+    // 目录改名时子文件 tab 一并迁移（issue #363）：只迁同路径 tab 会让子文件 tab
+    // 指向已不存在的旧路径，后续保存在旧位置重建目录、造成内容分叉
+    const nextTabs = openTabs.map((t) => {
+      const path = rebasePathPrefix(t.path, from, to);
+      return path === t.path ? t : { ...t, path };
+    });
 
     const rf = recentFiles.map((p) => (p === from ? to : p));
     const bk = bookmarks.map((p) =>
@@ -322,12 +325,13 @@ export const createFileTreeSlice: StateCreator<
       fileOpenErrors: nextFileOpenErrors,
     };
 
-    if (activeTabPath === from) {
-      patch.activeTabPath = to;
-      patch.currentFile = to;
+    if (activeTabPath && isPathWithin(activeTabPath, from)) {
+      const nextActive = rebasePathPrefix(activeTabPath, from, to);
+      patch.activeTabPath = nextActive;
+      patch.currentFile = nextActive;
     }
-    if (splitFile === from) {
-      patch.splitFile = to;
+    if (splitFile && isPathWithin(splitFile, from)) {
+      patch.splitFile = rebasePathPrefix(splitFile, from, to);
     }
 
     // 单次原子 set 更新所有状态
@@ -356,9 +360,7 @@ export const createFileTreeSlice: StateCreator<
     }
 
     // 内存保护：若被删除文件包含未保存的 dirty 内容，先写入临时快照
-    const affectedTabs = openTabs.filter(
-      (t) => t.path === path || t.path.startsWith(path + "/") || t.path.startsWith(path + "\\"),
-    );
+    const affectedTabs = openTabs.filter((t) => isPathWithin(t.path, path));
     let failedSnapshots = 0;
     for (const tab of affectedTabs) {
       if (tab.dirty) {
@@ -377,9 +379,10 @@ export const createFileTreeSlice: StateCreator<
       void showMessage(msg, { kind: "error", title: "恢复备份写入失败" });
     }
 
-    const affected = openTabs.find((t) => t.path === path);
-    if (affected) {
-      get().closeTab(path);
+    // 删除目录时其下所有子文件 tab 一并关闭（#366 / #363）：只关同路径 tab 会留下
+    // 指向已删除路径的 tab，后续保存可能把整个目录重建出来。dirty 内容已在上方存快照
+    for (const tab of affectedTabs) {
+      get().closeTab(tab.path);
     }
     // 同步 recentFiles
     const rf = get().recentFiles.filter((p) => p !== path);
