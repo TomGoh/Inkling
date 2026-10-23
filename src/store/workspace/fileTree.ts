@@ -67,8 +67,12 @@ export interface FileTreeSlice {
   refreshTree: (dirPath?: string) => Promise<void>;
   /** 文件被重命名时同步 tab 状态 */
   onFileRenamed: (from: string, to: string) => void;
-  /** 文件被删除时同步 tab 状态 */
-  onFileDeleted: (path: string) => void;
+  /**
+   * 文件被删除时同步 tab 状态。
+   * options.alsoBackup：除当前 dirty 的 tab 外也要写入恢复快照的路径——删除确认框
+   * 停留期间自动保存可能已把它们存成干净状态，但用户确认时被承诺「会先备份」（#366）
+   */
+  onFileDeleted: (path: string, options?: { alsoBackup?: readonly string[] }) => void;
 }
 
 export const createFileTreeSlice: StateCreator<
@@ -272,12 +276,9 @@ export const createFileTreeSlice: StateCreator<
       return path === t.path ? t : { ...t, path };
     });
 
-    const rf = recentFiles.map((p) => (p === from ? to : p));
-    const bk = bookmarks.map((p) =>
-      p === from ? to : p.startsWith(from + "/") || p.startsWith(from + "\\")
-        ? to + p.slice(from.length)
-        : p,
-    );
+    // 文件夹改名时其下的最近文件与书签一并迁移（#366），口径同 tab 迁移
+    const rf = recentFiles.map((p) => rebasePathPrefix(p, from, to));
+    const bk = bookmarks.map((p) => rebasePathPrefix(p, from, to));
 
     const nextExpanded = new Set(
       [...expandedDirs].map((path) => rebasePathPrefix(path, from, to)),
@@ -343,7 +344,7 @@ export const createFileTreeSlice: StateCreator<
     void get().refreshTree(parentDir(from));
   },
 
-  onFileDeleted: (path) => {
+  onFileDeleted: (path, options) => {
     // issue #166：快照采集前先发布编辑器序列化防抖——用户刚输入但
     // 150ms 防抖未发布时，tab.content/currentContent 仍是旧内容，
     // 直接采集会让最近的编辑游离在快照保护之外
@@ -359,21 +360,21 @@ export const createFileTreeSlice: StateCreator<
       }
     }
 
-    // 内存保护：若被删除文件包含未保存的 dirty 内容，先写入临时快照
+    // 内存保护：被删除文件含未保存内容（或调用方承诺过要备份）时，先写入临时快照
     const affectedTabs = openTabs.filter((t) => isPathWithin(t.path, path));
+    const alsoBackup = new Set(options?.alsoBackup ?? []);
+    const backupTabs = affectedTabs.filter((t) => t.dirty || alsoBackup.has(t.path));
     let failedSnapshots = 0;
-    for (const tab of affectedTabs) {
-      if (tab.dirty) {
-        const contentToSave = tab.path === get().activeTabPath ? currentContent : (tab.content ?? "");
-        const saved = persistDeletedSnapshot(tab.path, contentToSave);
-        if (!saved) {
-          console.warn(`[workspace] 写入已删除文件快照失败（可能超出配额）：${tab.path}`);
-          failedSnapshots += 1;
-        }
+    for (const tab of backupTabs) {
+      const contentToSave = tab.path === get().activeTabPath ? currentContent : (tab.content ?? "");
+      const saved = persistDeletedSnapshot(tab.path, contentToSave);
+      if (!saved) {
+        console.warn(`[workspace] 写入已删除文件快照失败（可能超出配额）：${tab.path}`);
+        failedSnapshots += 1;
       }
     }
     if (failedSnapshots > 0) {
-      const msg = failedSnapshots === affectedTabs.filter((t) => t.dirty).length
+      const msg = failedSnapshots === backupTabs.length
         ? "删除时未能为未保存文件创建恢复备份（存储空间不足），这些文件的未保存内容将丢失。"
         : `删除时有 ${failedSnapshots} 个未保存文件未能创建恢复备份（存储空间不足），其内容无法恢复。`;
       void showMessage(msg, { kind: "error", title: "恢复备份写入失败" });
@@ -384,14 +385,12 @@ export const createFileTreeSlice: StateCreator<
     for (const tab of affectedTabs) {
       get().closeTab(tab.path);
     }
-    // 同步 recentFiles
-    const rf = get().recentFiles.filter((p) => p !== path);
+    // 同步 recentFiles（移除被删除文件及其目录下的子项，#366）
+    const rf = get().recentFiles.filter((p) => !isPathWithin(p, path));
     set({ recentFiles: rf });
     persistRecentFiles(rf);
     // 同步 bookmarks（移除被删除文件及其目录下的子项）
-    const bk = get().bookmarks.filter(
-      (p) => p !== path && !p.startsWith(path + "/") && !p.startsWith(path + "\\"),
-    );
+    const bk = get().bookmarks.filter((p) => !isPathWithin(p, path));
     const nextExpanded = new Set(
       [...expandedDirs].filter((dir) => !isPathWithin(dir, path)),
     );
