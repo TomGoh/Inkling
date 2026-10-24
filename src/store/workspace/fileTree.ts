@@ -24,6 +24,7 @@ import {
   persistDeletedSnapshot,
   persistExpandedDirs,
   persistRecentFiles,
+  rebaseDeletedDuringLoad,
   rebasePathPrefix,
   settledPathOfRequest,
 } from "./shared";
@@ -316,6 +317,10 @@ export const createFileTreeSlice: StateCreator<
       // 否则共享同一请求的调用方仍会拿到旧路径
       settledPathOfRequest.set(request, nextPath);
     }
+    // #166 的「读取在途被删除」黑名单也是按路径记录，且落定后按新注册路径查表：
+    // 请求迁走而黑名单不迁，会出现「删除 → 改名 → 落定」时双双 miss，
+    // 为已删除文件建出干净 tab 且不写恢复快照
+    rebaseDeletedDuringLoad(from, to);
 
     const patch: Partial<WorkspaceState> = {
       openTabs: nextTabs,
