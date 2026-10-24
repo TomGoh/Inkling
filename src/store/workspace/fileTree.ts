@@ -25,6 +25,7 @@ import {
   persistExpandedDirs,
   persistRecentFiles,
   rebasePathPrefix,
+  settledPathOfRequest,
 } from "./shared";
 import type { WorkspaceState } from "./types";
 
@@ -293,25 +294,27 @@ export const createFileTreeSlice: StateCreator<
       [...directoryErrors].map(([path, err]) => [rebasePathPrefix(path, from, to), err]),
     );
 
-    // 迁移 openingFiles 和 fileOpenErrors 映射状态
-    const nextOpeningFiles = new Set(openingFiles);
-    if (nextOpeningFiles.has(from)) {
-      nextOpeningFiles.delete(from);
-      nextOpeningFiles.add(to);
-    }
+    // 迁移 openingFiles 和 fileOpenErrors 映射状态。
+    // 目录改名时子路径同样要迁（#366）：只处理 from 会让子文件的「正在打开」
+    // 与错误标记留在已不存在的旧路径上
+    const nextOpeningFiles = new Set(
+      [...openingFiles].map((path) => rebasePathPrefix(path, from, to)),
+    );
+    const nextFileOpenErrors = new Map(
+      [...fileOpenErrors].map(([path, err]) => [rebasePathPrefix(path, from, to), err]),
+    );
 
-    const nextFileOpenErrors = new Map(fileOpenErrors);
-    if (nextFileOpenErrors.has(from)) {
-      const err = nextFileOpenErrors.get(from)!;
-      nextFileOpenErrors.delete(from);
-      nextFileOpenErrors.set(to, err);
-    }
-
-    // 迁移 fileRequests Promise 映射
-    if (fileRequests.has(from)) {
-      const req = fileRequests.get(from)!;
-      fileRequests.delete(from);
-      fileRequests.set(to, req);
+    // 迁移 fileRequests Promise 映射。
+    // 目录改名时子文件的在途读取也要迁（#363/#366）：不迁的话读取落定后
+    // ensureTab 仍按旧路径建 tab，后续保存会在旧位置重建目录、造成内容分叉
+    for (const [inFlightPath, request] of [...fileRequests]) {
+      const nextPath = rebasePathPrefix(inFlightPath, from, to);
+      if (nextPath === inFlightPath) continue;
+      fileRequests.delete(inFlightPath);
+      fileRequests.set(nextPath, request);
+      // 加入方通过 settledPathOfRequest 拿到落定路径（issue #200），必须同步改，
+      // 否则共享同一请求的调用方仍会拿到旧路径
+      settledPathOfRequest.set(request, nextPath);
     }
 
     const patch: Partial<WorkspaceState> = {

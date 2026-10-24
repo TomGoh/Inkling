@@ -387,9 +387,16 @@ describe("issue #363：手动保存与退出流程", () => {
       await h.closeHandler!({ preventDefault: () => undefined });
     });
 
+    // 退出路径与 Ctrl+S / 状态栏一致：每个「文件已不在原处」的 dirty tab 各弹一次
+    // 三选项（`saveCurrent` 的 interactive 默认为 true），而不是静默跳过。
+    // 锁住这条断言：退出链路若被改成非交互保存，用户就只剩「放弃并退出」。
+    expect(h.messageMock).toHaveBeenCalledTimes(2);
     expect(nodeFs.existsSync(W("a.md"))).toBe(false);
     expect(nodeFs.existsSync(W("b.md"))).toBe(false);
     expect(h.destroyMock).not.toHaveBeenCalled();
+    // 取消后内容仍在编辑器里，未退出
+    expect(tabOf(W("a.md"))?.content).toBe("A2");
+    expect(tabOf(W("b.md"))?.content).toBe("B2");
     hooks.unmount();
   });
 });
